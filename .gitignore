@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Environment
+.env
+
+.claude
+
+.cocoindex_code
+
+__pycache__
+
+build
+
+dist
+
+venv_build
+
+videos
+
+YouTube批量下载器.spec
+
+*.zip

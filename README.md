@@ -1,0 +1,188 @@
+# YouTube 视频批量下载器
+
+一款支持 Excel / TXT 文件导入的 YouTube 视频批量下载工具，提供可视化界面。
+
+---
+
+## 功能特性
+
+- 支持 Excel (.xlsx/.xls) 和纯文本 (.txt) 两种 URL 文件格式
+- 自定义视频分辨率（720p / 1080p / 1440p）
+- 自定义下载数量
+- 支持 HTTP 代理设置
+- 可视化下载进度条
+- 自动保存代理配置
+
+---
+
+## 前置依赖
+
+### 必须安装
+
+| 依赖 | 说明 | 安装命令 |
+|------|------|---------|
+| **Python 3.9+** | Python 运行环境 | [官网下载](https://www.python.org/downloads/) |
+| **ffmpeg** | 视频合并与编码核心 | 见下方 [ffmpeg 安装指南](docs/ffmpeg安装指南.md) |
+| **yt-dlp** | YouTube 下载引擎 | `pip install yt-dlp` |
+| **pandas** | 读取 Excel 文件 | `pip install pandas` |
+| **tqdm** | 进度条显示 | `pip install tqdm` |
+
+安装所有 Python 依赖：
+```bash
+pip install -r requirements.txt
+```
+
+### 可选
+
+- **aria2c** — 多线程加速下载。如需使用，请确保已安装并添加到 PATH。
+
+---
+
+## 快速开始
+
+### 方式一：直接运行源码
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动
+python ytdownload_ui.py
+```
+
+### 方式二：运行打包好的 exe
+
+```bash
+# 双击 dist/YouTube批量下载器.exe 即可运行
+```
+
+---
+
+## 使用说明
+
+### 1. 准备 URL 文件
+
+**Excel 格式** — 文件中需包含名为 `url` 的列：
+
+| url |
+|-----|
+| https://www.youtube.com/watch?v=xxx |
+| https://www.youtube.com/shorts/xxx |
+
+**TXT 格式** — 每行一条链接：
+```
+https://www.youtube.com/watch?v=xxx
+https://www.youtube.com/shorts/xxx
+```
+
+详细说明请查看 [视频链接使用说明](docs/视频链接使用说明.md)。
+
+### 2. 填写下载设置
+
+1. 选择文件格式（Excel / TXT）
+2. 点击「浏览」选择 URL 文件
+3. 确认保存路径（默认为 exe 所在目录下的 `videos` 文件夹）
+4. （可选）填写代理地址并保存
+
+### 3. 设置下载选项
+
+- 选择视频分辨率（默认 1080p）
+- 设置下载数量（留空则下载全部）
+
+### 4. 开始下载
+
+点击「开始下载」，进度条会实时显示下载进度。
+
+---
+
+## 打包指南（保姆手册）
+
+### 前置条件
+
+确保安装了 Python 3.9+ 和 pip：
+
+```bash
+python --version
+pip --version
+```
+
+### Step 1：创建虚拟环境
+
+```bash
+cd ytdlp-batch-downloader
+python -m venv venv_build
+```
+
+### Step 2：安装打包依赖
+
+```bash
+# 激活虚拟环境（Windows）
+venv_build\Scripts\activate
+
+# 安装项目依赖 + PyInstaller
+pip install yt-dlp pandas tqdm pyinstaller
+```
+
+### Step 3：打包
+
+```bash
+# --onefile       打包成单个 exe 文件
+# --noconsole     无控制台窗口（GUI 程序不需要）
+# --name          输出 exe 的文件名
+# --add-data      附加文档目录（docs 文件夹打包进去）
+# --clean         清理之前的构建缓存
+
+python -m PyInstaller --onefile --noconsole --name "YouTube批量下载器" --add-data "docs;docs" --clean ytdownload_ui.py
+```
+
+### Step 4：获取 exe
+
+打包完成后，exe 文件位于：
+
+```
+dist/YouTube批量下载器.exe
+```
+
+整个 `dist` 目录即为可分发的绿色版软件，复制到任意 Windows 电脑即可运行（前提是目标电脑已安装 ffmpeg）。
+
+### 常见问题
+
+**Q: 打包后运行提示 dll 缺失？**
+> 确保在打包的电脑上已经安装了 Visual C++ Redistributable。
+
+**Q: exe 太大（超过 1GB）？**
+> 原因：全局 Python 环境装了 sklearn/torch 等巨型库。解决：务必使用虚拟环境 `venv_build` 进行打包，不要用全局 Python。
+
+**Q: docs 文件夹没有打包进去？**
+> 确认 `--add-data "docs;docs"` 语法（Windows 用分号分隔）。如果文档打不开，检查 exe 运行目录下是否有 `docs` 文件夹。
+
+**Q: 如何重新打包？**
+> 先关闭正在运行的 exe，然后删除 `build` 和 `dist` 目录，重新执行 Step 3 即可。
+
+---
+
+## 文件结构
+
+```
+ytdlp-batch-downloader/
+├── ytdownload_ui.py          # GUI 主程序入口
+├── Youtube_Downloader.py      # 下载核心逻辑
+├── requirements.txt           # Python 依赖列表
+├── proxy_config.json          # 代理配置（自动生成）
+├── videos/                    # 默认下载目录
+├── docs/
+│   ├── ffmpeg安装指南.md      # FFmpeg 安装说明
+│   └── 视频链接使用说明.md     # URL 文件格式说明
+└── dist/
+    └── YouTube批量下载器.exe   # 打包后的可执行文件
+```
+
+---
+
+## 技术栈
+
+- **GUI**: tkinter（Python 内置，无需额外安装）
+- **下载引擎**: [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- **外部下载器**: aria2c（可选）
+- **打包工具**: PyInstaller
+- **视频处理**: ffmpeg
