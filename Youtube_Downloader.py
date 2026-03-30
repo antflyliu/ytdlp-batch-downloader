@@ -474,9 +474,18 @@ def main():
     parser.add_argument('--no-subs', action='store_true', help='不下载字幕')
     parser.add_argument('--proxy-file', default=None,
                         help='代理池文件（每行一个代理地址），支持 # 注释，自动轮换')
-    parser.add_argument('--cookies-from-browser', default=None,
-                        choices=['chrome', 'edge', 'firefox', 'brave', 'opera'],
-                        help='从浏览器读取已登录 cookie（绕过机器人检测），优先于 --cookies')
+    BROWSERS = ['chrome', 'edge', 'firefox', 'brave', 'opera']
+
+    def _browser_type(value):
+        # 支持 yt-dlp 原生语法: chrome:Profile 1、chrome+keyring:Profile:container
+        base = value.split(':')[0].split('+')[0]
+        if base not in BROWSERS:
+            raise argparse.ArgumentTypeError(
+                f"无效的浏览器: '{base}'，可用值: {', '.join(BROWSERS)}")
+        return value
+
+    parser.add_argument('--cookies-from-browser', default=None, type=_browser_type,
+                        help='从浏览器读取已登录 cookie（绕过机器人检测），支持 browser:Profile 语法')
     parser.add_argument('--cookies', default=None,
                         help='cookie 文件路径（Netscape 格式），由浏览器插件导出')
 

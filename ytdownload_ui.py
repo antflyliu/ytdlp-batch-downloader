@@ -53,6 +53,7 @@ class YoutubeDownloaderUI:
         self.use_browser_cookie = tk.BooleanVar(value=False)
         self.cookie_browser = tk.StringVar(value="edge")
         self.cookie_file_path = tk.StringVar()
+        self.cookie_profile = tk.StringVar(value="Profile 1")
         self._temp_cookie_path = None  # JSON→Netscape 转换后的临时文件路径
         self._cookie_status = tk.StringVar()  # 转换状态显示
         self.setup_ui()
@@ -647,6 +648,17 @@ class YoutubeDownloaderUI:
         )
         browser_combo.pack(side=tk.LEFT, padx=(8, 0))
 
+        # Profile 输入框
+        sep2 = tk.Label(cookie_frame, text="Profile:", bg=c["surface"], fg=c["text_muted"],
+                        font=("Segoe UI", 9))
+        sep2.pack(side=tk.LEFT, padx=(8, 0))
+        profile_entry = tk.Entry(cookie_frame, textvariable=self.cookie_profile,
+                                 bg=c["surface2"], fg=c["text"],
+                                 insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                                 font=("Segoe UI", 10), width=10,
+                                 highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
+        profile_entry.pack(side=tk.LEFT, padx=(2, 0))
+
         # 分隔符
         sep = tk.Label(cookie_frame, text="|", bg=c["surface"], fg=c["text_muted"], font=("Segoe UI", 10))
         sep.pack(side=tk.LEFT, padx=(12, 0))
@@ -865,7 +877,7 @@ class YoutubeDownloaderUI:
                 sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
                 no_subs=not self.download_subtitles.get(),
                 proxy_pool=proxy_pool,
-                cookies_from_browser=self.cookie_browser.get() if self.use_browser_cookie.get() else None,
+                cookies_from_browser=self.cookie_browser.get() + ':' + self.cookie_profile.get() if self.use_browser_cookie.get() else None,
                 cookies_file=self._temp_cookie_path or self.cookie_file_path.get().strip() or None,
             )
 
