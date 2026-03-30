@@ -50,12 +50,7 @@ class YoutubeDownloaderUI:
         self.download_subtitles = tk.BooleanVar(value=True)
         self.sub_lang = tk.StringVar(value="zh-Hans,en")
         self.proxy_file_path = tk.StringVar()
-        self.use_browser_cookie = tk.BooleanVar(value=False)
-        self.cookie_browser = tk.StringVar(value="edge")
         self.cookie_file_path = tk.StringVar()
-        self.cookie_profile = tk.StringVar(value="Profile 1")
-        self._temp_cookie_path = None  # JSON→Netscape 转换后的临时文件路径
-        self._cookie_status = tk.StringVar()  # 转换状态显示
         self.setup_ui()
         self.setup_callbacks()
 
@@ -627,78 +622,22 @@ class YoutubeDownloaderUI:
         cookie_frame = tk.Frame(parent, bg=c["surface"])
         cookie_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
 
-        # 浏览器 Cookie 复选框
-        cbx = tk.Checkbutton(
-            cookie_frame, text="从浏览器读取（需已登录YouTube）",
-            variable=self.use_browser_cookie,
-            onvalue=True, offvalue=False,
-            bg=c["surface"], fg=c["text"],
-            selectcolor=c["accent"], activebackground=c["surface"],
-            font=("Segoe UI", 10), anchor=tk.W,
-            command=self._on_cookie_toggle
-        )
-        cbx.pack(side=tk.LEFT)
-
-        # 浏览器选择下拉
-        browsers = [("Edge", "edge"), ("Chrome", "chrome"), ("Firefox", "firefox")]
-        browser_combo = ttk.Combobox(
-            cookie_frame, textvariable=self.cookie_browser,
-            values=[v for _, v in browsers],
-            state="readonly", width=8, font=("Segoe UI", 10)
-        )
-        browser_combo.pack(side=tk.LEFT, padx=(8, 0))
-
-        # Profile 输入框
-        sep2 = tk.Label(cookie_frame, text="Profile:", bg=c["surface"], fg=c["text_muted"],
-                        font=("Segoe UI", 9))
-        sep2.pack(side=tk.LEFT, padx=(8, 0))
-        profile_entry = tk.Entry(cookie_frame, textvariable=self.cookie_profile,
-                                 bg=c["surface2"], fg=c["text"],
-                                 insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                                 font=("Segoe UI", 10), width=10,
-                                 highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
-        profile_entry.pack(side=tk.LEFT, padx=(2, 0))
-
-        # 分隔符
-        sep = tk.Label(cookie_frame, text="|", bg=c["surface"], fg=c["text_muted"], font=("Segoe UI", 10))
-        sep.pack(side=tk.LEFT, padx=(12, 0))
-
-        # Cookie 文件
+        # Cookie 文件输入
         lbl = tk.Label(cookie_frame, text="文件:", bg=c["surface"], fg=c["text_muted"],
-                       font=("Segoe UI", 9), padx=0)
+                       font=("Segoe UI", 9))
         lbl.pack(side=tk.LEFT)
         entry = tk.Entry(cookie_frame, textvariable=self.cookie_file_path,
                          bg=c["surface2"], fg=c["text"],
                          insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                         font=("Segoe UI", 10), width=20,
+                         font=("Segoe UI", 10), width=28,
                          highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
-        entry.pack(side=tk.LEFT, padx=(0, 4))
+        entry.pack(side=tk.LEFT, padx=(4, 4))
 
         def browse_cookie_file():
             filename = filedialog.askopenfilename(
                 filetypes=[("Cookie 文件", "*.txt *.json"), ("所有文件", "*.*")])
-            if not filename:
-                return
-            ext = filename.lower().rsplit(".", 1)[-1]
-            if ext == "json":
-                # JSON → 自动转换为 Netscape 临时文件
-                import export_cookies
-                try:
-                    tmp_path, count, missing = export_cookies.convert_json_to_temp_netscape(filename)
-                    self._temp_cookie_path = tmp_path
-                    self.cookie_file_path.set(filename)
-                    if missing:
-                        self._cookie_status.set(f"⚠️ 转换成功 {count} 个，但缺失: {', '.join(missing)}")
-                    else:
-                        self._cookie_status.set(f"✅ 转换成功 {count} 个，关键 Cookie 完整")
-                except Exception as e:
-                    self._temp_cookie_path = None
-                    self.cookie_file_path.set("")
-                    self._cookie_status.set(f"❌ JSON 转换失败: {e}")
-            else:
-                self._temp_cookie_path = None
+            if filename:
                 self.cookie_file_path.set(filename)
-                self._cookie_status.set("")
 
         fb = tk.Label(cookie_frame, text="浏览", bg=c["surface2"], fg=c["text"],
                        font=("Segoe UI", 9), padx=8, pady=4,
@@ -709,19 +648,11 @@ class YoutubeDownloaderUI:
         fb.bind("<Enter>", lambda e: fb.configure(bg=c["border"]))
         fb.bind("<Leave>", lambda e: fb.configure(bg=c["surface2"]))
 
-        # 转换状态标签
-        status_lbl = tk.Label(cookie_frame, textvariable=self._cookie_status,
-                              bg=c["surface"], fg=c["accent"],
-                              font=("Segoe UI", 8), anchor=tk.W)
-        status_lbl.pack(side=tk.LEFT, padx=(8, 0))
-
-        self._on_cookie_toggle()
+        # JSON 转换提示
+        tk.Label(cookie_frame, text="（支持 .txt 和 .json）",
+                 bg=c["surface"], fg=c["text_muted"],
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(6, 0))
         return 1
-
-    def _on_cookie_toggle(self):
-        state = "normal" if self.use_browser_cookie.get() else "disabled"
-        # cookie file still always editable, browser dropdown controlled by checkbox
-        pass
 
     def _draw_progress_bar(self, percent):
         c = self.colors
@@ -877,8 +808,7 @@ class YoutubeDownloaderUI:
                 sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
                 no_subs=not self.download_subtitles.get(),
                 proxy_pool=proxy_pool,
-                cookies_from_browser=self.cookie_browser.get() + ':' + self.cookie_profile.get() if self.use_browser_cookie.get() else None,
-                cookies_file=self._temp_cookie_path or self.cookie_file_path.get().strip() or None,
+                cookies_file=self.cookie_file_path.get().strip() or None,
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")
