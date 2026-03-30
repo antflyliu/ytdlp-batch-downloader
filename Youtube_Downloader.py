@@ -29,18 +29,19 @@ def load_proxy_pool(file_path):
 
 
 def is_rate_limited(error_msg):
-    """判断是否是被限流的错误"""
+    """判断是否是被限流或代理网络错误的信号，应切换代理"""
     msg = str(error_msg).lower()
-    rate_limit_signals = [
-        "429",
-        "too many requests",
-        "rate limit",
-        "quota exceeded",
-        "service unavailable",
-        "read timed out",
-        "connection timed out",
-    ]
-    return any(signal in msg for signal in rate_limit_signals)
+    # YouTube 限流信号
+    if any(k in msg for k in ["429", "too many request", "rate limit", "quota exceeded"]):
+        return True
+    # 代理网络问题：超时 / 连接拒绝 / SOCKS 错误
+    if any(k in msg for k in [
+        "timed out", "timeout", "connection refused",
+        "connection reset", "proxy error",
+        "socks", "tunnel connection failed",
+    ]):
+        return True
+    return False
 
 
 def get_format_option(resolution):
@@ -212,7 +213,8 @@ def sanitize_filename(name):
 
 
 def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
-                  sub_langs=None, no_subs=False, proxy_pool=None):
+                  sub_langs=None, no_subs=False, proxy_pool=None,
+                  cookies_from_browser=None, cookies_file=None):
     """
     批量下载视频的函数
     sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
@@ -234,7 +236,6 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
         'format': get_format_option(resolution),
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
         'merge_output_format': 'mp4',
-        'ignoreerrors': True,
         'quiet': True,
         'no_warnings': True,
         'format_sort': ['vcodec:h264'],
@@ -245,7 +246,10 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
             '--split=16',
             '--max-concurrent-downloads=3',
             '--continue=true',
-        ]
+        ],
+        # Cookie 配置（绕过 YouTube 机器人检测）
+        'cookies_from_browser': cookies_from_browser,
+        'cookiefile': cookies_file,
     }
 
     def _apply_proxy(opts, p):
@@ -302,6 +306,10 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                     video_title = info.get('title', 'unknown') if info else 'unknown'
                     video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
 
+                # yt-dlp ignoreerrors 会吞掉部分错误，必须验证文件是否真实存在
+                if not video_path or not os.path.exists(video_path):
+                    raise Exception("视频文件未生成，下载失败")
+
                 # 处理字幕
                 if not no_subs and video_path and os.path.exists(video_path):
                     lang_list = [l.strip() for l in sub_langs.split(",")] if sub_langs else []
@@ -328,7 +336,7 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                 })
                 break  # 成功则跳出重试循环
 
-            except Exception as e:
+            except (yt_dlp.utils.DownloadError, Exception) as e:
                 error_msg = str(e)
                 if is_rate_limited(error_msg) and proxy_pool and retry_count < max_retries - 1:
                     print(f" [{i+1}/{total}] 代理 {current_proxy} 被限流，切换下一个...")
@@ -466,6 +474,11 @@ def main():
     parser.add_argument('--no-subs', action='store_true', help='不下载字幕')
     parser.add_argument('--proxy-file', default=None,
                         help='代理池文件（每行一个代理地址），支持 # 注释，自动轮换')
+    parser.add_argument('--cookies-from-browser', default=None,
+                        choices=['chrome', 'edge', 'firefox', 'brave', 'opera'],
+                        help='从浏览器读取已登录 cookie（绕过机器人检测），优先于 --cookies')
+    parser.add_argument('--cookies', default=None,
+                        help='cookie 文件路径（Netscape 格式），由浏览器插件导出')
 
     args = parser.parse_args()
 
@@ -528,6 +541,10 @@ def main():
     print(f"分辨率: {args.resolution}")
     if not args.no_subs:
         print(f"字幕语言: {args.sub_lang}")
+    if args.cookies_from_browser:
+        print(f"Cookie: 从 {args.cookies_from_browser} 浏览器读取")
+    elif args.cookies:
+        print(f"Cookie: {args.cookies}")
 
     # tqdm 进度回调适配器
     pbar_wrapper = [None]  # 用列表包裹以便内部修改
@@ -549,6 +566,8 @@ def main():
             sub_langs=ydl_sub_format if not args.no_subs else None,
             no_subs=args.no_subs,
             proxy_pool=proxy_pool,
+            cookies_from_browser=args.cookies_from_browser,
+            cookies_file=args.cookies,
         )
 
         # 更新进度条到完成

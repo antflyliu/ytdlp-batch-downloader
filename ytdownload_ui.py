@@ -50,6 +50,9 @@ class YoutubeDownloaderUI:
         self.download_subtitles = tk.BooleanVar(value=True)
         self.sub_lang = tk.StringVar(value="zh-Hans,en")
         self.proxy_file_path = tk.StringVar()
+        self.use_browser_cookie = tk.BooleanVar(value=False)
+        self.cookie_browser = tk.StringVar(value="edge")
+        self.cookie_file_path = tk.StringVar()
         self.setup_ui()
         self.setup_callbacks()
 
@@ -219,6 +222,7 @@ class YoutubeDownloaderUI:
             self._make_resolution_row,
             self._make_count_row,
             self._make_subtitle_row,
+            self._make_cookie_row,
         ])
 
         # ─── Section 3: URL List ────────────────────────────────────
@@ -590,6 +594,70 @@ class YoutubeDownloaderUI:
         self.sub_lang_entry.configure(state=state)
         self.sub_lang_hint.configure(fg=self.colors["text_muted"] if self.download_subtitles.get() else self.colors["border"])
 
+    def _make_cookie_row(self, parent, row):
+        c = self.colors
+        self._make_field_label(parent, row, "Cookie")
+
+        cookie_frame = tk.Frame(parent, bg=c["surface"])
+        cookie_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        # 浏览器 Cookie 复选框
+        cbx = tk.Checkbutton(
+            cookie_frame, text="从浏览器读取（需已登录YouTube）",
+            variable=self.use_browser_cookie,
+            onvalue=True, offvalue=False,
+            bg=c["surface"], fg=c["text"],
+            selectcolor=c["accent"], activebackground=c["surface"],
+            font=("Segoe UI", 10), anchor=tk.W,
+            command=self._on_cookie_toggle
+        )
+        cbx.pack(side=tk.LEFT)
+
+        # 浏览器选择下拉
+        browsers = [("Edge", "edge"), ("Chrome", "chrome"), ("Firefox", "firefox")]
+        browser_combo = ttk.Combobox(
+            cookie_frame, textvariable=self.cookie_browser,
+            values=[v for _, v in browsers],
+            state="readonly", width=8, font=("Segoe UI", 10)
+        )
+        browser_combo.pack(side=tk.LEFT, padx=(8, 0))
+
+        # 分隔符
+        sep = tk.Label(cookie_frame, text="|", bg=c["surface"], fg=c["text_muted"], font=("Segoe UI", 10))
+        sep.pack(side=tk.LEFT, padx=(12, 0))
+
+        # Cookie 文件
+        lbl = tk.Label(cookie_frame, text="文件:", bg=c["surface"], fg=c["text_muted"],
+                       font=("Segoe UI", 9), padx=(0, 4))
+        lbl.pack(side=tk.LEFT)
+        entry = tk.Entry(cookie_frame, textvariable=self.cookie_file_path,
+                         bg=c["surface2"], fg=c["text"],
+                         insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                         font=("Segoe UI", 10), width=20,
+                         highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
+        entry.pack(side=tk.LEFT, padx=(0, 4))
+
+        def browse_cookie_file():
+            filename = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+            if filename:
+                self.cookie_file_path.set(filename)
+        fb = tk.Label(cookie_frame, text="浏览", bg=c["surface2"], fg=c["text"],
+                       font=("Segoe UI", 9), padx=8, pady=4,
+                       relief=tk.FLAT, cursor="hand2", bd=1,
+                       highlightbackground=c["border"], highlightthickness=1)
+        fb.pack(side=tk.LEFT)
+        fb.bind("<Button-1>", lambda e: browse_cookie_file())
+        fb.bind("<Enter>", lambda e: fb.configure(bg=c["border"]))
+        fb.bind("<Leave>", lambda e: fb.configure(bg=c["surface2"]))
+
+        self._on_cookie_toggle()
+        return 1
+
+    def _on_cookie_toggle(self):
+        state = "normal" if self.use_browser_cookie.get() else "disabled"
+        # cookie file still always editable, browser dropdown controlled by checkbox
+        pass
+
     def _draw_progress_bar(self, percent):
         c = self.colors
         w = self.progress_canvas.winfo_width()
@@ -744,6 +812,8 @@ class YoutubeDownloaderUI:
                 sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
                 no_subs=not self.download_subtitles.get(),
                 proxy_pool=proxy_pool,
+                cookies_from_browser=self.cookie_browser.get() if self.use_browser_cookie.get() else None,
+                cookies_file=self.cookie_file_path.get().strip() or None,
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")
