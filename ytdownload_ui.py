@@ -3,7 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import json
 import os
 import webbrowser
-from Youtube_Downloader import read_urls_from_file, batch_download
+from Youtube_Downloader import read_urls_from_file, batch_download, load_proxy_pool
 from threading import Thread
 
 
@@ -49,6 +49,7 @@ class YoutubeDownloaderUI:
         )
         self.download_subtitles = tk.BooleanVar(value=True)
         self.sub_lang = tk.StringVar(value="zh-Hans,en")
+        self.proxy_file_path = tk.StringVar()
         self.setup_ui()
         self.setup_callbacks()
 
@@ -418,17 +419,51 @@ class YoutubeDownloaderUI:
 
     def _make_proxy_row(self, parent, row):
         c = self.colors
-        self._make_field_label(parent, row, "代理地址")
+        self._make_field_label(parent, row, "代理")
+        proxy_frame = tk.Frame(parent, bg=c["surface"])
+        proxy_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        # 单个代理地址 + 保存
         self.proxy = tk.StringVar(value=self.saved_proxy)
-        self._make_entry(parent, row, self.proxy)
-        btn = tk.Label(parent, text="保存", bg=c["surface2"], fg=c["accent"],
-                       font=("Segoe UI", 9, "bold"), padx=12, pady=6,
+        entry = tk.Entry(proxy_frame, textvariable=self.proxy,
+                         bg=c["surface2"], fg=c["text"],
+                         insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                         font=("Segoe UI", 10),
+                         highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
+        entry.pack(side=tk.LEFT)
+
+        btn = tk.Label(proxy_frame, text="保存", bg=c["surface2"], fg=c["accent"],
+                       font=("Segoe UI", 9, "bold"), padx=10, pady=5,
                        relief=tk.FLAT, cursor="hand2", bd=1,
                        highlightbackground=c["accent"], highlightthickness=1)
-        btn.grid(row=row, column=2, padx=(8, 12), pady=6)
+        btn.pack(side=tk.LEFT, padx=(8, 0))
         btn.bind("<Button-1>", lambda e: self.save_proxy())
         btn.bind("<Enter>", lambda e: btn.configure(bg=c["accent_dim"]))
         btn.bind("<Leave>", lambda e: btn.configure(bg=c["surface2"]))
+
+        # 代理池文件
+        hint = tk.Label(proxy_frame, text="代理池:", bg=c["surface"], fg=c["text_muted"],
+                        font=("Segoe UI", 9), padx=(16, 4))
+        hint.pack(side=tk.LEFT)
+        self.proxy_file_entry = tk.Entry(proxy_frame, textvariable=self.proxy_file_path,
+                                         bg=c["surface2"], fg=c["text"],
+                                         insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                                         font=("Segoe UI", 10), width=20,
+                                         highlightbackground=c["border"], highlightthickness=1, insertwidth=2)
+        self.proxy_file_entry.pack(side=tk.LEFT, padx=(0, 4))
+
+        def browse_proxy_file():
+            filename = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+            if filename:
+                self.proxy_file_path.set(filename)
+        fb = tk.Label(proxy_frame, text="浏览", bg=c["surface2"], fg=c["text"],
+                      font=("Segoe UI", 9), padx=8, pady=5,
+                      relief=tk.FLAT, cursor="hand2", bd=1,
+                      highlightbackground=c["border"], highlightthickness=1)
+        fb.pack(side=tk.LEFT)
+        fb.bind("<Button-1>", lambda e: browse_proxy_file())
+        fb.bind("<Enter>", lambda e: fb.configure(bg=c["border"]))
+        fb.bind("<Leave>", lambda e: fb.configure(bg=c["surface2"]))
         return 1
 
     def _make_resolution_row(self, parent, row):
@@ -688,6 +723,14 @@ class YoutubeDownloaderUI:
         try:
             count = int(self.download_count.get() or len(self.urls))
             proxy = self.proxy.get()
+            proxy_file = self.proxy_file_path.get().strip()
+            proxy_pool = load_proxy_pool(proxy_file) if proxy_file else None
+
+            if proxy_pool:
+                print(f"[代理池] 已加载 {len(proxy_pool)} 个代理，启用自动轮换")
+                proxy = None  # 代理池优先
+            elif proxy:
+                print(f"[代理] 使用单个代理: {proxy}")
 
             def progress_callback(progress, status):
                 self.root.after(0, self.update_progress, progress, status)
@@ -700,6 +743,7 @@ class YoutubeDownloaderUI:
                 progress_callback=progress_callback,
                 sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
                 no_subs=not self.download_subtitles.get(),
+                proxy_pool=proxy_pool,
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")

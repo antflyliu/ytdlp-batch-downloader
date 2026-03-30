@@ -11,6 +11,38 @@ from pathlib import Path
 import torch
 
 
+def load_proxy_pool(file_path):
+    """
+    从文件加载代理池，每行一个代理地址
+    支持空行和 # 注释
+    """
+    proxies = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    proxies.append(line)
+    except Exception:
+        pass
+    return proxies
+
+
+def is_rate_limited(error_msg):
+    """判断是否是被限流的错误"""
+    msg = str(error_msg).lower()
+    rate_limit_signals = [
+        "429",
+        "too many requests",
+        "rate limit",
+        "quota exceeded",
+        "service unavailable",
+        "read timed out",
+        "connection timed out",
+    ]
+    return any(signal in msg for signal in rate_limit_signals)
+
+
 def get_format_option(resolution):
     """根据选择的分辨率返回格式选项"""
     resolution_map = {
@@ -180,17 +212,25 @@ def sanitize_filename(name):
 
 
 def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
-                  sub_langs=None, no_subs=False):
+                  sub_langs=None, no_subs=False, proxy_pool=None):
     """
     批量下载视频的函数
     sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
     no_subs: True 则不下载字幕
+    proxy_pool: 代理池列表（每行一个地址），自动轮换；单个 proxy 优先于代理池
     """
     results = []
     total = len(urls)
     completed = 0
 
-    ydl_opts = {
+    # 优先用单个 proxy；没有则从代理池取
+    pool_index = 0
+    if proxy_pool:
+        current_proxy = proxy_pool[0] if proxy_pool else None
+    else:
+        current_proxy = proxy
+
+    ydl_opts_base = {
         'format': get_format_option(resolution),
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
         'merge_output_format': 'mp4',
@@ -198,28 +238,42 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
         'quiet': True,
         'no_warnings': True,
         'format_sort': ['vcodec:h264'],
-        # 使用aria2c作为外部下载器
         'external_downloader': 'aria2c',
         'external_downloader_args': [
-            '--min-split-size=1M',  # 最小分片大小
-            '--max-connection-per-server=16',  # 单个服务器最大连接数
-            '--split=16',  # 单个文件分成16片下载
-            '--max-concurrent-downloads=3',  # 同时下载数
-            '--continue=true',  # 支持断点续传
-            '--optimize-concurrent-downloads=true'  # 优化并发下载
+            '--min-split-size=1M',
+            '--max-connection-per-server=16',
+            '--split=16',
+            '--max-concurrent-downloads=3',
+            '--continue=true',
         ]
     }
 
-    if proxy:
-        ydl_opts['proxy'] = proxy
-        # 为aria2c也添加代理设置
-        ydl_opts['external_downloader_args'].extend([
-            f'--all-proxy={proxy}'
-        ])
+    def _apply_proxy(opts, p):
+        opts = {**opts}
+        if p:
+            opts['proxy'] = p
+            opts['external_downloader_args'] = [
+                '--min-split-size=1M',
+                '--max-connection-per-server=16',
+                '--split=16',
+                '--max-concurrent-downloads=3',
+                '--continue=true',
+                f'--all-proxy={p}',
+            ]
+        else:
+            opts['proxy'] = ''
+            opts['external_downloader_args'] = [
+                '--min-split-size=1M',
+                '--max-connection-per-server=16',
+                '--split=16',
+                '--max-concurrent-downloads=3',
+                '--continue=true',
+            ]
+        return opts
 
     # 字幕选项
     if not no_subs and sub_langs:
-        ydl_opts.update({
+        ydl_opts_base.update({
             'writesubtitles': True,
             'writeautomaticsub': True,
             'sub_langs': sub_langs,
@@ -230,61 +284,64 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     whisper_compute = "float16" if device == "cuda" else "int8"
     whisper_model = "medium"
 
-    # 添加下载进度回调
-    def download_progress_hook(d):
-        if d['status'] == 'downloading':
-            try:
-                downloaded = d.get('downloaded_bytes', 0)
-                total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-                if total_bytes:
-                    video_progress = downloaded / total_bytes
-                    total_progress = (completed + video_progress) / total
-                    if progress_callback:
-                        progress_callback(total_progress, f"正在下载第 {completed + 1}/{total} 个视频")
-            except Exception:
-                pass
-
-    ydl_opts['progress_hooks'] = [download_progress_hook]
-
     for i, url in enumerate(urls):
         sub_status = "未下载"
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                video_title = info.get('title', 'unknown') if info else 'unknown'
-                video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
+        max_retries = len(proxy_pool) if proxy_pool else 1
+        retry_count = 0
 
-            # 处理字幕
-            if not no_subs and video_path and os.path.exists(video_path):
-                lang_list = [l.strip() for l in sub_langs.split(",")] if sub_langs else []
-                existing_sub = check_subtitle_exists(video_path, lang_list) if lang_list else None
-                if existing_sub:
-                    if existing_sub.endswith(".vtt"):
-                        srt_path = convert_vtt_to_srt(existing_sub)
-                        sub_status = f"yt-dlp: {os.path.basename(srt_path)}" if srt_path else f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
+        while retry_count < max_retries:
+            # 切换代理
+            if proxy_pool:
+                current_proxy = proxy_pool[pool_index % len(proxy_pool)]
+
+            ydl_opts = _apply_proxy(ydl_opts_base, current_proxy)
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    video_title = info.get('title', 'unknown') if info else 'unknown'
+                    video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
+
+                # 处理字幕
+                if not no_subs and video_path and os.path.exists(video_path):
+                    lang_list = [l.strip() for l in sub_langs.split(",")] if sub_langs else []
+                    existing_sub = check_subtitle_exists(video_path, lang_list) if lang_list else None
+                    if existing_sub:
+                        if existing_sub.endswith(".vtt"):
+                            srt_path = convert_vtt_to_srt(existing_sub)
+                            sub_status = f"yt-dlp: {os.path.basename(srt_path)}" if srt_path else f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
+                        else:
+                            sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
                     else:
-                        sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
-                else:
-                    # WhisperX 生成
-                    srt_path = generate_subtitle_with_whisper(
-                        video_path, output_path,
-                        model_name=whisper_model,
-                        device=device,
-                        compute_type=whisper_compute
-                    )
-                    sub_status = f"WhisperX: {os.path.basename(srt_path)}" if srt_path else "WhisperX失败"
+                        srt_path = generate_subtitle_with_whisper(
+                            video_path, output_path,
+                            model_name=whisper_model,
+                            device=device,
+                            compute_type=whisper_compute
+                        )
+                        sub_status = f"WhisperX: {os.path.basename(srt_path)}" if srt_path else "WhisperX失败"
 
-            results.append({
-                'URL': url,
-                '状态': '成功',
-                '信息': f"下载成功 | 字幕: {sub_status}" if not no_subs else '下载成功'
-            })
-        except Exception as e:
-            results.append({
-                'URL': url,
-                '状态': '失败',
-                '信息': str(e)
-            })
+                results.append({
+                    'URL': url,
+                    '状态': '成功',
+                    '信息': f"下载成功 | 代理: {current_proxy or '直连'} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {current_proxy or '直连'}"
+                })
+                break  # 成功则跳出重试循环
+
+            except Exception as e:
+                error_msg = str(e)
+                if is_rate_limited(error_msg) and proxy_pool and retry_count < max_retries - 1:
+                    print(f" [{i+1}/{total}] 代理 {current_proxy} 被限流，切换下一个...")
+                    pool_index += 1
+                    retry_count += 1
+                    continue
+                else:
+                    results.append({
+                        'URL': url,
+                        '状态': '失败',
+                        '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                    })
+                    break
 
         completed += 1
         if progress_callback:
@@ -407,6 +464,8 @@ def main():
                         choices=['auto', 'cpu', 'cuda'],
                         help='WhisperX 运行设备 (默认: auto)')
     parser.add_argument('--no-subs', action='store_true', help='不下载字幕')
+    parser.add_argument('--proxy-file', default=None,
+                        help='代理池文件（每行一个代理地址），支持 # 注释，自动轮换')
 
     args = parser.parse_args()
 
@@ -450,21 +509,19 @@ def main():
         if not args.no_aria2:
             ydl_opts_base['external_downloader_args'].append(f'--all-proxy={args.proxy}')
 
+    # 代理池加载
+    proxy_pool = None
+    if args.proxy_file:
+        proxy_pool = load_proxy_pool(args.proxy_file)
+        if proxy_pool:
+            print(f"已加载 {len(proxy_pool)} 个代理，启用自动轮换")
+        else:
+            print(f"警告：代理池文件为空或无法读取: {args.proxy_file}")
+
     # 字幕配置
     sub_langs, ydl_sub_format = get_subtitle_langs(args.sub_lang)
     device = get_device(args.whisper_device)
     print(f"\nWhisperX 设备: {device} | 模型: {args.whisper_model}")
-
-    # 下载进度回调
-    def progress_hook(d, pbar):
-        if d['status'] == 'downloading':
-            try:
-                downloaded = d.get('downloaded_bytes', 0)
-                total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-                if total:
-                    pbar.set_postfix_str(f"{downloaded/1024/1024:.1f}MB")
-            except Exception:
-                pass
 
     # 开始下载
     print(f"\n开始下载 {len(urls)} 个视频到: {output_path}")
@@ -472,79 +529,31 @@ def main():
     if not args.no_subs:
         print(f"字幕语言: {args.sub_lang}")
 
-    results = []
+    # tqdm 进度回调适配器
+    pbar_wrapper = [None]  # 用列表包裹以便内部修改
+
+    def tqdm_callback(progress, status):
+        if pbar_wrapper[0]:
+            pct = int(progress * 100)
+            pbar_wrapper[0].set_postfix_str(f"{pct}% {status}")
+
     with tqdm(total=len(urls), desc="下载进度", unit="个") as pbar:
-        for i, url in enumerate(urls):
-            ydl_opts = {
-                **ydl_opts_base,
-                'format': get_format_option(args.resolution),
-                'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-                'merge_output_format': 'mp4',
-                'ignoreerrors': True,
-                'quiet': True,
-                'no_warnings': True,
-            }
+        pbar_wrapper[0] = pbar
 
-            video_path = None
-            sub_status = "未下载"
+        results = batch_download(
+            urls,
+            output_path,
+            args.resolution,
+            proxy=args.proxy if not args.proxy_file else None,
+            progress_callback=tqdm_callback,
+            sub_langs=ydl_sub_format if not args.no_subs else None,
+            no_subs=args.no_subs,
+            proxy_pool=proxy_pool,
+        )
 
-            try:
-                if not args.no_subs:
-                    ydl_opts_sub = {
-                        **ydl_opts,
-                        'writesubtitles': True,
-                        'writeautomaticsub': True,
-                        'sub_langs': ydl_sub_format,
-                        'convert_subs': 'srt',
-                    }
-                    with yt_dlp.YoutubeDL(ydl_opts_sub) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        video_title = info.get('title', 'unknown') if info else 'unknown'
-                        video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
-                else:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        video_title = info.get('title', 'unknown') if info else 'unknown'
-                        video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
-
-                # 检查字幕是否存在
-                if not args.no_subs and video_path and os.path.exists(video_path):
-                    existing_sub = check_subtitle_exists(video_path, sub_langs)
-                    if existing_sub:
-                        # VTT 转换为 SRT（yt-dlp convert_subs 有时失效）
-                        if existing_sub.endswith(".vtt"):
-                            tqdm.write(f"      发现 VTT 字幕，转换为 SRT...")
-                            srt_path = convert_vtt_to_srt(existing_sub)
-                            if srt_path:
-                                sub_status = f"yt-dlp: {os.path.basename(srt_path)}"
-                            else:
-                                sub_status = f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
-                        else:
-                            sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
-                    else:
-                        # yt-dlp 未找到字幕，WhisperX 生成
-                        tqdm.write(f"      视频无字幕，尝试 WhisperX 生成...")
-                        srt_path = generate_subtitle_with_whisper(
-                            video_path, output_path,
-                            model_name=args.whisper_model,
-                            device=device,
-                            compute_type="float16" if device == "cuda" else "int8"
-                        )
-                        if srt_path:
-                            sub_status = f"WhisperX: {os.path.basename(srt_path)}"
-                        else:
-                            sub_status = "WhisperX失败"
-
-                results.append({
-                    'URL': url,
-                    '状态': '成功',
-                    '信息': f"下载成功 | 字幕: {sub_status}"
-                })
-            except Exception as e:
-                results.append({'URL': url, '状态': '失败', '信息': str(e)})
-
+        # 更新进度条到完成
+        for _ in results:
             pbar.update(1)
-            pbar.set_postfix_str(f"{i+1}/{len(urls)}")
 
     # 保存结果
     save_results_to_excel(results, output_path)
