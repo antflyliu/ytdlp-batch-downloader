@@ -53,6 +53,8 @@ class YoutubeDownloaderUI:
         self.use_browser_cookie = tk.BooleanVar(value=False)
         self.cookie_browser = tk.StringVar(value="edge")
         self.cookie_file_path = tk.StringVar()
+        self._temp_cookie_path = None  # JSON→Netscape 转换后的临时文件路径
+        self._cookie_status = tk.StringVar()  # 转换状态显示
         self.setup_ui()
         self.setup_callbacks()
 
@@ -145,7 +147,7 @@ class YoutubeDownloaderUI:
 
         # Root window - fixed height, scrollable content
         self.root.configure(bg=c["bg"])
-        self.root.geometry("900x780")
+        self.root.geometry("900x860")
         self.root.minsize(700, 600)
 
         # Canvas for scrollable content
@@ -157,7 +159,7 @@ class YoutubeDownloaderUI:
         canvas_frame.pack_propagate(False)
 
         self.canvas = tk.Canvas(canvas_frame, bg=c["bg"], bd=0, highlightthickness=0,
-                                scrollregion=(0, 0, 880, 900))
+                                scrollregion=(0, 0, 880, 1200))
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Vertical scrollbar
@@ -175,10 +177,13 @@ class YoutubeDownloaderUI:
         self._canvas_window_id = self.canvas.create_window((0, 0), window=main, anchor=tk.NW)
         main.columnconfigure(0, weight=1)
 
-        # Resize canvas width to match window
+        # Resize canvas width to match window, height to fit content
         def on_configure(event):
             w = self.canvas.winfo_width()
-            self.canvas.configure(scrollregion=(0, 0, w, 900))
+            # Get actual content height
+            content_h = self.canvas.bbox("all")
+            h = content_h[3] if content_h else 1200
+            self.canvas.configure(scrollregion=(0, 0, w, h))
             self.canvas.itemconfigure(self._canvas_window_id, width=w)
         self.root.bind("<Configure>", on_configure)
 
@@ -210,15 +215,18 @@ class YoutubeDownloaderUI:
         tk.Frame(main, bg=c["accent"], height=2).grid(
             row=1, column=0, sticky=tk.EW, padx=28, pady=(0, 16))
 
+        # Track next available row (dynamic layout)
+        self._next_row = 2
+
         # ─── Section 1: Download Settings ───────────────────────────
-        self._make_section(main, "下载设置", 2, [
+        self._make_section(main, "下载设置", [
             self._make_file_row,
             self._make_path_row,
             self._make_proxy_row,
-        ], row_step=1)
+        ])
 
         # ─── Section 2: Download Options ─────────────────────────────
-        self._make_section(main, "下载选项", 7, [
+        self._make_section(main, "下载选项", [
             self._make_resolution_row,
             self._make_count_row,
             self._make_subtitle_row,
@@ -228,11 +236,13 @@ class YoutubeDownloaderUI:
         # ─── Section 3: URL List ────────────────────────────────────
         tk.Label(main, text="视频链接列表", bg=c["bg"], fg=c["text"],
                  font=("Segoe UI", 11, "bold"),
-                 anchor=tk.W).grid(row=9, column=0, sticky=tk.W, padx=28, pady=(20, 6))
+                 anchor=tk.W).grid(row=self._next_row, column=0, sticky=tk.W, padx=28, pady=(20, 6))
+        self._next_row += 1
 
         self.urls_frame = tk.Frame(main, bg=c["surface"], bd=1, relief=tk.FLAT,
                                    highlightbackground=c["border"], highlightthickness=1)
-        self.urls_frame.grid(row=10, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
+        self.urls_frame.grid(row=self._next_row, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
+        self._next_row += 1
 
         text_scroll_frame = tk.Frame(self.urls_frame, bg=c["surface"], bd=0)
         text_scroll_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
@@ -259,17 +269,20 @@ class YoutubeDownloaderUI:
                                         bg=c["accent_dim"], fg=c["accent"],
                                         font=("Segoe UI", 9, "bold"),
                                         padx=8, pady=3, relief=tk.FLAT)
-        self.url_count_badge.grid(row=11, column=0, sticky=tk.W, padx=28, pady=(0, 16))
+        self.url_count_badge.grid(row=self._next_row, column=0, sticky=tk.W, padx=28, pady=(0, 16))
+        self._next_row += 1
 
         # ─── Section 4: Progress ───────────────────────────────────
         tk.Label(main, text="下载进度", bg=c["bg"], fg=c["text"],
                  font=("Segoe UI", 11, "bold"),
-                 anchor=tk.W).grid(row=12, column=0, sticky=tk.W, padx=28, pady=(0, 6))
+                 anchor=tk.W).grid(row=self._next_row, column=0, sticky=tk.W, padx=28, pady=(0, 6))
+        self._next_row += 1
 
         progress_frame = tk.Frame(main, bg=c["surface"], bd=1, relief=tk.FLAT,
                                   highlightbackground=c["border"], highlightthickness=1)
-        progress_frame.grid(row=13, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
+        progress_frame.grid(row=self._next_row, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
         progress_frame.columnconfigure(0, weight=1)
+        self._next_row += 1
 
         self.progress_status = tk.Label(progress_frame, text="等待中...",
                                         bg=c["surface"], fg=c["text_secondary"],
@@ -289,7 +302,7 @@ class YoutubeDownloaderUI:
 
         # ─── Download Button ─────────────────────────────────────────
         btn_frame = tk.Frame(main, bg=c["bg"])
-        btn_frame.grid(row=14, column=0, sticky=tk.EW, padx=28, pady=(16, 8))
+        btn_frame.grid(row=self._next_row, column=0, sticky=tk.EW, padx=28, pady=(16, 8))
         btn_frame.columnconfigure(0, weight=1)
 
         # Download button
@@ -307,23 +320,35 @@ class YoutubeDownloaderUI:
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         self.canvas.bind("<MouseWheel>", on_canvas_mousewheel)
 
-    def _make_section(self, parent, title, start_row, row_makers, row_step=1):
+        # Force update scrollregion after layout is complete
+        main.update_idletasks()
+        content_h = self.canvas.bbox("all")
+        h = content_h[3] if content_h else 1200
+        # Make window tall enough to show all content (scrollregion adjusts for scrolling)
+        needed_h = h + 20
+        current_h = self.root.winfo_height()
+        if needed_h > current_h:
+            self.root.geometry(f"900x{needed_h}")
+
+    def _make_section(self, parent, title, row_makers):
         c = self.colors
 
         label = tk.Label(parent, text=title, bg=c["bg"], fg=c["text"],
                           font=("Segoe UI", 11, "bold"), anchor=tk.W)
-        label.grid(row=start_row, column=0, sticky=tk.W, padx=28, pady=(20, 6))
+        label.grid(row=self._next_row, column=0, sticky=tk.W, padx=28, pady=(20, 6))
+        self._next_row += 1
 
         container = tk.Frame(parent, bg=c["surface"], bd=1, relief=tk.FLAT,
                              highlightbackground=c["border"], highlightthickness=1)
-        container.grid(row=start_row + 1, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
+        container.grid(row=self._next_row, column=0, sticky=tk.EW, padx=28, pady=(0, 6))
         container.columnconfigure(1, weight=1)
         container.columnconfigure(2, weight=0)
+        self._next_row += 1
 
         current_row = 0
         for maker in row_makers:
             step = maker(container, current_row)
-            current_row += step if step else row_step
+            current_row += step if step else 1
 
     def _make_field_label(self, parent, row, text):
         c = self.colors
@@ -447,7 +472,7 @@ class YoutubeDownloaderUI:
 
         # 代理池文件
         hint = tk.Label(proxy_frame, text="代理池:", bg=c["surface"], fg=c["text_muted"],
-                        font=("Segoe UI", 9), padx=(16, 4))
+                        font=("Segoe UI", 9), padx=16)
         hint.pack(side=tk.LEFT)
         self.proxy_file_entry = tk.Entry(proxy_frame, textvariable=self.proxy_file_path,
                                          bg=c["surface2"], fg=c["text"],
@@ -628,7 +653,7 @@ class YoutubeDownloaderUI:
 
         # Cookie 文件
         lbl = tk.Label(cookie_frame, text="文件:", bg=c["surface"], fg=c["text_muted"],
-                       font=("Segoe UI", 9), padx=(0, 4))
+                       font=("Segoe UI", 9), padx=0)
         lbl.pack(side=tk.LEFT)
         entry = tk.Entry(cookie_frame, textvariable=self.cookie_file_path,
                          bg=c["surface2"], fg=c["text"],
@@ -638,9 +663,31 @@ class YoutubeDownloaderUI:
         entry.pack(side=tk.LEFT, padx=(0, 4))
 
         def browse_cookie_file():
-            filename = filedialog.askopenfilename(filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
-            if filename:
+            filename = filedialog.askopenfilename(
+                filetypes=[("Cookie 文件", "*.txt *.json"), ("所有文件", "*.*")])
+            if not filename:
+                return
+            ext = filename.lower().rsplit(".", 1)[-1]
+            if ext == "json":
+                # JSON → 自动转换为 Netscape 临时文件
+                import export_cookies
+                try:
+                    tmp_path, count, missing = export_cookies.convert_json_to_temp_netscape(filename)
+                    self._temp_cookie_path = tmp_path
+                    self.cookie_file_path.set(filename)
+                    if missing:
+                        self._cookie_status.set(f"⚠️ 转换成功 {count} 个，但缺失: {', '.join(missing)}")
+                    else:
+                        self._cookie_status.set(f"✅ 转换成功 {count} 个，关键 Cookie 完整")
+                except Exception as e:
+                    self._temp_cookie_path = None
+                    self.cookie_file_path.set("")
+                    self._cookie_status.set(f"❌ JSON 转换失败: {e}")
+            else:
+                self._temp_cookie_path = None
                 self.cookie_file_path.set(filename)
+                self._cookie_status.set("")
+
         fb = tk.Label(cookie_frame, text="浏览", bg=c["surface2"], fg=c["text"],
                        font=("Segoe UI", 9), padx=8, pady=4,
                        relief=tk.FLAT, cursor="hand2", bd=1,
@@ -649,6 +696,12 @@ class YoutubeDownloaderUI:
         fb.bind("<Button-1>", lambda e: browse_cookie_file())
         fb.bind("<Enter>", lambda e: fb.configure(bg=c["border"]))
         fb.bind("<Leave>", lambda e: fb.configure(bg=c["surface2"]))
+
+        # 转换状态标签
+        status_lbl = tk.Label(cookie_frame, textvariable=self._cookie_status,
+                              bg=c["surface"], fg=c["accent"],
+                              font=("Segoe UI", 8), anchor=tk.W)
+        status_lbl.pack(side=tk.LEFT, padx=(8, 0))
 
         self._on_cookie_toggle()
         return 1
@@ -813,7 +866,7 @@ class YoutubeDownloaderUI:
                 no_subs=not self.download_subtitles.get(),
                 proxy_pool=proxy_pool,
                 cookies_from_browser=self.cookie_browser.get() if self.use_browser_cookie.get() else None,
-                cookies_file=self.cookie_file_path.get().strip() or None,
+                cookies_file=self._temp_cookie_path or self.cookie_file_path.get().strip() or None,
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")

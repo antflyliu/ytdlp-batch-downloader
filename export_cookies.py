@@ -45,6 +45,7 @@ def _escape_value(value: str) -> str:
 def convert_json_to_netscape(json_file: str, output_file: str = "cookies.txt") -> bool:
     """
     将 JSON 格式 Cookie（YouTube 官网导出）转换为 Netscape 格式（yt-dlp 可用）
+    返回 True 成功，False 失败
     """
     try:
         with open(json_file, "r", encoding="utf-8") as f:
@@ -112,6 +113,52 @@ def convert_json_to_netscape(json_file: str, output_file: str = "cookies.txt") -
     print(f"\n使用方法:")
     print(f"  python Youtube_Downloader.py -i urls.xlsx --cookies {output_file}")
     return True
+
+
+def convert_json_to_temp_netscape(json_file: str) -> tuple[str, int, list[str]]:
+    """
+    将 JSON Cookie 转换为临时 Netscape 文件，返回 (文件路径, cookie数量, 缺失关键cookie列表)。
+    供 GUI 直接调用，无需指定输出路径。
+    """
+    import tempfile
+    fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="yt_cookies_")
+    os.close(fd)
+    try:
+        with open(json_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise ValueError(f"读取 JSON 失败: {e}")
+
+    netscape = ["# Netscape HTTP Cookie File\n", "# Converted by export_cookies.py\n\n"]
+    yt_names: set = set()
+    skipped_empty = 0
+
+    for c in data:
+        domain = c.get("domain", "")
+        name = c.get("name", "")
+        value = _escape_value(c.get("value", "") or "")
+        path = c.get("path", "/") or "/"
+        secure = "TRUE" if c.get("secure", False) else "FALSE"
+        expires = int(c.get("expirationDate", 0) or 0)
+        if not _is_relevant(domain):
+            continue
+        if not value:
+            skipped_empty += 1
+            continue
+        initial_dot = domain.startswith(".")
+        domain_specified = "TRUE" if initial_dot else "FALSE"
+        if "youtube" in domain.lower():
+            yt_names.add(name)
+        netscape.append(
+            f"{domain}\t{domain_specified}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
+        )
+
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.writelines(netscape)
+
+    missing = [n for n in IMPORTANT if n not in yt_names]
+    return tmp_path, len(netscape) - 2, missing
 
 
 def verify(cookie_file: str) -> bool:
