@@ -12,6 +12,8 @@
 - 支持 HTTP 代理设置
 - 可视化下载进度条
 - 自动保存代理配置
+- **字幕下载**：yt-dlp 自动字幕优先、手动字幕降级
+- **WhisperX ASR**：无字幕视频自动生成 SRT 字幕
 
 ---
 
@@ -35,6 +37,18 @@ pip install -r requirements.txt
 ### 可选
 
 - **aria2c** — 多线程加速下载。如需使用，请确保已安装并添加到 PATH。
+- **whisperx** — 无字幕视频 ASR 生成字幕（自动启用）。需要 torch CPU 版，GPU 可加速。
+  ```bash
+  pip install whisperx
+  ```
+
+### WhisperX 模型
+
+WhisperX 默认使用 `medium` 模型，支持本地缓存：
+- `faster-whisper-medium` ✅（本地已有）
+- `faster-distil-whisper-large-v2` ✅（本地已有，可选更高质量）
+
+首次使用 WhisperX 时会自动下载模型到 `~/.cache/huggingface/hub/`。
 
 ---
 
@@ -48,6 +62,28 @@ pip install -r requirements.txt
 
 # 启动
 python ytdownload_ui.py
+```
+
+### 方式二：CLI 命令行下载
+
+```bash
+# 基本用法
+python Youtube_Downloader.py -i "https://www.youtube.com/watch?v=xxx" -o videos
+
+# 从文件下载（Excel/TXT）
+python Youtube_Downloader.py -i urls.xlsx -o videos
+
+# 指定分辨率和代理
+python Youtube_Downloader.py -i urls.xlsx -o videos -r 1080p -p http://127.0.0.1:7890
+
+# 不下载字幕
+python Youtube_Downloader.py -i urls.xlsx --no-subs
+
+# 指定字幕语言
+python Youtube_Downloader.py -i urls.xlsx --sub-lang "zh-Hans,en,ja"
+
+# 指定 WhisperX 模型和设备
+python Youtube_Downloader.py -i urls.xlsx --whisper-model large-v3 --whisper-device cpu
 ```
 
 ### 方式二：运行打包好的 exe
@@ -184,5 +220,5 @@ ytdlp-batch-downloader/
 - **GUI**: tkinter（Python 内置，无需额外安装）
 - **下载引擎**: [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - **外部下载器**: aria2c（可选）
-- **打包工具**: PyInstaller
 - **视频处理**: ffmpeg
+- **字幕生成**: [WhisperX](https://github.com/m-bain/whisperX)（ASR 自动生成）

@@ -26,3 +26,6 @@ videos
 YouTube批量下载器.spec
 
 *.zip
+
+*.xlsx
+*.txt
