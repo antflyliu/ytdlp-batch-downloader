@@ -179,8 +179,13 @@ def sanitize_filename(name):
     return re.sub(r'[<>:"/\\|?*]', '_', name)
 
 
-def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None):
-    """批量下载视频的函数"""
+def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
+                  sub_langs=None, no_subs=False):
+    """
+    批量下载视频的函数
+    sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
+    no_subs: True 则不下载字幕
+    """
     results = []
     total = len(urls)
     completed = 0
@@ -212,7 +217,18 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
             f'--all-proxy={proxy}'
         ])
 
+    # 字幕选项
+    if not no_subs and sub_langs:
+        ydl_opts.update({
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'sub_langs': sub_langs,
+            'convert_subs': 'srt',
+        })
 
+    device = get_device("auto")
+    whisper_compute = "float16" if device == "cuda" else "int8"
+    whisper_model = "medium"
 
     # 添加下载进度回调
     def download_progress_hook(d):
@@ -231,14 +247,38 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     ydl_opts['progress_hooks'] = [download_progress_hook]
 
     for i, url in enumerate(urls):
+        sub_status = "未下载"
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-                results.append({
-                    'URL': url,
-                    '状态': '成功',
-                    '信息': '下载成功'
-                })
+                info = ydl.extract_info(url, download=True)
+                video_title = info.get('title', 'unknown') if info else 'unknown'
+                video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
+
+            # 处理字幕
+            if not no_subs and video_path and os.path.exists(video_path):
+                lang_list = [l.strip() for l in sub_langs.split(",")] if sub_langs else []
+                existing_sub = check_subtitle_exists(video_path, lang_list) if lang_list else None
+                if existing_sub:
+                    if existing_sub.endswith(".vtt"):
+                        srt_path = convert_vtt_to_srt(existing_sub)
+                        sub_status = f"yt-dlp: {os.path.basename(srt_path)}" if srt_path else f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
+                    else:
+                        sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
+                else:
+                    # WhisperX 生成
+                    srt_path = generate_subtitle_with_whisper(
+                        video_path, output_path,
+                        model_name=whisper_model,
+                        device=device,
+                        compute_type=whisper_compute
+                    )
+                    sub_status = f"WhisperX: {os.path.basename(srt_path)}" if srt_path else "WhisperX失败"
+
+            results.append({
+                'URL': url,
+                '状态': '成功',
+                '信息': f"下载成功 | 字幕: {sub_status}" if not no_subs else '下载成功'
+            })
         except Exception as e:
             results.append({
                 'URL': url,

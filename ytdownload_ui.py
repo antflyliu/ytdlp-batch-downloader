@@ -3,7 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import json
 import os
 import webbrowser
-from Youtube_Downloader import batch_download, read_urls_from_file
+from Youtube_Downloader import read_urls_from_file, batch_download
 from threading import Thread
 
 
@@ -47,6 +47,8 @@ class YoutubeDownloaderUI:
         self.save_path = tk.StringVar(
             value=os.path.join(os.path.dirname(os.path.abspath(__file__)), "videos")
         )
+        self.download_subtitles = tk.BooleanVar(value=True)
+        self.sub_lang = tk.StringVar(value="zh-Hans,en")
         self.setup_ui()
         self.setup_callbacks()
 
@@ -215,6 +217,7 @@ class YoutubeDownloaderUI:
         self._make_section(main, "下载选项", 7, [
             self._make_resolution_row,
             self._make_count_row,
+            self._make_subtitle_row,
         ])
 
         # ─── Section 3: URL List ────────────────────────────────────
@@ -506,6 +509,52 @@ class YoutubeDownloaderUI:
         self.max_videos_label.pack(side=tk.LEFT, padx=(12, 0))
         return 1
 
+    def _make_subtitle_row(self, parent, row):
+        c = self.colors
+
+        # Checkbox: 是否下载字幕
+        self._make_field_label(parent, row, "字幕下载")
+
+        cbx_frame = tk.Frame(parent, bg=c["surface"])
+        cbx_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        self.sub_cbx = tk.Checkbutton(
+            cbx_frame, text="下载字幕文件",
+            variable=self.download_subtitles,
+            onvalue=True, offvalue=False,
+            bg=c["surface"], fg=c["text"],
+            selectcolor=c["accent"], activebackground=c["surface"],
+            font=("Segoe UI", 10), anchor=tk.W,
+            command=self._on_subtitle_toggle
+        )
+        self.sub_cbx.pack(side=tk.LEFT)
+
+        self.sub_lang_entry = tk.Entry(
+            cbx_frame,
+            textvariable=self.sub_lang,
+            bg=c["surface2"], fg=c["text"],
+            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+            font=("Segoe UI", 10), width=18,
+            highlightbackground=c["border"], highlightthickness=1, insertwidth=2
+        )
+        self.sub_lang_entry.pack(side=tk.LEFT, padx=(12, 0))
+
+        self.sub_lang_hint = tk.Label(
+            cbx_frame, text="如: zh-Hans,en,ja",
+            bg=c["surface"], fg=c["text_muted"],
+            font=("Segoe UI", 8), padx=6
+        )
+        self.sub_lang_hint.pack(side=tk.LEFT, padx=(4, 0))
+
+        # Default state: enabled
+        self._on_subtitle_toggle()
+        return 1
+
+    def _on_subtitle_toggle(self):
+        state = "normal" if self.download_subtitles.get() else "disabled"
+        self.sub_lang_entry.configure(state=state)
+        self.sub_lang_hint.configure(fg=self.colors["text_muted"] if self.download_subtitles.get() else self.colors["border"])
+
     def _draw_progress_bar(self, percent):
         c = self.colors
         w = self.progress_canvas.winfo_width()
@@ -648,7 +697,9 @@ class YoutubeDownloaderUI:
                 self.save_path.get(),
                 self.resolution.get(),
                 proxy=proxy,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
+                no_subs=not self.download_subtitles.get(),
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")
