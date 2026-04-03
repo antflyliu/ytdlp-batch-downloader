@@ -1,0 +1,10 @@
+{
+  "global_feishu_url": "https://www.feishu.cn/flow/api/trigger-webhook/953bc64b9ff71d55d6e53134a183fc0e",
+  "global_dingtalk_url": "",
+  "global_wecom_url": "",
+  "default_fetch_mode": "playlist",
+  "default_fetch_limit": 5,
+  "default_scan_interval": 5,
+  "quota_budget_per_day": 8000,
+  "description": "YouTube Monitor 全局配置。可在此处设置各平台的默认 Webhook URL 和每日 API Quota 上限。"
+}
