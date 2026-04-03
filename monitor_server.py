@@ -1,0 +1,423 @@
+"""
+monitor_server.py — YouTube 视频监控 Web 服务
+REST API 后端 + 静态文件服务
+
+用法:
+    python monitor_server.py              # 启动 Web UI
+    python monitor_server.py --port 8765  # 指定端口
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import threading
+import webbrowser
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import parse_qs
+
+# ── 项目路径注入 ──────────────────────────────────────────────
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+import monitor.db as _db
+import monitor.scheduler as _scheduler
+import monitor.cache as _cache
+import monitor.quota as _quota
+import logging_config
+
+_log = logging_config.get_logger("monitor_server")
+
+# ── PyInstaller 兼容路径 ───────────────────────────────────────
+if getattr(sys, "frozen", False):
+    _STATIC_DIR = Path(sys._MEIPASS) / "monitor_web"
+else:
+    _STATIC_DIR = Path(__file__).parent / "monitor_web"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+
+
+class MonitorHandler(SimpleHTTPRequestHandler):
+    """REST API + 静态文件服务器"""
+
+    # ── 工具方法 ─────────────────────────────────────────────
+
+    def _send_json(self, data, status=200):
+        """发送 JSON 响应（含 CORS headers）"""
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+    def _read_json(self):
+        """读取并解析 JSON 请求体，失败返回 None"""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            return {}
+        try:
+            return json.loads(self.rfile.read(content_length))
+        except Exception:
+            return None
+
+    def _path_only(self):
+        """去掉查询字符串，只保留路径"""
+        return self.path.split("?")[0]
+
+    # ── HTTP 方法 ────────────────────────────────────────────
+
+    def do_GET(self):
+        path = self._path_only()
+        if path == "/api/status":
+            self._api_status()
+        elif path == "/api/accounts":
+            self._api_accounts()
+        elif path == "/api/events":
+            self._api_events()
+        elif path == "/api/stats":
+            self._api_stats()
+        elif path == "/api/config":
+            self._api_config()
+        elif path == "/api/cache":
+            self._api_cache_list()
+        elif path == "/api/quota":
+            self._api_quota()
+        elif path.startswith("/api/accounts/") and "/videos" in path:
+            acc_id = path.split("/")[3]
+            self._api_account_videos(acc_id)
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if self.command == "OPTIONS":
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            return
+        body = self._read_json()
+        if body is None:
+            self._send_json({"error": "invalid json body"}, 400)
+            return
+        path = self._path_only()
+        if path == "/api/scheduler/start":
+            self._api_scheduler_start()
+        elif path == "/api/scheduler/stop":
+            self._api_scheduler_stop()
+        elif path == "/api/scheduler/reload":
+            self._api_scheduler_reload()
+        elif path == "/api/accounts":
+            self._api_account_add(body)
+        elif path == "/api/accounts/scan":
+            self._api_account_scan(body)
+        elif path.startswith("/api/accounts/") and "/videos/batch-download" in path:
+            acc_id = path.split("/")[3]
+            self._api_account_videos_batch_download(acc_id, body)
+            self._api_account_scan(body)
+        elif path == "/api/config":
+            self._api_config_save(body)
+        elif path == "/api/cache/refresh":
+            self._api_cache_refresh(body)
+        elif path == "/api/cache/clear":
+            self._api_cache_clear()
+        else:
+            self._send_json({"error": "未知 API"}, 404)
+
+    def do_DELETE(self):
+        if self.command == "OPTIONS":
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            return
+        path = self._path_only()
+        if path.startswith("/api/accounts/"):
+            acc_id = path.split("/")[-1]
+            self._api_account_delete(acc_id)
+        elif path.startswith("/api/cache/"):
+            handle = path.split("/api/cache/", 1)[-1]
+            self._api_cache_delete(handle)
+        else:
+            self._send_json({"error": "未知 API"}, 404)
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    # ── REST API ────────────────────────────────────────────
+
+    def _api_status(self):
+        is_running = _scheduler.is_running()
+        next_runs = _scheduler.get_next_run_times() if is_running else []
+        self._send_json({"running": is_running, "next_runs": next_runs})
+
+    def _api_accounts(self):
+        accounts = _db.list_accounts()
+        result = [{
+            "id": a["id"],
+            "name": a["name"],
+            "channel_url": a["channel_url"],
+            "api_key_env": a["api_key_env"],
+            "fetch_mode": a["fetch_mode"],
+            "fetch_limit": a["fetch_limit"],
+            "scan_interval": a["scan_interval"],
+            "enabled": bool(a["enabled"]),
+            "notify_enabled": bool(a["notify_enabled"]),
+            "notify_platform": a["notify_platform"],
+            "webhook_url": a["webhook_url"] or "",
+            "feishu_message_mode": a.get("feishu_message_mode", "card_json"),
+            "feishu_template_id": a.get("feishu_template_id") or "",
+            "feishu_scan_template_id": a.get("feishu_scan_template_id") or "",
+        } for a in accounts]
+        self._send_json(result)
+
+    def _api_events(self):
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+        limit = int(params.get("limit", ["20"])[0])
+        events = _db.get_recent_events(limit)
+        result = [{
+            "id": e["id"],
+            "account_name": e["account_name"],
+            "channel_url": e["channel_url"],
+            "status": e["status"],
+            "total_videos": e["total_videos"],
+            "new_videos": e["new_videos"],
+            "error_message": e["error_message"] or "",
+            "duration_ms": e["duration_ms"],
+            "scan_started_at": e["scan_started_at"],
+            "scan_ended_at": e["scan_ended_at"] or "",
+        } for e in events]
+        self._send_json(result)
+
+    def _api_stats(self):
+        rows = _db.get_account_stats()
+        result = [{
+            "id": r["id"],
+            "name": r["name"],
+            "channel_url": r["channel_url"],
+            "total_scans": r["total_scans"],
+            "total_new_videos": r["total_new_videos"],
+            "last_scan_at": r["last_scan_at"] or "",
+            "is_running": bool(r["is_running"]),
+        } for r in rows]
+        self._send_json(result)
+
+    def _api_config(self):
+        self._send_json(_db.load_config())
+
+    def _api_config_save(self, body):
+        cfg = _db.load_config()
+        for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url", "quota_budget_per_day"]:
+            if key in body:
+                cfg[key] = body[key]
+        path = _db.get_config_path()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
+        _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
+        _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
+        self._send_json({"ok": True})
+
+    def _api_scheduler_start(self):
+        ok = _scheduler.start()
+        self._send_json({"ok": ok})
+
+    def _api_scheduler_stop(self):
+        ok = _scheduler.stop()
+        self._send_json({"ok": ok})
+
+    def _api_scheduler_reload(self):
+        n = _scheduler.reload_jobs()
+        self._send_json({"ok": True, "active_jobs": n})
+
+    def _api_account_add(self, body):
+        try:
+            account_id = body.get("id")
+            if account_id:
+                # 编辑模式 → UPDATE
+                _db.update_account(
+                    account_id=int(account_id),
+                    name=body.get("name", ""),
+                    channel_url=body.get("channel_url", ""),
+                    api_key_env=body.get("api_key_env"),
+                    fetch_mode=body.get("fetch_mode"),
+                    fetch_limit=int(body["fetch_limit"]) if str(body.get("fetch_limit", "")).isdigit() else None,
+                    scan_interval=int(body["scan_interval"]) if str(body.get("scan_interval", "")).isdigit() else None,
+                    enabled=bool(body.get("enabled")) if "enabled" in body else None,
+                    notify_enabled=bool(body.get("notify_enabled")) if "notify_enabled" in body else None,
+                    notify_platform=body.get("notify_platform"),
+                    webhook_url=body.get("webhook_url") or None,
+                    feishu_message_mode=body.get("feishu_message_mode"),
+                    feishu_template_id=body.get("feishu_template_id") or None,
+                    feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
+                )
+                if _scheduler.is_running():
+                    _scheduler.reload_jobs()
+                self._send_json({"ok": True, "id": account_id})
+            else:
+                # 新增模式 → INSERT
+                account_id = _db.add_account(
+                    name=body.get("name", ""),
+                    channel_url=body.get("channel_url", ""),
+                    api_key_env=body.get("api_key_env", "YOUTUBE_Data_API_V3"),
+                    fetch_mode=body.get("fetch_mode", "playlist"),
+                    fetch_limit=int(body.get("fetch_limit", 5)),
+                    scan_interval=int(body.get("scan_interval", 5)),
+                    notify_enabled=bool(body.get("notify_enabled", True)),
+                    notify_platform=body.get("notify_platform", "feishu"),
+                    webhook_url=body.get("webhook_url") or None,
+                    feishu_message_mode=body.get("feishu_message_mode", "card_json"),
+                    feishu_template_id=body.get("feishu_template_id") or None,
+                    feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
+                )
+                if _scheduler.is_running():
+                    _scheduler.reload_jobs()
+                self._send_json({"ok": True, "id": account_id})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 400)
+
+    def _api_account_scan(self, body):
+        try:
+            acc_id = int(body.get("account_id", 0))
+            _scheduler._scan_account(acc_id)
+            self._send_json({"ok": True})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 400)
+
+    def _api_account_delete(self, acc_id):
+        try:
+            _db.delete_account(int(acc_id))
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
+            self._send_json({"ok": True})
+        except Exception as e:
+            self._send_json({"error": str(e)}, 400)
+
+    def _api_cache_list(self):
+        """GET /api/cache — 列出所有缓存"""
+        self._send_json(_cache.list_all_cache())
+
+    def _api_cache_refresh(self, body):
+        """POST /api/cache/refresh — 从 API 刷新指定 handle 的缓存"""
+        handle = body.get("handle", "")
+        api_key = body.get("api_key", "")
+        if not handle or not api_key:
+            self._send_json({"error": "handle 和 api_key 均必填"}, 400)
+            return
+        result = _cache.refresh_from_api(handle, api_key)
+        self._send_json(result, 200 if result["success"] else 500)
+
+    def _api_cache_delete(self, handle):
+        """DELETE /api/cache/{handle} — 删除指定缓存"""
+        ok = _cache.delete_channel_meta(handle)
+        self._send_json({"ok": ok})
+
+    def _api_cache_clear(self):
+        """POST /api/cache/clear — 清空所有缓存"""
+        count = _cache.clear_all_cache()
+        self._send_json({"ok": True, "cleared": count})
+
+    def _api_quota(self):
+        """GET /api/quota — 获取所有 API Key 今日 quota 使用情况"""
+        usage_list = _quota.get_all_usage()
+        budget = _quota.get_budget_limit("YOUTUBE_Data_API_V3")
+        self._send_json({
+            "budget_per_day": budget,
+            "items": usage_list,
+        })
+
+    def _api_account_videos(self, acc_id: str):
+        """GET /api/accounts/{id}/videos — 分页查询账户视频"""
+        try:
+            acc_id_int = int(acc_id)
+        except ValueError:
+            self._send_json({"error": "无效账户 ID"}, 400)
+            return
+
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+
+        title_kw = params.get("title_kw", [None])[0] or None
+        url_kw   = params.get("url_kw",   [None])[0] or None
+        sort_by   = params.get("sort_by",   ["published_at"])[0]
+        sort_dir  = params.get("sort_dir",  ["desc"])[0]
+        page      = int(params.get("page",  ["1"])[0])
+        page_size = int(params.get("page_size", ["20"])[0])
+
+        videos, total = _db.get_account_videos(
+            account_id=acc_id_int,
+            title_kw=title_kw,
+            url_kw=url_kw,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            page=page,
+            page_size=min(page_size, 100),
+        )
+        self._send_json({
+            "videos": videos,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": (total + page_size - 1) // page_size,
+        })
+
+    def _api_account_videos_batch_download(self, acc_id: str, body: dict):
+        """POST /api/accounts/{id}/videos/batch-download — 批量加入下载队列（stub）"""
+        video_ids: list = body.get("video_ids", [])
+        if not video_ids:
+            self._send_json({"error": "未选择视频"}, 400)
+            return
+        # TODO: 写入下载队列
+        self._send_json({
+            "ok": True,
+            "queued": len(video_ids),
+            "message": f"{len(video_ids)} 个视频已加入下载队列（待实现）",
+        })
+
+    # ── 静态文件服务覆盖 ──────────────────────────────────────
+
+    def translate_path(self, path):
+        if path == "/" or path == "":
+            path = "/index.html"
+        return str(_STATIC_DIR / path.lstrip("/"))
+
+
+def serve(port: int = 5000):
+    os.makedirs(_STATIC_DIR, exist_ok=True)
+    if not _INDEX_HTML.exists():
+        _log.error(f"index.html not found at {_STATIC_DIR}")
+        _INDEX_HTML.write_text("<html><body><h1>UI not found</h1></body></html>", encoding="utf-8")
+    server = HTTPServer(("127.0.0.1", port), MonitorHandler)
+    print(f"\n🌐 监控 Web UI: http://127.0.0.1:{port}")
+    print(f"   按 Ctrl+C 停止\n")
+    server.serve_forever()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="YouTube Monitor Web Server")
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+
+    _db.init_db()
+    _db.ensure_app_state_table()
+
+    url = f"http://127.0.0.1:{args.port}"
+    if not args.no_browser:
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+
+    serve(args.port)
+
+
+if __name__ == "__main__":
+    main()

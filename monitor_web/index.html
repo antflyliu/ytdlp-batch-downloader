@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouTube 视频监控</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── 变量 ─────────────────────────────────────────────────── */
+  :root {
+    --bg: #0f1117;
+    --surface: #161b27;
+    --surface2: #1c2333;
+    --surface3: #232d42;
+    --border: #2a3549;
+    --text: #e2e8f0;
+    --text-muted: #8896ab;
+    --text-dim: #4a5568;
+    --accent: #6366f1;
+    --accent-hover: #4f52d8;
+    --accent-dim: rgba(99,102,241,0.15);
+    --success: #22c55e;
+    --success-dim: rgba(34,197,94,0.12);
+    --error: #ef4444;
+    --error-dim: rgba(239,68,68,0.12);
+    --warning: #f59e0b;
+    --feishu: #7B68EE;
+    --dingtalk: #1677FF;
+    --wecom: #52C41A;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 16px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    --font: 'Inter', -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  /* ── 重置 ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── 布局 ─────────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-rows: 60px 1fr auto;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* ── 顶部栏 ───────────────────────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .logo-text {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .logo-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 6px;
+    background: var(--surface2);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ── 状态芯片 ─────────────────────────────────────────────── */
+  .status-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .status-chip.running {
+    background: var(--success-dim);
+    color: var(--success);
+    border: 1px solid rgba(34,197,94,0.3);
+  }
+  .status-chip.stopped {
+    background: var(--surface2);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-chip.running .status-dot {
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.2); }
+  }
+
+  /* ── 按钮 ─────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--r-md);
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-success {
+    background: var(--success);
+    color: #fff;
+  }
+  .btn-success:hover { filter: brightness(1.1); }
+  .btn-danger {
+    background: var(--error);
+    color: #fff;
+  }
+  .btn-danger:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn-icon {
+    width: 36px; height: 36px;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--r-sm);
+    background: var(--surface2);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.15s;
+  }
+  .btn-icon:hover { background: var(--surface3); color: var(--text); }
+
+  /* ── 主内容 ───────────────────────────────────────────────── */
+  .main {
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── 卡片 ─────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title-icon {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .card-body { padding: 16px 20px; }
+
+  /* ── 统计网格 ─────────────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    padding: 16px 20px;
+  }
+  .stat-card {
+    background: var(--surface2);
+    border-radius: var(--r-md);
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+  }
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: var(--mono);
+  }
+  .progress-bar {
+    overflow: hidden;
+    border-radius: 2px;
+  }
+  .stat-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* ── 表格 ─────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  td { padding: 12px 16px; vertical-align: middle; }
+  .td-mono {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .td-name {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .td-url {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── 标签 ─────────────────────────────────────────────────── */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .tag-success { background: var(--success-dim); color: var(--success); }
+  .tag-error { background: var(--error-dim); color: var(--error); }
+  .tag-muted { background: var(--surface3); color: var(--text-muted); }
+  .tag-accent { background: var(--accent-dim); color: var(--accent); }
+  .tag-feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }
+  .tag-dingtalk { background: rgba(22,119,255,0.15); color: var(--dingtalk); }
+  .tag-wecom { background: rgba(82,196,26,0.15); color: var(--wecom); }
+
+  /* ── 操作按钮组 ───────────────────────────────────────────── */
+  .actions { display: flex; gap: 6px; align-items: center; }
+  .btn-sm {
+    padding: 5px 10px;
+    font-size: 11px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-sm:hover { background: var(--surface3); color: var(--text); }
+  .btn-sm.danger { border-color: rgba(239,68,68,0.3); color: var(--error); }
+  .btn-sm.danger:hover { background: var(--error-dim); }
+  .btn-sm.info { border-color: rgba(99,102,241,0.3); color: var(--accent); }
+  .btn-sm.info:hover { background: var(--accent-dim); }
+
+  /* ── 底部日志 ─────────────────────────────────────────────── */
+  .log-area {
+    background: var(--bg);
+    border-radius: var(--r-md);
+    padding: 12px 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--text-muted);
+  }
+  .log-line { display: flex; gap: 8px; }
+  .log-time { color: var(--text-dim); flex-shrink: 0; }
+  .log-msg { color: var(--text-muted); }
+  .log-msg.ok { color: var(--success); }
+  .log-msg.err { color: var(--error); }
+  .log-msg.info { color: var(--accent); }
+
+  /* ── 空状态 ───────────────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+  }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+  .empty-desc { font-size: 13px; margin-bottom: 20px; }
+
+  /* ── 模态框 ───────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.show { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow);
+    transform: scale(0.95);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.show .modal { transform: scale(1); }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-title { font-size: 16px; font-weight: 700; }
+  .modal-close {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .modal-close:hover { background: var(--surface3); color: var(--text); }
+  .modal-body { padding: 20px 24px; }
+  .modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* ── 表单 ─────────────────────────────────────────────────── */
+  .form-group {
+    margin-bottom: 18px;
+  }
+  .form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-input {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .form-input::placeholder { color: var(--text-dim); }
+  .form-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* 平台选择 */
+  .platform-selector { display: flex; gap: 8px; }
+  .platform-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .platform-btn:hover { border-color: var(--text-muted); }
+  .platform-btn.active-feishu { background: rgba(123,104,238,0.15); border-color: var(--feishu); color: var(--feishu); }
+  .platform-btn.active-dingtalk { background: rgba(22,119,255,0.15); border-color: var(--dingtalk); color: var(--dingtalk); }
+  .platform-btn.active-wecom { background: rgba(82,196,26,0.15); border-color: var(--wecom); color: var(--wecom); }
+
+  /* 复选框 */
+  .checkbox-group { display: flex; gap: 16px; }
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-muted);
+    user-select: none;
+  }
+  .checkbox-label input { display: none; }
+  .checkbox-box {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .checkbox-label input:checked + .checkbox-box {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .checkbox-box::after {
+    content: '✓';
+    font-size: 10px;
+    color: #fff;
+    display: none;
+  }
+  .checkbox-label input:checked + .checkbox-box::after { display: block; }
+
+  /* 分割线 */
+  .form-sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  /* ── Toast ─────────────────────────────────────────────────── */
+  .toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .toast {
+    padding: 12px 18px;
+    border-radius: var(--r-md);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: var(--shadow);
+    animation: toastIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .toast.ok { background: var(--success); color: #fff; }
+  .toast.err { background: var(--error); color: #fff; }
+  .toast.info { background: var(--accent); color: #fff; }
+  @keyframes toastIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ── 扫描动画 ─────────────────────────────────────────────── */
+  .scanning {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent);
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--accent-dim);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 配置面板 ─────────────────────────────────────────────── */
+  .config-grid { display: flex; flex-direction: column; gap: 14px; }
+  .config-item {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+  .config-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .config-url { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+  /* ── 下拉选择 ─────────────────────────────────────────────── */
+  select.form-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238896ab' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  /* ── 滚动条 ───────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+  /* ── 响应式 ───────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .header { padding: 0 16px; }
+    .main { padding: 16px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .form-row { grid-template-columns: 1fr; }
+    .modal { width: 95%; }
+  }
+
+  /* ── 视频详情表格 ─────────────────────────────────────────────── */
+  .vd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .vd-table th {
+    background: var(--surface2);
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 10px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+  }
+  .vd-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vd-table tr:hover td { background: var(--surface2); }
+  .vd-table tr:hover td:first-child { border-left: 2px solid var(--accent); }
+  .vd-title { color: var(--text); cursor: pointer; }
+  .vd-title:hover { color: var(--accent); text-decoration: underline; }
+  .vd-url { color: var(--text-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vd-desc { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vd-num { font-family: var(--mono); color: var(--text-muted); font-size: 12px; text-align: right; }
+  .tag-downloaded { background: rgba(63,185,80,0.15); color: var(--success); }
+  .tag-download-pending { background: rgba(139,148,158,0.15); color: var(--text-muted); }
+  .tag-download-failed { background: rgba(248,81,73,0.15); color: var(--error); }
+  .vd-check { width: 36px; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-sm.btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── 减少动画 ─────────────────────────────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 顶部栏 -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon">📡</div>
+        <span class="logo-text">YouTube Monitor</span>
+        <span class="logo-sub">视频监控</span>
+      </div>
+      <div id="statusChip" class="status-chip stopped">
+        <span class="status-dot"></span>
+        <span id="statusText">调度器已停止</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-ghost" onclick="openConfig()">⚙ 全局配置</button>
+      <button class="btn btn-ghost" onclick="openCache()">📦 API 缓存</button>
+    </div>
+  </header>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <!-- 统计卡片 -->
+    <div class="card">
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+          <div class="stat-label">监控账户</div>
+          <div class="stat-value" id="statAccounts">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总扫描次数</div>
+          <div class="stat-value" id="statScans">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">新增视频</div>
+          <div class="stat-value" id="statNew">—</div>
+        </div>
+        <div class="stat-card" id="quotaCard" style="display:none">
+          <div class="stat-label">API Quota</div>
+          <div class="stat-value" id="statQuota">—</div>
+          <div class="progress-bar" style="height:4px;background:var(--border);border-radius:2px;margin-top:4px">
+            <div id="quotaBar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="quotaSub">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">最后扫描</div>
+          <div class="stat-value" id="statLast" style="font-size:14px">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 账户列表 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">👥</div>
+          监控账户
+        </div>
+        <div class="actions">
+          <div id="schedulerControls">
+            <button class="btn btn-primary" onclick="openAddAccount()">+ 添加账户</button>
+            <button class="btn btn-success" id="btnToggleScheduler" onclick="toggleScheduler()">▶ 启动监控</button>
+          </div>
+          <button class="btn btn-ghost" onclick="reloadJobs()">↻ 重载任务</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>名称</th>
+              <th>频道 URL</th>
+              <th>模式</th>
+              <th>间隔</th>
+              <th>获取</th>
+              <th>状态</th>
+              <th>通知</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="accountsTable">
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="emptyAccounts" style="display:none">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">暂无监控账户</div>
+        <div class="empty-desc">点击右上角「添加账户」开始监控 YouTube 频道</div>
+        <button class="btn btn-primary" onclick="openAddAccount()">+ 添加第一个账户</button>
+      </div>
+    </div>
+
+    <!-- 扫描日志 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--success-dim);color:var(--success)">📋</div>
+          扫描事件日志
+        </div>
+        <div style="font-size:11px;color:var(--text-dim)" id="eventCount">最近 20 条</div>
+      </div>
+      <div class="card-body">
+        <div class="log-area" id="logArea">
+          <div class="empty-state" style="padding:24px">
+            <div class="empty-title" style="font-size:13px">暂无扫描记录</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 模态: 添加/编辑账户 -->
+<div class="modal-overlay" id="modalAccount">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalAccountTitle">添加监控账户</div>
+      <button class="modal-close" onclick="closeModal('modalAccount')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="accId">
+      <div class="form-group">
+        <label class="form-label">账户名称 *</label>
+        <input class="form-input" id="accName" placeholder="例如：综艺Show">
+      </div>
+      <div class="form-group">
+        <label class="form-label">频道 URL *</label>
+        <input class="form-input" id="accChannel" placeholder="@C-HitShow / UCxxxx / 完整 YouTube URL">
+        <div class="form-hint">支持 @handle、UC 频道 ID 或完整视频/播放列表 URL</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key 环境变量</label>
+        <input class="form-input" id="accApiKey" value="YOUTUBE_Data_API_V3" placeholder="YOUTUBE_Data_API_V3">
+        <div class="form-hint">YouTube Data API v3 的环境变量名</div>
+      </div>
+      <hr class="form-sep">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">获取模式</label>
+          <select class="form-input" id="accMode">
+            <option value="playlist">播放列表（配额省）</option>
+            <option value="search">搜索（配额费）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">每次获取条数</label>
+          <input class="form-input" id="accLimit" type="number" value="5" min="1" max="50">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">扫描间隔（分钟）</label>
+          <input class="form-input" id="accInterval" type="number" value="5" min="1" max="1440">
+        </div>
+      </div>
+      <hr class="form-sep">
+      <div class="form-group">
+        <label class="form-label">通知平台</label>
+        <div class="platform-selector" id="platformSelector">
+          <button type="button" class="platform-btn active-feishu" onclick="selectPlatform('feishu')">💬 飞书</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('dingtalk')">🔔 钉钉</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('wecom')">💼 企微</button>
+        </div>
+        <input type="hidden" id="accPlatform" value="feishu">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Webhook URL</label>
+        <input class="form-input" id="accWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
+        <div class="form-hint">留空则使用全局 Webhook 配置</div>
+      </div>
+      <!-- 飞书模板配置（仅飞书平台显示） -->
+      <div class="form-group" id="feishuTemplateConfig" style="display:none">
+        <label class="form-label">飞书发送方式</label>
+        <select class="form-input" id="accFeishuMode" style="width:100%">
+          <option value="card_json">硬编码卡片（向后兼容）</option>
+          <option value="template">卡片模板（推荐）</option>
+        </select>
+      </div>
+      <div class="form-group" id="feishuTemplateIdGroup" style="display:none">
+        <label class="form-label">详情模板 ID</label>
+        <input class="form-input" id="accFeishuTemplateId" placeholder="飞书卡片模板 ID，如 $UUID$">
+        <div class="form-hint">飞书多维表格或开放平台创建的卡片模板 ID</div>
+      </div>
+      <div class="form-group" id="feishuScanTemplateIdGroup" style="display:none">
+        <label class="form-label">扫描确认模板 ID</label>
+        <input class="form-input" id="accFeishuScanTemplateId" placeholder="扫描确认卡片模板 ID，如 $UUID$">
+        <div class="form-hint">扫描完成（无新视频）时发送的确认卡片模板 ID</div>
+      </div>
+      <div class="checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="accEnabled" checked>
+          <span class="checkbox-box"></span>
+          启用监控
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="accNotify" checked>
+          <span class="checkbox-box"></span>
+          发送通知
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalAccount')">取消</button>
+      <button class="btn btn-primary" onclick="saveAccount()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 视频详情 -->
+<div class="modal-overlay" id="modalVideoDetail">
+  <div class="modal" style="max-width:1100px;max-height:90vh">
+    <div class="modal-header">
+      <div class="modal-title">📹 视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
+      <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+      <!-- 工具栏 -->
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:180px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:180px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <select class="form-input" id="vdSortBy" style="width:130px" onchange="vdSearch()">
+          <option value="published_at">发布时间</option>
+          <option value="view_count">浏览量</option>
+          <option value="like_count">点赞数</option>
+          <option value="comment_count">评论数</option>
+        </select>
+        <select class="form-input" id="vdSortDir" style="width:80px" onchange="vdSearch()">
+          <option value="desc">降序</option>
+          <option value="asc">升序</option>
+        </select>
+        <button class="btn btn-sm" onclick="vdSearch()">🔍 搜索</button>
+        <div style="flex:1"></div>
+        <span id="vdTotal" style="font-size:12px;color:var(--text-muted)"></span>
+        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>⬇ 下载选中 (<span id="vdSelCount">0</span>)</button>
+      </div>
+      <!-- 表格 -->
+      <div style="flex:1;overflow:auto">
+        <table class="vd-table">
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
+              <th>标题</th>
+              <th style="width:80px">发布时间</th>
+              <th style="width:80px">浏览量</th>
+              <th style="width:60px">点赞</th>
+              <th style="width:60px">评论</th>
+              <th style="width:80px">下载状态</th>
+              <th style="width:60px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="vdTbody"></tbody>
+        </table>
+      </div>
+      <!-- 分页 -->
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <button class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
+        <span id="vdPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
+        <button class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: API 缓存管理 -->
+<div class="modal-overlay" id="modalCache">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <div class="modal-title">📦 API 缓存管理</div>
+      <button class="modal-close" onclick="closeModal('modalCache')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">
+        缓存 handle → channel_id + uploads_playlist_id，命中后扫描 <strong>0 API units</strong>。
+        删除缓存后下次扫描会重新调用 API（1 unit）。
+      </p>
+      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="cacheHandle" placeholder="输入 @handle 或频道 URL" style="flex:1">
+        <input class="form-input" id="cacheApiKey" placeholder="YouTube API Key" style="width:200px">
+        <button class="btn btn-sm info" onclick="refreshCacheItem()">刷新缓存</button>
+      </div>
+      <div id="cacheList" style="max-height:320px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sm danger" onclick="clearAllCache()">清空所有缓存</button>
+      <button class="btn btn-ghost" onclick="closeModal('modalCache')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 全局配置 -->
+<div class="modal-overlay" id="modalConfig">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">全局 Webhook 配置</div>
+      <button class="modal-close" onclick="closeModal('modalConfig')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="config-grid">
+        <div class="form-group">
+          <label class="form-label" style="color:var(--feishu)">💬 飞书 Webhook</label>
+          <input class="form-input" id="cfgFeishu" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
+          <div class="form-hint">账户级 URL 会覆盖此处全局配置</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--dingtalk)">🔔 钉钉 Webhook</label>
+          <input class="form-input" id="cfgDingtalk" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx">
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--wecom)">💼 企业微信 Webhook</label>
+          <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
+        </div>
+        <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <label class="form-label">📊 每日 API Quota 上限</label>
+          <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
+          <div class="form-hint">超过上限后自动停止扫描并发送报警</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalConfig')">取消</button>
+      <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toasts"></div>
+
+<script>
+  // ── API ─────────────────────────────────────────────────────
+  const API = '/api';
+
+  async function api(method, path, body) {
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const r = await fetch(API + path, opts);
+    return r.json();
+  }
+
+  // ── Toast ────────────────────────────────────────────────────
+  function toast(msg, type = 'info') {
+    const c = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  // ── 模态框 ───────────────────────────────────────────────────
+  function openModal(id) {
+    document.getElementById(id).classList.add('show');
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+  }
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target === el) el.classList.remove('show');
+    });
+  });
+
+  // ── 平台选择 ──────────────────────────────────────────────────
+  function selectPlatform(p) {
+    document.querySelectorAll('.platform-btn').forEach(b => b.className = 'platform-btn');
+    document.querySelector(`.platform-btn:nth-child(${p === 'feishu' ? 1 : p === 'dingtalk' ? 2 : 3})`).className =
+      `platform-btn active-${p}`;
+    document.getElementById('accPlatform').value = p;
+    // 飞书模板配置仅在飞书平台显示
+    const isFeishu = p === 'feishu';
+    document.getElementById('feishuTemplateConfig').style.display = isFeishu ? '' : 'none';
+    document.getElementById('feishuTemplateIdGroup').style.display = isFeishu ? '' : 'none';
+    document.getElementById('feishuScanTemplateIdGroup').style.display = isFeishu ? '' : 'none';
+  }
+
+  // ── 加载状态 ──────────────────────────────────────────────────
+  let schedulerRunning = false;
+
+  async function loadStatus() {
+    const data = await api('GET', '/status');
+    schedulerRunning = data.running;
+    updateSchedulerUI();
+  }
+
+  function updateSchedulerUI() {
+    const chip = document.getElementById('statusChip');
+    const btn = document.getElementById('btnToggleScheduler');
+    if (schedulerRunning) {
+      chip.className = 'status-chip running';
+      chip.innerHTML = '<span class="status-dot"></span><span>调度器运行中</span>';
+      btn.textContent = '■ 停止监控';
+      btn.className = 'btn btn-danger';
+      btn.onclick = toggleScheduler;
+    } else {
+      chip.className = 'status-chip stopped';
+      chip.innerHTML = '<span class="status-dot"></span><span>调度器已停止</span>';
+      btn.textContent = '▶ 启动监控';
+      btn.className = 'btn btn-success';
+      btn.onclick = toggleScheduler;
+    }
+  }
+
+  // ── 加载账户列表 ───────────────────────────────────────────────
+  async function loadAccounts() {
+    const accounts = await api('GET', '/accounts');
+    const tbody = document.getElementById('accountsTable');
+    const empty = document.getElementById('emptyAccounts');
+    const tableWrap = document.querySelector('.table-wrap');
+
+    if (!accounts || accounts.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      tableWrap.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    tableWrap.style.display = 'block';
+
+    tbody.innerHTML = accounts.map(a => {
+      const modeTag = a.fetch_mode === 'playlist'
+        ? '<span class="tag tag-muted">playlist</span>'
+        : '<span class="tag tag-accent">search</span>';
+      const platTag = a.notify_platform === 'feishu'
+        ? '<span class="tag tag-feishu">飞书</span>'
+        : a.notify_platform === 'dingtalk'
+        ? '<span class="tag tag-dingtalk">钉钉</span>'
+        : '<span class="tag tag-wecom">企微</span>';
+      const statusTag = a.enabled
+        ? '<span class="tag tag-success">启用</span>'
+        : '<span class="tag tag-muted">禁用</span>';
+      const notifyTag = a.notify_enabled
+        ? '<span class="tag tag-success">通知</span>'
+        : '<span class="tag tag-muted">静默</span>';
+      return `<tr>
+        <td class="td-mono">${a.id}</td>
+        <td class="td-name">${esc(a.name)}</td>
+        <td class="td-url" title="${esc(a.channel_url)}">${esc(a.channel_url)}</td>
+        <td>${modeTag}</td>
+        <td class="td-mono">${a.scan_interval}m</td>
+        <td class="td-mono">${a.fetch_limit}</td>
+        <td>${statusTag}</td>
+        <td>${platTag}${notifyTag}</td>
+        <td>
+          <div class="actions">
+            <button class="btn-sm" onclick="openEditAccount(${a.id})">编辑</button>
+            <button class="btn-sm" onclick="openVideoDetail(${a.id})">详情</button>
+            <button class="btn-sm info" onclick="scanNow(${a.id})">立即扫描</button>
+            <button class="btn-sm danger" onclick="deleteAccount(${a.id})">删除</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── 加载统计 ───────────────────────────────────────────────────
+  async function loadStats() {
+    const stats = await api('GET', '/stats');
+    let totalScans = 0, totalNew = 0, lastScan = '—';
+    if (stats && stats.length > 0) {
+      totalScans = stats.reduce((s, r) => s + (r.total_scans || 0), 0);
+      totalNew = stats.reduce((s, r) => s + (r.total_new_videos || 0), 0);
+      const latest = stats.find(r => r.last_scan_at);
+      lastScan = latest && latest.last_scan_at
+        ? fmtTime(latest.last_scan_at)
+        : '从未';
+    }
+    document.getElementById('statAccounts').textContent = stats ? stats.length : '0';
+    document.getElementById('statScans').textContent = totalScans;
+    document.getElementById('statNew').textContent = totalNew;
+    document.getElementById('statLast').textContent = lastScan;
+
+    // ── Quota 展示 ────────────────────────────────────────────
+    const quota = await api('GET', '/quota').catch(() => null);
+    if (quota && quota.items && quota.items.length > 0) {
+      const q = quota.items[0];
+      const used = q.api_calls || 0;
+      const budget = quota.budget_per_day || 8000;
+      const pct = Math.min(Math.round(used / budget * 100), 100);
+      const color = pct >= 90 ? 'var(--error)' : pct >= 70 ? 'var(--warning)' : 'var(--success)';
+      document.getElementById('quotaCard').style.display = '';
+      document.getElementById('statQuota').textContent = used + ' / ' + budget;
+      document.getElementById('statQuota').style.color = color;
+      document.getElementById('quotaBar').style.width = pct + '%';
+      document.getElementById('quotaBar').style.background = color;
+      document.getElementById('quotaSub').textContent =
+        '扫描' + (q.scans_done || 0) + '次' +
+        ((q.blocked_scans || 0) > 0 ? ' · 已阻止' + q.blocked_scans + '次' : '') +
+        ' · ' + pct + '%';
+    } else {
+      document.getElementById('quotaCard').style.display = 'none';
+    }
+  }
+
+  // ── 加载日志 ────────────────────────────────────────────────────
+  async function loadEvents() {
+    const events = await api('GET', '/events?limit=20');
+    const area = document.getElementById('logArea');
+    if (!events || events.length === 0) {
+      area.innerHTML = '<div class="log-line"><span class="log-time">—</span><span class="log-msg">暂无扫描记录</span></div>';
+      return;
+    }
+    document.getElementById('eventCount').textContent = `最近 ${events.length} 条`;
+    area.innerHTML = events.map(e => {
+      const cls = e.status === 'success' ? 'ok' : e.status === 'error' ? 'err' : 'info';
+      const time = e.scan_started_at ? fmtTime(e.scan_started_at) : '—';
+      const msg = e.status === 'success'
+        ? `${e.account_name}: API返回${e.total_videos} 新增${e.new_videos} 耗时${e.duration_ms}ms`
+        : e.status === 'error'
+        ? `${e.account_name}: ❌ ${e.error_message}`
+        : `${e.account_name}: 进行中...`;
+      return `<div class="log-line"><span class="log-time">${time}</span><span class="log-msg ${cls}">${esc(msg)}</span></div>`;
+    }).join('');
+  }
+
+  // ── 刷新 ───────────────────────────────────────────────────────
+  async function refresh() {
+    await Promise.all([loadStatus(), loadAccounts(), loadStats(), loadEvents()]);
+  }
+
+  // ── 调度器控制 ─────────────────────────────────────────────────
+  async function toggleScheduler() {
+    const btn = document.getElementById('btnToggleScheduler');
+    btn.innerHTML = '<span class="spinner"></span>';
+    btn.style.pointerEvents = 'none';
+    try {
+      const r = schedulerRunning
+        ? await api('POST', '/scheduler/stop')
+        : await api('POST', '/scheduler/start');
+      if (r.ok !== false) {
+        schedulerRunning = !schedulerRunning;
+        updateSchedulerUI();
+        toast(schedulerRunning ? '调度器已启动' : '调度器已停止', 'ok');
+      } else {
+        toast(r.error || '操作失败', 'err');
+      }
+    } catch(e) {
+      toast('网络错误', 'err');
+    }
+    btn.style.pointerEvents = '';
+  }
+
+  async function reloadJobs() {
+    const r = await api('POST', '/scheduler/reload');
+    toast(r.ok ? `重载完成，活跃任务: ${r.active_jobs}` : '重载失败', r.ok ? 'ok' : 'err');
+  }
+
+  // ── 账户操作 ────────────────────────────────────────────────────
+  function openAddAccount() {
+    document.getElementById('modalAccountTitle').textContent = '添加监控账户';
+    document.getElementById('accId').value = '';
+    document.getElementById('accName').value = '';
+    document.getElementById('accChannel').value = '';
+    document.getElementById('accApiKey').value = 'YOUTUBE_Data_API_V3';
+    document.getElementById('accMode').value = 'playlist';
+    document.getElementById('accLimit').value = '5';
+    document.getElementById('accInterval').value = '5';
+    document.getElementById('accWebhook').value = '';
+    document.getElementById('accFeishuMode').value = 'card_json';
+    document.getElementById('accFeishuTemplateId').value = '';
+    document.getElementById('accFeishuScanTemplateId').value = '';
+    document.getElementById('accEnabled').checked = true;
+    document.getElementById('accNotify').checked = true;
+    selectPlatform('feishu');
+    openModal('modalAccount');
+  }
+
+  async function openEditAccount(id) {
+    const accounts = await api('GET', '/accounts');
+    const acc = accounts.find(a => a.id === id);
+    if (!acc) return toast('账户不存在', 'err');
+    document.getElementById('modalAccountTitle').textContent = '编辑监控账户';
+    document.getElementById('accId').value = acc.id;
+    document.getElementById('accName').value = acc.name;
+    document.getElementById('accChannel').value = acc.channel_url;
+    document.getElementById('accApiKey').value = acc.api_key_env;
+    document.getElementById('accMode').value = acc.fetch_mode;
+    document.getElementById('accLimit').value = acc.fetch_limit;
+    document.getElementById('accInterval').value = acc.scan_interval;
+    document.getElementById('accWebhook').value = acc.webhook_url || '';
+    document.getElementById('accFeishuMode').value = acc.feishu_message_mode || 'card_json';
+    document.getElementById('accFeishuTemplateId').value = acc.feishu_template_id || '';
+    document.getElementById('accFeishuScanTemplateId').value = acc.feishu_scan_template_id || '';
+    document.getElementById('accEnabled').checked = acc.enabled;
+    document.getElementById('accNotify').checked = acc.notify_enabled;
+    selectPlatform(acc.notify_platform);
+    openModal('modalAccount');
+  }
+
+  async function saveAccount() {
+    const body = {
+      id: parseInt(document.getElementById('accId').value) || null,
+      name: document.getElementById('accName').value.trim(),
+      channel_url: document.getElementById('accChannel').value.trim(),
+      api_key_env: document.getElementById('accApiKey').value.trim() || 'YOUTUBE_Data_API_V3',
+      fetch_mode: document.getElementById('accMode').value,
+      fetch_limit: parseInt(document.getElementById('accLimit').value) || 5,
+      scan_interval: parseInt(document.getElementById('accInterval').value) || 5,
+      notify_platform: document.getElementById('accPlatform').value,
+      webhook_url: document.getElementById('accWebhook').value.trim() || null,
+      feishu_message_mode: document.getElementById('accFeishuMode').value,
+      feishu_template_id: document.getElementById('accFeishuTemplateId').value.trim() || null,
+      feishu_scan_template_id: document.getElementById('accFeishuScanTemplateId').value.trim() || null,
+      enabled: document.getElementById('accEnabled').checked,
+      notify_enabled: document.getElementById('accNotify').checked,
+    };
+    if (!body.name || !body.channel_url) {
+      toast('名称和频道 URL 不能为空', 'err');
+      return;
+    }
+    const r = await api('POST', '/accounts', body);
+    if (r.error) {
+      toast(r.error, 'err');
+    } else {
+      toast('账户已保存', 'ok');
+      closeModal('modalAccount');
+      await refresh();
+    }
+  }
+
+  async function deleteAccount(id) {
+    if (!confirm('确定删除此监控账户？')) return;
+    const r = await api('DELETE', `/accounts/${id}`, {});
+    if (r.error) toast(r.error, 'err');
+    else { toast('账户已删除', 'ok'); await refresh(); }
+  }
+
+  // ── 视频详情 ────────────────────────────────────────────────────
+  let _vdAccId = null;
+  let _vdPage = 1;
+  let _vdSel = new Set();
+
+  document.getElementById('vdTbody').addEventListener('click', (e) => {
+    const opener = e.target.closest('.vd-open-url');
+    if (!opener) return;
+    const targetUrl = opener.getAttribute('data-open-url');
+    if (!targetUrl) return;
+    window.open(targetUrl, '_blank');
+  });
+
+  async function openVideoDetail(accId) {
+    _vdAccId = accId;
+    _vdPage = 1;
+    _vdSel.clear();
+    const accounts = await api('GET', '/accounts');
+    const acc = accounts && accounts.find(a => a.id === accId);
+    document.getElementById('vdAccountName').textContent = acc ? '— ' + acc.name : '';
+    openModal('modalVideoDetail');
+    await vdLoad();
+  }
+
+  async function vdLoad() {
+    const titleKw = document.getElementById('vdTitleSearch').value.trim();
+    const urlKw   = document.getElementById('vdUrlSearch').value.trim();
+    const sortBy  = document.getElementById('vdSortBy').value;
+    const sortDir = document.getElementById('vdSortDir').value;
+    const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=20');
+    document.getElementById('vdTotal').textContent = '共 ' + res.total + ' 条';
+    document.getElementById('vdPageInfo').textContent = res.page + ' / ' + res.pages + ' 页';
+    document.getElementById('vdPrevBtn').disabled = res.page <= 1;
+    document.getElementById('vdNextBtn').disabled = res.page >= res.pages;
+    const tbody = document.getElementById('vdTbody');
+    if (!res.videos || res.videos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
+      return;
+    }
+    tbody.innerHTML = res.videos.map(v => {
+      const sel = _vdSel.has(v.id) ? 'checked' : '';
+      const dlTag = v.download_status === 'downloaded'
+        ? '<span class="tag tag-downloaded">已下载</span>'
+        : v.download_status === 'failed'
+        ? '<span class="tag tag-download-failed">失败</span>'
+        : '<span class="tag tag-download-pending">待下载</span>';
+      const pubDate = v.published_at ? v.published_at.slice(0, 10) : '—';
+      const views = v.view_count ? Number(v.view_count).toLocaleString() : '—';
+      const likes = v.like_count || '—';
+      const comments = v.comment_count || '—';
+      const title = esc(v.title || '');
+      const url = esc(v.url || '');
+      const desc = v.description ? esc(v.description.slice(0, 80) + (v.description.length > 80 ? '…' : '')) : '';
+      return '<tr data-id="' + v.id + '">' +
+        '<td class="vd-check"><input type="checkbox" ' + sel + ' onchange="vdToggle(' + v.id + ', this.checked)"></td>' +
+        '<td>' +
+          '<div class="vd-title vd-open-url" data-open-url="' + url + '" title="' + title + '">' + title + '</div>' +
+          '<a class="vd-url" href="' + url + '" target="_blank">' + url + '</a>' +
+          (desc ? '<div class="vd-desc">' + desc + '</div>' : '') +
+        '</td>' +
+        '<td class="vd-num">' + pubDate + '</td>' +
+        '<td class="vd-num">' + views + '</td>' +
+        '<td class="vd-num">' + likes + '</td>' +
+        '<td class="vd-num">' + comments + '</td>' +
+        '<td>' + dlTag + '</td>' +
+        '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + url + '">▶</button></td>' +
+      '</tr>';
+    }).join('');
+    const allChecked = res.videos.length > 0 && res.videos.every(v => _vdSel.has(v.id));
+    document.getElementById('vdCheckAll').checked = allChecked;
+    _updateVdSelCount();
+  }
+
+  function vdSearch() { _vdPage = 1; vdLoad(); }
+  function vdGoPage(dir) { _vdPage += dir; vdLoad(); }
+  function vdToggle(id, checked) {
+    if (checked) _vdSel.add(id); else _vdSel.delete(id);
+    vdLoad();
+  }
+  function vdToggleAll(el) {
+    vdLoad().then(() => {
+      const rows = document.querySelectorAll('#vdTbody tr');
+      if (el.checked) {
+        rows.forEach(r => { const cb = r.querySelector('input[type=checkbox]'); if (cb) cb.checked = true; });
+        document.querySelectorAll('#vdTbody tr').forEach(r => _vdSel.add(parseInt(r.dataset.id)));
+      } else {
+        rows.forEach(r => { const cb = r.querySelector('input[type=checkbox]'); if (cb) cb.checked = false; });
+        _vdSel.clear();
+      }
+      _updateVdSelCount();
+    });
+  }
+  function _updateVdSelCount() {
+    document.getElementById('vdSelCount').textContent = _vdSel.size;
+    document.getElementById('vdBatchBtn').disabled = _vdSel.size === 0;
+  }
+  async function vdBatchDownload() {
+    if (_vdSel.size === 0) return;
+    const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', { video_ids: Array.from(_vdSel) });
+    if (r.ok) toast(r.queued + ' 个视频已加入下载队列', 'ok');
+    else toast('加入下载队列失败: ' + (r.error || ''), 'err');
+  }
+
+  async function scanNow(id) {
+    const btn = event.target;
+    btn.innerHTML = '<span class="spinner"></span>';
+    btn.disabled = true;
+    await api('POST', '/accounts/scan', { account_id: id });
+    toast('扫描已触发', 'info');
+    setTimeout(() => { btn.textContent = '立即扫描'; btn.disabled = false; }, 3000);
+  }
+
+  // ── 全局配置 ────────────────────────────────────────────────────
+  async function openConfig() {
+    const cfg = await api('GET', '/config');
+    document.getElementById('cfgFeishu').value = cfg.global_feishu_url || '';
+    document.getElementById('cfgDingtalk').value = cfg.global_dingtalk_url || '';
+    document.getElementById('cfgWecom').value = cfg.global_wecom_url || '';
+    document.getElementById('cfgQuotaBudget').value = cfg.quota_budget_per_day || 8000;
+    openModal('modalConfig');
+  }
+
+  async function saveConfig() {
+    const body = {
+      global_feishu_url: document.getElementById('cfgFeishu').value.trim(),
+      global_dingtalk_url: document.getElementById('cfgDingtalk').value.trim(),
+      global_wecom_url: document.getElementById('cfgWecom').value.trim(),
+      quota_budget_per_day: parseInt(document.getElementById('cfgQuotaBudget').value) || 8000,
+    };
+    const r = await api('POST', '/config', body);
+    if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
+    else toast('保存失败', 'err');
+  }
+
+  // ── API 缓存 ────────────────────────────────────────────────────
+  async function openCache() {
+    openModal('modalCache');
+    await loadCacheList();
+  }
+
+  async function loadCacheList() {
+    const list = await api('GET', '/cache');
+    const el = document.getElementById('cacheList');
+    if (!list || list.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">暂无缓存</div>';
+      return;
+    }
+    el.innerHTML = list.map(c => `
+      <div class="account-row" style="align-items:center;padding:8px 12px;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div class="mono" style="font-size:12px;color:var(--accent)">@${esc(c.handle)}</div>
+          <div class="mono" style="font-size:11px;color:var(--text-muted)">
+            ${esc(c.channel_id)} · ${esc(c.channel_name || '—')} · ${esc(c.uploads_playlist_id || '—')}
+          </div>
+          <div class="mono" style="font-size:10px;color:var(--text-muted)">缓存于 ${fmtTime(c.cached_at)}</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn-sm" onclick="refreshCacheItemByHandle('${esc(c.handle)}')">刷新</button>
+          <button class="btn-sm danger" onclick="deleteCacheItem('${esc(c.handle)}')">删除</button>
+        </div>
+      </div>`).join('');
+  }
+
+  async function refreshCacheItem() {
+    const handle = document.getElementById('cacheHandle').value.trim();
+    const apiKey = document.getElementById('cacheApiKey').value.trim();
+    if (!handle || !apiKey) { toast('handle 和 API Key 均必填', 'err'); return; }
+    const r = await api('POST', '/cache/refresh', { handle, api_key: apiKey });
+    if (r.success) {
+      toast('缓存刷新成功', 'ok');
+      await loadCacheList();
+    } else {
+      toast('刷新失败: ' + (r.error || ''), 'err');
+    }
+  }
+
+  async function refreshCacheItemByHandle(handle) {
+    const apiKey = prompt('请输入 YouTube API Key（用于刷新缓存）:\n\n提示：需要该频道对应的 API Key');
+    if (!apiKey) return;
+    const r = await api('POST', '/cache/refresh', { handle, api_key: apiKey });
+    if (r.success) {
+      toast('缓存刷新成功', 'ok');
+      await loadCacheList();
+    } else {
+      toast('刷新失败: ' + (r.error || ''), 'err');
+    }
+  }
+
+  async function deleteCacheItem(handle) {
+    if (!confirm(`确认删除缓存 @${handle}？\n\n删除后下次扫描会重新调用 API（1 unit）。`)) return;
+    const r = await api('DELETE', `/cache/${encodeURIComponent(handle)}`);
+    if (r.ok) { toast('已删除', 'ok'); await loadCacheList(); }
+    else toast('删除失败', 'err');
+  }
+
+  async function clearAllCache() {
+    if (!confirm('确认清空所有 API 缓存？\n\n所有频道下次扫描都会重新调用 API（每次 1 unit）。')) return;
+    const r = await api('POST', '/cache/clear', {});
+    if (r.ok) { toast(`已清空 ${r.cleared} 条缓存`, 'ok'); await loadCacheList(); }
+    else toast('清空失败', 'err');
+  }
+
+  // ── 工具函数 ────────────────────────────────────────────────────
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+    } catch { return iso; }
+  }
+
+  // ── 启动 ───────────────────────────────────────────────────────
+  refresh();
+  setInterval(refresh, 10000); // 每 10 秒刷新
+</script>
+</body>
+</html>
