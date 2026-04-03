@@ -29,3 +29,11 @@ YouTube批量下载器.spec
 
 *.xlsx
 *.txt
+
+# User data (sensitive)
+cookies.json
+channel_videos.csv
+proxy_config.json
+
+# Test scripts
+scripts/test_*.py
