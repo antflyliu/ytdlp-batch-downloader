@@ -197,6 +197,16 @@ dist/YouTube批量下载器.exe
 
 ---
 
+## 消息通知
+
+### 飞书
+
+** webhook 文档： **
+https://www.feishu.cn/hc/zh-CN/articles/807992406756-webhook-%E8%A7%A6%E5%8F%91%E5%99%A8
+
+
+---
+
 ## 文件结构
 
 ```
@@ -222,3 +232,44 @@ ytdlp-batch-downloader/
 - **外部下载器**: aria2c（可选）
 - **视频处理**: ffmpeg
 - **字幕生成**: [WhisperX](https://github.com/m-bain/whisperX)（ASR 自动生成）
+
+```
+
+(venv_build) PS D:\WORKSPACE\video-download-space\ytdlp-batch-downloader> nvidia-smi
+Tue Mar 31 13:08:08 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 572.40                 Driver Version: 572.40         CUDA Version: 12.8     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                  Driver-Model | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce MX150         WDDM  |   00000000:01:00.0 Off |                  N/A |
+| N/A   56C    P5            N/A  / 5001W |     592MiB /   2048MiB |     29%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            6024    C+G   ...yb3d8bbwe\WindowsTerminal.exe      N/A      |
+|    0   N/A  N/A            8904    C+G   ...e-2.7.1-Beta-x64\Snipaste.exe      N/A      |
+|    0   N/A  N/A            9144    C+G   D:\INSTALLED\Typora\Typora.exe        N/A      |
+|    0   N/A  N/A           12584    C+G   ...y\StartMenuExperienceHost.exe      N/A      |
+|    0   N/A  N/A           13856    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
+|    0   N/A  N/A           14376    C+G   ...5n1h2txyewy\TextInputHost.exe      N/A      |
+|    0   N/A  N/A           14404    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
+|    0   N/A  N/A           16368    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
+|    0   N/A  N/A           18192    C+G   ...y\Comet\Application\comet.exe      N/A      |
+|    0   N/A  N/A           21864    C+G   C:\Program Files\flomo\flomo.exe      N/A      |
+|    0   N/A  N/A           23128    C+G   ..._cw5n1h2txyewy\SearchHost.exe      N/A      |
+|    0   N/A  N/A           24056    C+G   ...App_cw5n1h2txyewy\LockApp.exe      N/A      |
+|    0   N/A  N/A           28160    C+G   ...indows\System32\ShellHost.exe      N/A      |
++-----------------------------------------------------------------------------------------+
+
+
+(venv_build) PS D:\WORKSPACE\video-download-space\ytdlp-batch-downloader> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+```

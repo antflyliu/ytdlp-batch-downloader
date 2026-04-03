@@ -5,10 +5,16 @@ WhisperX 子进程包装器
 """
 import sys
 import os
-import whisperx
 
 
 def generate_subtitle(video_path, output_dir, model_name, device, compute_type):
+    try:
+        import whisperx
+    except Exception as e:
+        print(f"ERROR:WhisperX 无法导入，请先安装: pip install whisperx", file=sys.stderr)
+        print(f"ERROR:详情: {e}", file=sys.stderr)
+        return 1
+
     try:
         # 加载模型
         model = whisperx.load_model(model_name, device=device, compute_type=compute_type)
