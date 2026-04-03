@@ -3,6 +3,7 @@ monitor.fetcher — YouTube API 获取器
 通过 ytb_api.YouTubeDataCollector 获取频道视频详情
 """
 import os
+import re
 import sys
 from typing import Literal
 
@@ -27,6 +28,37 @@ from ytb_api import YouTubeDataCollector
 from monitor import cache as channel_cache
 
 _log = logging_config.get_logger("monitor.fetcher")
+
+_YT_DURATION_RE = re.compile(
+    r"^P"
+    r"(?:(?P<days>\d+)D)?"
+    r"(?:T"
+    r"(?:(?P<hours>\d+)H)?"
+    r"(?:(?P<minutes>\d+)M)?"
+    r"(?:(?P<seconds>\d+)S)?"
+    r")?$"
+)
+
+
+def parse_youtube_duration(duration: str | None) -> int | None:
+    """将 YouTube API 的 ISO 8601 时长转为秒。"""
+    if not duration:
+        return None
+
+    match = _YT_DURATION_RE.fullmatch(duration)
+    if not match:
+        return None
+
+    parts = {
+        key: int(value) if value else 0
+        for key, value in match.groupdict().items()
+    }
+    return (
+        parts["days"] * 86400
+        + parts["hours"] * 3600
+        + parts["minutes"] * 60
+        + parts["seconds"]
+    )
 
 
 class YouTubeFetcher:
@@ -119,6 +151,7 @@ class YouTubeFetcher:
             for v in raw_videos:
                 snippet = v.get("snippet", {})
                 stats = v.get("statistics", {})
+                content_details = v.get("contentDetails", {})
                 videos.append({
                     "video_id": v.get("id", ""),
                     "channel_id": channel_info["channel_id"],
@@ -128,7 +161,7 @@ class YouTubeFetcher:
                     "url": f"https://www.youtube.com/watch?v={v.get('id', '')}",
                     "published_at": snippet.get("publishedAt", ""),
                     "upload_date": snippet.get("publishedAt", "")[:10] if snippet.get("publishedAt") else None,
-                    "duration_sec": None,
+                    "duration_sec": parse_youtube_duration(content_details.get("duration")),
                     "view_count": int(stats.get("viewCount", 0) or 0),
                     "like_count": int(stats.get("likeCount", 0) or 0),
                     "comment_count": int(stats.get("commentCount", 0) or 0),

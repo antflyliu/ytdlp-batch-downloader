@@ -212,26 +212,29 @@ class YouTubeDataCollector:
             self.log_message(f"获取频道数据时出错: {str(e)}")
             raise
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def get_videos_details(self, video_ids):
-        """获取视频详细信息"""
-        try:
-            # 每次最多请求50个视频的详情
-            results = []
-            for i in range(0, len(video_ids), 50):
-                batch = video_ids[i:i + 50]
-                request = self.youtube.videos().list(
-                    part="snippet,statistics",  # statistics 部分包含了点赞数和评论数
-                    id=','.join(batch)
-                )
-                response = request.execute()
-                self._incr_quota()
-                results.extend(response['items'])
-                self.log_message(f"成功获取一批 {len(batch)} 个视频的详情")
+        """获取视频详细信息，按 API 上限每批最多 50 个 ID"""
+        results = []
+        for i in range(0, len(video_ids), 50):
+            batch = video_ids[i:i + 50]
+            items = self._fetch_video_batch(batch)
+            results.extend(items)
+        return results
 
-            return results
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _fetch_video_batch(self, batch):
+        """单批次请求视频详情（最多 50 个），失败时仅重试本批次"""
+        try:
+            request = self.youtube.videos().list(
+                part="snippet,statistics,contentDetails",
+                id=','.join(batch)
+            )
+            response = request.execute()
+            self._incr_quota()
+            self.log_message(f"成功获取一批 {len(batch)} 个视频的详情")
+            return response['items']
         except Exception as e:
-            self.log_message(f"获取视频详情时出错: {str(e)}")
+            self.log_message(f"获取视频详情时出错 (本批 {len(batch)} 个): {str(e)}")
             raise
 
 
