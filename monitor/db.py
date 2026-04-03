@@ -37,6 +37,8 @@ def _config_default() -> dict:
         "default_fetch_limit": 5,
         "default_scan_interval": 5,
         "quota_budget_per_day": 8000,
+        "download_cookies_file": "",
+        "download_output_path": "",
     }
 
 
@@ -416,7 +418,7 @@ def get_account_videos(
         rows = conn.execute(
             f"""SELECT
                 id, video_id, title, description, url,
-                published_at, upload_date,
+                published_at, upload_date, duration_sec,
                 view_count, like_count, comment_count,
                 notify_status, download_status, download_at, download_path,
                 fetched_at
@@ -457,6 +459,20 @@ def update_videos_download_status(
             values + video_ids,
         )
         return cur.rowcount
+
+
+def get_videos_by_ids(video_ids: list[int]) -> list[dict]:
+    """根据 monitor_videos.id 列表查询视频记录（含 url, title 等）"""
+    if not video_ids:
+        return []
+    placeholders = ",".join("?" * len(video_ids))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT id, video_id, title, url, download_status
+                FROM monitor_videos WHERE id IN ({placeholders})""",
+            video_ids,
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── 调度状态（存 DB，不用内存变量，避免进程重启丢失）─────
