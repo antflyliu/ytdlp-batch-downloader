@@ -13,7 +13,9 @@ import json
 import os
 import sys
 import threading
+import uuid
 import webbrowser
+from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -28,8 +30,91 @@ import monitor.scheduler as _scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
+from Youtube_Downloader import batch_download
 
 _log = logging_config.get_logger("monitor_server")
+
+
+# ── 下载任务管理器 ────────────────────────────────────────────
+class _DownloadTaskManager:
+    """
+    线程安全的后台下载任务管理器。
+    每个任务跟踪进度、状态和每个视频的下载结果。
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._tasks: dict[str, dict] = {}
+
+    def create_task(self, video_records: list[dict], output_path: str) -> str:
+        """创建下载任务，返回 task_id"""
+        task_id = uuid.uuid4().hex[:12]
+        task = {
+            "task_id": task_id,
+            "status": "running",
+            "total": len(video_records),
+            "completed": 0,
+            "success": 0,
+            "failed": 0,
+            "current_video": "",
+            "results": [],
+            "output_path": output_path,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+        }
+        with self._lock:
+            self._tasks[task_id] = task
+        return task_id
+
+    def update_progress(self, task_id: str, completed: int, status_text: str):
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t:
+                t["completed"] = completed
+                t["current_video"] = status_text
+
+    def finish_task(self, task_id: str, results: list[dict]):
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t:
+                t["status"] = "done"
+                t["results"] = results
+                t["completed"] = t["total"]
+                t["success"] = sum(1 for r in results if r.get("状态") == "成功")
+                t["failed"] = sum(1 for r in results if r.get("状态") == "失败")
+                t["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+    def fail_task(self, task_id: str, error: str):
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t:
+                t["status"] = "error"
+                t["error"] = error
+                t["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+    def get_task(self, task_id: str) -> dict | None:
+        with self._lock:
+            t = self._tasks.get(task_id)
+            return dict(t) if t else None
+
+    def cleanup_old(self, max_age_sec: int = 3600):
+        """清理超过 max_age_sec 的已完成任务"""
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            to_del = []
+            for tid, t in self._tasks.items():
+                if t["status"] in ("done", "error") and t.get("finished_at"):
+                    try:
+                        fin = datetime.fromisoformat(t["finished_at"])
+                        if (now - fin).total_seconds() > max_age_sec:
+                            to_del.append(tid)
+                    except Exception:
+                        pass
+            for tid in to_del:
+                del self._tasks[tid]
+
+
+_task_mgr = _DownloadTaskManager()
 
 # ── PyInstaller 兼容路径 ───────────────────────────────────────
 if getattr(sys, "frozen", False):
@@ -86,6 +171,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_cache_list()
         elif path == "/api/quota":
             self._api_quota()
+        elif path.startswith("/api/download-tasks/"):
+            task_id = path.split("/")[-1]
+            self._api_download_task_status(task_id)
         elif path.startswith("/api/accounts/") and "/videos" in path:
             acc_id = path.split("/")[3]
             self._api_account_videos(acc_id)
@@ -118,7 +206,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/accounts/") and "/videos/batch-download" in path:
             acc_id = path.split("/")[3]
             self._api_account_videos_batch_download(acc_id, body)
-            self._api_account_scan(body)
         elif path == "/api/config":
             self._api_config_save(body)
         elif path == "/api/cache/refresh":
@@ -217,7 +304,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_config_save(self, body):
         cfg = _db.load_config()
-        for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url", "quota_budget_per_day"]:
+        for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
+                    "quota_budget_per_day", "download_cookies_file", "download_output_path"]:
             if key in body:
                 cfg[key] = body[key]
         path = _db.get_config_path()
@@ -372,16 +460,117 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         })
 
     def _api_account_videos_batch_download(self, acc_id: str, body: dict):
-        """POST /api/accounts/{id}/videos/batch-download — 批量加入下载队列（stub）"""
+        """POST /api/accounts/{id}/videos/batch-download — 批量下载视频（Python yt_dlp 库）"""
         video_ids: list = body.get("video_ids", [])
         if not video_ids:
             self._send_json({"error": "未选择视频"}, 400)
             return
-        # TODO: 写入下载队列
+
+        cfg = _db.load_config()
+
+        output_path = body.get("output_path", "").strip()
+        if not output_path:
+            output_path = cfg.get("download_output_path", "").strip()
+        if not output_path:
+            output_path = os.path.join(_PROJECT_ROOT, "videos")
+
+        os.makedirs(output_path, exist_ok=True)
+
+        video_records = _db.get_videos_by_ids(video_ids)
+        if not video_records:
+            self._send_json({"error": "未找到视频记录"}, 404)
+            return
+
+        urls = [v["url"] for v in video_records if v.get("url")]
+        if not urls:
+            self._send_json({"error": "视频记录中无有效 URL"}, 400)
+            return
+
+        task_id = _task_mgr.create_task(video_records, output_path)
+        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={output_path}")
+
+        _db.update_videos_download_status(video_ids, "downloading")
+
+        sub_langs = body.get("sub_langs", "zh-Hans,en")
+        no_subs = body.get("no_subs", False)
+        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
+
+        def _bg_download():
+            try:
+                def progress_cb(progress, status_text):
+                    completed = int(progress * len(urls))
+                    _task_mgr.update_progress(task_id, completed, status_text)
+
+                results = batch_download(
+                    urls,
+                    output_path,
+                    'best',
+                    progress_callback=progress_cb,
+                    sub_langs=sub_langs if not no_subs else None,
+                    no_subs=no_subs,
+                    cookies_file=cookies_file,
+                )
+
+                _task_mgr.finish_task(task_id, results)
+
+                url_to_vid = {v["url"]: v["id"] for v in video_records}
+                success_ids = []
+                failed_ids = []
+                for r in results:
+                    vid = url_to_vid.get(r.get("URL"))
+                    if not vid:
+                        continue
+                    if r.get("状态") == "成功":
+                        success_ids.append(vid)
+                    else:
+                        failed_ids.append(vid)
+
+                now_str = _db.now_iso()
+                if success_ids:
+                    _db.update_videos_download_status(
+                        success_ids, "downloaded",
+                        download_at=now_str,
+                        download_path=output_path,
+                    )
+                if failed_ids:
+                    _db.update_videos_download_status(
+                        failed_ids, "failed",
+                        download_error="yt-dlp 下载失败",
+                    )
+
+                _log.info(f"下载任务完成: task_id={task_id} 成功={len(success_ids)} 失败={len(failed_ids)}")
+
+            except Exception as e:
+                _task_mgr.fail_task(task_id, str(e))
+                _db.update_videos_download_status(video_ids, "failed", download_error=str(e))
+                _log.error(f"下载任务异常: task_id={task_id} error={e}")
+
+        threading.Thread(target=_bg_download, daemon=True).start()
+
         self._send_json({
             "ok": True,
-            "queued": len(video_ids),
-            "message": f"{len(video_ids)} 个视频已加入下载队列（待实现）",
+            "task_id": task_id,
+            "queued": len(urls),
+            "message": f"{len(urls)} 个视频已开始下载",
+        })
+
+    def _api_download_task_status(self, task_id: str):
+        """GET /api/download-tasks/{task_id} — 查询下载任务进度"""
+        task = _task_mgr.get_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json({
+            "task_id": task["task_id"],
+            "status": task["status"],
+            "total": task["total"],
+            "completed": task["completed"],
+            "success": task["success"],
+            "failed": task["failed"],
+            "current_video": task.get("current_video", ""),
+            "error": task.get("error"),
+            "created_at": task.get("created_at"),
+            "finished_at": task.get("finished_at"),
         })
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────
