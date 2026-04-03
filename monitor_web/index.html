@@ -410,6 +410,73 @@
     transition: transform 0.2s;
   }
   .modal-overlay.show .modal { transform: scale(1); }
+
+  /* ── 全屏视频详情 ─────────────────────────────────────────── */
+  /* 覆盖 modalVideoDetail 的通用模态样式，改为全屏独立页面 */
+  #modalVideoDetail {
+    align-items: stretch;
+    justify-content: stretch;
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+  #modalVideoDetail.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  #modalVideoDetail > .modal {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    transform: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #modalVideoDetail > .modal {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    transform: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  #modalVideoDetail > .modal > .modal-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    min-height: 0;
+  }
+  #modalVideoDetail .modal-header {
+    flex-shrink: 0;
+    padding: 0 24px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #modalVideoDetail .modal-header .modal-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #modalVideoDetail .modal-header .modal-close {
+    flex-shrink: 0;
+  }
   .modal-header {
     display: flex;
     align-items: center;
@@ -622,18 +689,19 @@
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 8px 10px;
+    padding: 10px 12px;
     text-align: left;
     position: sticky;
     top: 0;
     z-index: 1;
     white-space: nowrap;
+    border-bottom: 2px solid var(--border);
   }
   .vd-table td {
-    padding: 8px 10px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
-    max-width: 320px;
+    max-width: 520px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -648,12 +716,21 @@
   .tag-downloaded { background: rgba(63,185,80,0.15); color: var(--success); }
   .tag-download-pending { background: rgba(139,148,158,0.15); color: var(--text-muted); }
   .tag-download-failed { background: rgba(248,81,73,0.15); color: var(--error); }
+  .tag-downloading { background: rgba(240,136,62,0.18); color: var(--accent); }
   .vd-check { width: 36px; }
   .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
   .btn-sm.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn-sm.btn-primary:hover { background: var(--accent-hover); }
   .btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* 下载进度条 */
+  .vd-dl-bar { display:none; padding:8px 16px; border-bottom:1px solid var(--border); }
+  .vd-dl-bar.show { display:block; }
+  .vd-dl-bar .dl-info { font-size:12px; color:var(--text-muted); margin-bottom:4px; display:flex; justify-content:space-between; }
+  .vd-dl-bar .dl-track { height:6px; background:var(--surface3); border-radius:3px; overflow:hidden; }
+  .vd-dl-bar .dl-fill { height:100%; background:var(--accent); border-radius:3px; transition:width 0.3s ease; }
+  .vd-dl-bar .dl-status { font-size:11px; color:var(--text-dim); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   /* ── 减少动画 ─────────────────────────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
@@ -872,56 +949,74 @@
   </div>
 </div>
 
-<!-- 模态: 视频详情 -->
+<!-- 全屏: 视频详情 -->
 <div class="modal-overlay" id="modalVideoDetail">
-  <div class="modal" style="max-width:1100px;max-height:90vh">
+  <div class="modal">
     <div class="modal-header">
       <div class="modal-title">📹 视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
-      <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--text-dim);padding:2px 6px;background:var(--surface2);border-radius:4px;border:1px solid var(--border)">ESC 关闭</span>
+        <span id="vdTotal" style="font-size:12px;color:var(--text-muted);margin-right:8px"></span>
+        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>⬇ 下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
+      </div>
     </div>
-    <div class="modal-body" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+    <div class="modal-body">
       <!-- 工具栏 -->
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:180px" onkeydown="if(event.key==='Enter')vdSearch()">
-        <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:180px" onkeydown="if(event.key==='Enter')vdSearch()">
-        <select class="form-input" id="vdSortBy" style="width:130px" onchange="vdSearch()">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+        <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <select class="form-input" id="vdSortBy" style="width:140px" onchange="vdSearch()">
           <option value="published_at">发布时间</option>
           <option value="view_count">浏览量</option>
           <option value="like_count">点赞数</option>
           <option value="comment_count">评论数</option>
         </select>
-        <select class="form-input" id="vdSortDir" style="width:80px" onchange="vdSearch()">
+        <select class="form-input" id="vdSortDir" style="width:90px" onchange="vdSearch()">
           <option value="desc">降序</option>
           <option value="asc">升序</option>
         </select>
         <button class="btn btn-sm" onclick="vdSearch()">🔍 搜索</button>
-        <div style="flex:1"></div>
-        <span id="vdTotal" style="font-size:12px;color:var(--text-muted)"></span>
-        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>⬇ 下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
+      </div>
+      <!-- 下载进度条 -->
+      <div class="vd-dl-bar" id="vdDlBar">
+        <div class="dl-info">
+          <span id="vdDlLabel">准备下载...</span>
+          <span id="vdDlPercent">0%</span>
+        </div>
+        <div class="dl-track"><div class="dl-fill" id="vdDlFill" style="width:0%"></div></div>
+        <div class="dl-status" id="vdDlStatus"></div>
       </div>
       <!-- 表格 -->
-      <div style="flex:1;overflow:auto">
+      <div style="flex:1;overflow:auto;min-height:0">
         <table class="vd-table">
           <thead>
             <tr>
-              <th style="width:36px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
+              <th style="width:40px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
               <th>标题</th>
-              <th style="width:80px">发布时间</th>
-              <th style="width:80px">浏览量</th>
-              <th style="width:60px">点赞</th>
-              <th style="width:60px">评论</th>
-              <th style="width:80px">下载状态</th>
-              <th style="width:60px">操作</th>
+              <th style="width:90px">发布时间</th>
+              <th style="width:80px">时长</th>
+              <th style="width:90px">浏览量</th>
+              <th style="width:70px">点赞</th>
+              <th style="width:70px">评论</th>
+              <th style="width:90px">下载状态</th>
+              <th style="width:50px">操作</th>
             </tr>
           </thead>
           <tbody id="vdTbody"></tbody>
         </table>
       </div>
       <!-- 分页 -->
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:12px;flex-shrink:0">
         <button class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
         <span id="vdPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
         <button class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
+        <select class="form-input" id="vdPageSize" style="width:80px;font-size:12px" onchange="vdChangePageSize()">
+          <option value="20">20/页</option>
+          <option value="50">50/页</option>
+          <option value="100">100/页</option>
+        </select>
       </div>
     </div>
   </div>
@@ -957,7 +1052,7 @@
 <div class="modal-overlay" id="modalConfig">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">全局 Webhook 配置</div>
+      <div class="modal-title">全局配置</div>
       <button class="modal-close" onclick="closeModal('modalConfig')">✕</button>
     </div>
     <div class="modal-body">
@@ -979,6 +1074,16 @@
           <label class="form-label">📊 每日 API Quota 上限</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
           <div class="form-hint">超过上限后自动停止扫描并发送报警</div>
+        </div>
+        <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <label class="form-label">🍪 Cookie 文件路径</label>
+          <input class="form-input" id="cfgCookiesFile" placeholder="例: C:\cookies.txt">
+          <div class="form-hint">Netscape 格式 (.txt) 或 JSON 格式 (.json)。留空则不使用 Cookie。可通过浏览器扩展 "Get cookies.txt LOCALLY" 导出。</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">📂 下载保存路径</label>
+          <input class="form-input" id="cfgDownloadPath" placeholder="留空默认: videos/">
+          <div class="form-hint">视频下载文件的保存目录（绝对路径）</div>
         </div>
       </div>
     </div>
@@ -1021,11 +1126,18 @@
     document.getElementById(id).classList.add('show');
   }
   function closeModal(id) {
+    if (id === 'modalVideoDetail' && _vdEscHandler) {
+      document.removeEventListener('keydown', _vdEscHandler);
+      _vdEscHandler = null;
+    }
     document.getElementById(id).classList.remove('show');
   }
   document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => {
-      if (e.target === el) el.classList.remove('show');
+      // 视频详情全屏弹窗：点击外部不关闭，只能通过右上角 X 关闭
+      if (e.target === el && el.id !== 'modalVideoDetail') {
+        el.classList.remove('show');
+      }
     });
   });
 
@@ -1297,6 +1409,7 @@
   let _vdAccId = null;
   let _vdPage = 1;
   let _vdSel = new Set();
+  let _vdEscHandler = null;
 
   document.getElementById('vdTbody').addEventListener('click', (e) => {
     const opener = e.target.closest('.vd-open-url');
@@ -1313,8 +1426,19 @@
     const accounts = await api('GET', '/accounts');
     const acc = accounts && accounts.find(a => a.id === accId);
     document.getElementById('vdAccountName').textContent = acc ? '— ' + acc.name : '';
+    // ESC 键关闭全屏视频详情
+    _vdEscHandler = (e) => { if (e.key === 'Escape') closeModal('modalVideoDetail'); };
+    document.addEventListener('keydown', _vdEscHandler);
     openModal('modalVideoDetail');
     await vdLoad();
+  }
+
+  function closeModal(id) {
+    if (id === 'modalVideoDetail' && _vdEscHandler) {
+      document.removeEventListener('keydown', _vdEscHandler);
+      _vdEscHandler = null;
+    }
+    document.getElementById(id).classList.remove('show');
   }
 
   async function vdLoad() {
@@ -1322,24 +1446,28 @@
     const urlKw   = document.getElementById('vdUrlSearch').value.trim();
     const sortBy  = document.getElementById('vdSortBy').value;
     const sortDir = document.getElementById('vdSortDir').value;
-    const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=20');
+    const pageSize = parseInt(document.getElementById('vdPageSize').value) || 20;
+    const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=' + pageSize);
     document.getElementById('vdTotal').textContent = '共 ' + res.total + ' 条';
     document.getElementById('vdPageInfo').textContent = res.page + ' / ' + res.pages + ' 页';
     document.getElementById('vdPrevBtn').disabled = res.page <= 1;
     document.getElementById('vdNextBtn').disabled = res.page >= res.pages;
     const tbody = document.getElementById('vdTbody');
     if (!res.videos || res.videos.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
       return;
     }
     tbody.innerHTML = res.videos.map(v => {
       const sel = _vdSel.has(v.id) ? 'checked' : '';
       const dlTag = v.download_status === 'downloaded'
         ? '<span class="tag tag-downloaded">已下载</span>'
+        : v.download_status === 'downloading'
+        ? '<span class="tag tag-downloading">下载中</span>'
         : v.download_status === 'failed'
         ? '<span class="tag tag-download-failed">失败</span>'
         : '<span class="tag tag-download-pending">待下载</span>';
       const pubDate = v.published_at ? v.published_at.slice(0, 10) : '—';
+      const duration = v.duration_sec ? fmtDuration(v.duration_sec) : '—';
       const views = v.view_count ? Number(v.view_count).toLocaleString() : '—';
       const likes = v.like_count || '—';
       const comments = v.comment_count || '—';
@@ -1354,6 +1482,7 @@
           (desc ? '<div class="vd-desc">' + desc + '</div>' : '') +
         '</td>' +
         '<td class="vd-num">' + pubDate + '</td>' +
+        '<td class="vd-num">' + duration + '</td>' +
         '<td class="vd-num">' + views + '</td>' +
         '<td class="vd-num">' + likes + '</td>' +
         '<td class="vd-num">' + comments + '</td>' +
@@ -1368,6 +1497,15 @@
 
   function vdSearch() { _vdPage = 1; vdLoad(); }
   function vdGoPage(dir) { _vdPage += dir; vdLoad(); }
+  function vdChangePageSize() { _vdPage = 1; vdLoad(); }
+  function vdClearFilters() {
+    document.getElementById('vdTitleSearch').value = '';
+    document.getElementById('vdUrlSearch').value = '';
+    document.getElementById('vdSortBy').value = 'published_at';
+    document.getElementById('vdSortDir').value = 'desc';
+    _vdPage = 1;
+    vdLoad();
+  }
   function vdToggle(id, checked) {
     if (checked) _vdSel.add(id); else _vdSel.delete(id);
     vdLoad();
@@ -1389,11 +1527,78 @@
     document.getElementById('vdSelCount').textContent = _vdSel.size;
     document.getElementById('vdBatchBtn').disabled = _vdSel.size === 0;
   }
+  let _vdDlPollTimer = null;
+
   async function vdBatchDownload() {
     if (_vdSel.size === 0) return;
+    const btn = document.getElementById('vdBatchBtn');
+    btn.disabled = true;
+    btn.textContent = '提交中...';
+
     const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', { video_ids: Array.from(_vdSel) });
-    if (r.ok) toast(r.queued + ' 个视频已加入下载队列', 'ok');
-    else toast('加入下载队列失败: ' + (r.error || ''), 'err');
+    if (!r.ok) {
+      toast('下载失败: ' + (r.error || ''), 'err');
+      btn.disabled = false;
+      btn.innerHTML = '⬇ 下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+      return;
+    }
+
+    toast(r.queued + ' 个视频已开始下载', 'ok');
+    _vdShowDlBar(r.task_id, r.queued);
+    await vdLoad();
+  }
+
+  function _vdShowDlBar(taskId, total) {
+    const bar = document.getElementById('vdDlBar');
+    bar.classList.add('show');
+    document.getElementById('vdDlLabel').textContent = '正在下载 0/' + total + ' ...';
+    document.getElementById('vdDlPercent').textContent = '0%';
+    document.getElementById('vdDlFill').style.width = '0%';
+    document.getElementById('vdDlStatus').textContent = '';
+
+    if (_vdDlPollTimer) clearInterval(_vdDlPollTimer);
+    _vdDlPollTimer = setInterval(() => _vdPollDlTask(taskId, total), 2000);
+  }
+
+  async function _vdPollDlTask(taskId, total) {
+    try {
+      const t = await api('GET', '/download-tasks/' + taskId);
+      if (t.error) { _vdDlDone('查询失败: ' + t.error); return; }
+
+      const pct = total > 0 ? Math.round((t.completed / total) * 100) : 0;
+      document.getElementById('vdDlLabel').textContent =
+        (t.status === 'done' ? '下载完成' : t.status === 'error' ? '下载出错' : '正在下载') +
+        ' ' + t.completed + '/' + total;
+      document.getElementById('vdDlPercent').textContent = pct + '%';
+      document.getElementById('vdDlFill').style.width = pct + '%';
+      document.getElementById('vdDlStatus').textContent = t.current_video || '';
+
+      if (t.status === 'done') {
+        _vdDlDone('下载完成: 成功 ' + t.success + ', 失败 ' + t.failed);
+        toast('下载完成: 成功 ' + t.success + ' 个, 失败 ' + t.failed + ' 个',
+              t.failed > 0 ? 'err' : 'ok');
+      } else if (t.status === 'error') {
+        _vdDlDone('下载异常: ' + (t.error || ''));
+        toast('下载异常: ' + (t.error || ''), 'err');
+      }
+    } catch (e) {
+      // 网络错误时继续轮询，不中断
+    }
+  }
+
+  function _vdDlDone(msg) {
+    if (_vdDlPollTimer) { clearInterval(_vdDlPollTimer); _vdDlPollTimer = null; }
+    document.getElementById('vdDlStatus').textContent = msg;
+    document.getElementById('vdDlFill').style.width = '100%';
+    const btn = document.getElementById('vdBatchBtn');
+    btn.disabled = false;
+    btn.innerHTML = '⬇ 下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+    _vdSel.clear();
+    _updateVdSelCount();
+    vdLoad();
+    setTimeout(() => {
+      document.getElementById('vdDlBar').classList.remove('show');
+    }, 5000);
   }
 
   async function scanNow(id) {
@@ -1412,6 +1617,8 @@
     document.getElementById('cfgDingtalk').value = cfg.global_dingtalk_url || '';
     document.getElementById('cfgWecom').value = cfg.global_wecom_url || '';
     document.getElementById('cfgQuotaBudget').value = cfg.quota_budget_per_day || 8000;
+    document.getElementById('cfgCookiesFile').value = cfg.download_cookies_file || '';
+    document.getElementById('cfgDownloadPath').value = cfg.download_output_path || '';
     openModal('modalConfig');
   }
 
@@ -1421,6 +1628,8 @@
       global_dingtalk_url: document.getElementById('cfgDingtalk').value.trim(),
       global_wecom_url: document.getElementById('cfgWecom').value.trim(),
       quota_budget_per_day: parseInt(document.getElementById('cfgQuotaBudget').value) || 8000,
+      download_cookies_file: document.getElementById('cfgCookiesFile').value.trim(),
+      download_output_path: document.getElementById('cfgDownloadPath').value.trim(),
     };
     const r = await api('POST', '/config', body);
     if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
@@ -1507,6 +1716,15 @@
       const d = new Date(iso);
       return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
     } catch { return iso; }
+  }
+
+  function fmtDuration(sec) {
+    if (!sec) return '—';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
   }
 
   // ── 启动 ───────────────────────────────────────────────────────
