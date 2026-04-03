@@ -8,7 +8,11 @@ import argparse
 import sys
 import re
 from pathlib import Path
-import torch
+
+import export_cookies
+import logging_config
+
+_log = logging_config.get_logger("ytdl_downloader")
 
 
 def load_proxy_pool(file_path):
@@ -49,21 +53,28 @@ def get_format_option(resolution):
     resolution_map = {
         '720p': 720,
         '1080p': 1080,
-        '1440p': 1440
+        '1440p': 1440,
     }
-    height = resolution_map[resolution]
-    # 添加编码格式限制，优先选择 H.264 编码
-    return f'bestvideo[height<={height}][vcodec^=avc]+bestaudio[ext=m4a]/best[height<={height}]/best'
+    height = resolution_map.get(resolution, 1080)
+    # YouTube 1080p 视频编码高度可能是 1080（608x1080）或 1920（1920x1080），
+    # 用 height<=N 过滤会漏掉真正的 1920x1080（因为 1920 > 1080）。
+    # 改为直接用 bestvideo+bestaudio 让 yt-dlp 自动选最高画质。
+    # 若视频最高质量低于用户选择的分辨率，yt-dlp 也会自动降级。
+    return 'bestvideo+bestaudio/best'
 
 
 def get_device(prefer_device="auto"):
     """自动或手动选择运行设备"""
-    if prefer_device == "cuda":
-        return "cuda" if torch.cuda.is_available() else "cpu"
     if prefer_device == "cpu":
         return "cpu"
-    # auto: 有GPU用GPU，否则CPU
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    try:
+        import torch
+        if prefer_device == "cuda":
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        # auto: 有GPU用GPU，否则CPU
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
 
 
 def get_subtitle_langs(sub_lang_str):
@@ -80,6 +91,14 @@ def generate_subtitle_with_whisper(video_path, output_dir, model_name="medium",
     使用 WhisperX 子进程从视频文件生成字幕
     返回生成的字幕文件路径，失败返回 None
     """
+    # 先检查 whisperx 是否可用
+    try:
+        import whisperx as _wx
+        del _wx
+    except Exception as e:
+        print(f"⚠️  WhisperX 未安装，跳过 ASR 字幕生成: {e}")
+        print("  安装命令: pip install whisperx")
+        return None
     import subprocess
     import sys
 
@@ -95,6 +114,7 @@ def generate_subtitle_with_whisper(video_path, output_dir, model_name="medium",
             capture_output=True,
             text=True,
             timeout=3600,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         if result.returncode == 0:
@@ -207,11 +227,6 @@ def convert_vtt_to_srt(vtt_path):
         return None
 
 
-def sanitize_filename(name):
-    """清理文件名，移除非法字符"""
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
-
-
 def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
                   sub_langs=None, no_subs=False, proxy_pool=None,
                   cookies_from_browser=None, cookies_file=None):
@@ -232,6 +247,21 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     else:
         current_proxy = proxy
 
+    # JSON Cookie → 自动转为 Netscape 临时文件（支持 YouTube 官方导出 & 浏览器插件导出）
+    _cookies_file = cookies_file
+    _tmp_cookie = None
+    if _cookies_file and os.path.isfile(_cookies_file) and _cookies_file.lower().endswith('.json'):
+        try:
+            _tmp_cookie, _count, _missing = export_cookies.convert_json_to_temp_netscape(_cookies_file)
+            _cookies_file = _tmp_cookie
+        except Exception as e:
+            print(f"⚠️  Cookie JSON 转换失败 ({e})，跳过 Cookie")
+            _cookies_file = None
+
+    _log.info(f"批量下载开始: 总数={total} 输出={output_path} 分辨率={resolution} "
+              f"代理={current_proxy or '直连'} cookie={bool(_cookies_file)}")
+
+    # 启用 yt-dlp 原生多线程分片下载（替代 aria2c，无需额外安装）
     ydl_opts_base = {
         'format': get_format_option(resolution),
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
@@ -239,40 +269,20 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
         'quiet': True,
         'no_warnings': True,
         'format_sort': ['vcodec:h264'],
-        'external_downloader': 'aria2c',
-        'external_downloader_args': [
-            '--min-split-size=1M',
-            '--max-connection-per-server=16',
-            '--split=16',
-            '--max-concurrent-downloads=3',
-            '--continue=true',
-        ],
+        'concurrent_fragment_downloads': 4,
         # Cookie 配置（绕过 YouTube 机器人检测）
         'cookies_from_browser': cookies_from_browser,
-        'cookiefile': cookies_file,
+        'cookiefile': _cookies_file,
+        # 指定 JS 运行时以解决 YouTube 播放器签名挑战
+        'js_runtimes': {'node': {'path': None}},
     }
 
     def _apply_proxy(opts, p):
         opts = {**opts}
         if p:
             opts['proxy'] = p
-            opts['external_downloader_args'] = [
-                '--min-split-size=1M',
-                '--max-connection-per-server=16',
-                '--split=16',
-                '--max-concurrent-downloads=3',
-                '--continue=true',
-                f'--all-proxy={p}',
-            ]
         else:
             opts['proxy'] = ''
-            opts['external_downloader_args'] = [
-                '--min-split-size=1M',
-                '--max-connection-per-server=16',
-                '--split=16',
-                '--max-concurrent-downloads=3',
-                '--continue=true',
-            ]
         return opts
 
     # 字幕选项
@@ -304,7 +314,8 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     video_title = info.get('title', 'unknown') if info else 'unknown'
-                    video_path = os.path.join(output_path, f"{sanitize_filename(video_title)}.mp4")
+                    # 用 yt-dlp API 获取实际输出文件名（含 merge 后的正确扩展名）
+                    video_path = ydl.prepare_filename(info)
 
                 # yt-dlp ignoreerrors 会吞掉部分错误，必须验证文件是否真实存在
                 if not video_path or not os.path.exists(video_path):
@@ -334,11 +345,13 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                     '状态': '成功',
                     '信息': f"下载成功 | 代理: {current_proxy or '直连'} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {current_proxy or '直连'}"
                 })
+                _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={current_proxy or '直连'}")
                 break  # 成功则跳出重试循环
 
             except (yt_dlp.utils.DownloadError, Exception) as e:
                 error_msg = str(e)
                 if is_rate_limited(error_msg) and proxy_pool and retry_count < max_retries - 1:
+                    _log.warning(f"代理限流 [{i+1}/{total}]: {current_proxy} → 切换下一个")
                     print(f" [{i+1}/{total}] 代理 {current_proxy} 被限流，切换下一个...")
                     pool_index += 1
                     retry_count += 1
@@ -349,23 +362,36 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                         '状态': '失败',
                         '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
                     })
+                    _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
                     break
 
         completed += 1
         if progress_callback:
             progress_callback(completed / total, f"完成第 {completed}/{total} 个视频")
 
+    # 清理临时 Cookie 文件
+    if _tmp_cookie and os.path.exists(_tmp_cookie):
+        try:
+            os.unlink(_tmp_cookie)
+        except Exception:
+            pass
+
+    success_cnt = sum(1 for r in results if r.get('状态') == '成功')
+    fail_cnt = sum(1 for r in results if r.get('状态') == '失败')
+    _log.info(f"批量下载完成: 总数={total} 成功={success_cnt} 失败={fail_cnt}")
     return results
 
 def read_urls_from_file(file_path):
-    """根据文件类型读取URL列表，支持 Excel(.xlsx/.xls) 和纯文本(.txt)"""
+    """根据文件类型读取URL列表，支持 CSV/Excel(.xlsx/.xls) 和纯文本(.txt)"""
     ext = os.path.splitext(file_path)[1].lower()
-    if ext in (".xlsx", ".xls"):
+    if ext == ".csv":
+        return read_urls_from_csv(file_path)
+    elif ext in (".xlsx", ".xls"):
         return read_urls_from_excel(file_path)
     elif ext == ".txt":
         return read_urls_from_txt(file_path)
     else:
-        print(f"不支持的文件格式: {ext}，仅支持 .xlsx/.xls/.txt")
+        print(f"不支持的文件格式: {ext}，仅支持 .csv/.xlsx/.xls/.txt")
         return None
 
 
@@ -402,6 +428,28 @@ def read_urls_from_txt(file_path):
     except Exception as e:
         print(f"读取TXT文件时出错: {str(e)}")
         return None
+
+
+def read_urls_from_csv(file_path):
+    """从CSV文件读取URL列表"""
+    try:
+        df = pd.read_csv(file_path)
+        url_column = None
+        for col in df.columns:
+            if col.lower() == "url":
+                url_column = col
+                print(f"找到URL列：{col}")
+                break
+        if url_column is None:
+            print("错误：CSV文件中没有找到'URL'列")
+            return None
+        urls = df[url_column].dropna().tolist()
+        print(f"从CSV读取到 {len(urls)} 个URL")
+        return urls
+    except Exception as e:
+        print(f"读取CSV文件时出错: {str(e)}")
+        return None
+
 
 def save_results_to_excel(results, output_path):
     """保存下载结果到Excel文件"""
