@@ -48,9 +48,13 @@
   }
 
   /* ── 布局 ─────────────────────────────────────────────────── */
+  /* 全屏纵向 flex：顶栏固定高度，.main 占剩余空间并在内部 overflow 滚动。
+     原 grid + 1fr 配合 .main 内 flex 子项默认 flex-shrink:1 会导致 .card 被压扁、
+     scrollHeight≈clientHeight，页面无法滚动；故 .main 用 flex:1 1 0 + min-height:0，
+     .card 用 flex-shrink:0 保持自然高度。 */
   .app {
-    display: grid;
-    grid-template-rows: 60px 1fr auto;
+    display: flex;
+    flex-direction: column;
     height: 100vh;
     height: 100dvh;
   }
@@ -64,6 +68,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     gap: 16px;
+    flex: 0 0 60px; /* 与 .app 顶栏视觉高度一致，不参与压缩 */
   }
   .header-left {
     display: flex;
@@ -188,6 +193,8 @@
 
   /* ── 主内容 ───────────────────────────────────────────────── */
   .main {
+    flex: 1 1 0;      /* 占满顶栏以下剩余空间；basis 0 避免被内容撑破父级 */
+    min-height: 0;   /* flex 子项默认可收缩，配合 overflow 产生内部滚动条 */
     overflow-y: auto;
     padding: 20px 24px;
     display: flex;
@@ -201,6 +208,7 @@
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
     overflow: hidden;
+    flex-shrink: 0; /* 禁止卡片被 .main 的 flex 列布局压扁，确保可滚动溢出 */
   }
   .card-header {
     display: flex;

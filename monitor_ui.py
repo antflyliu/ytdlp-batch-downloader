@@ -1,7 +1,10 @@
 """
 monitor_ui.py — YouTube 视频监控管理页面
-作为独立窗口嵌入到 ytdownload_ui.py 的"数据库管理"区域，
-或作为独立窗口运行。
+
+两种使用方式：
+  1) 独立运行（python monitor_ui.py）：启动本地 HTTP 服务并打开浏览器，
+     页面由 monitor_web/index.html + monitor_server.py 提供。
+  2) 嵌入主程序：将 MonitorPage 挂到 Tk 父 Frame（如 ytdownload_ui 的数据库区域）。
 
 支持：
   - 添加/编辑/删除监控账户
@@ -399,7 +402,12 @@ class GlobalConfigDialog(tk.Toplevel):
 
 class MonitorPage:
     """
-    可嵌入到 ytdownload_ui.py 的监控管理页面组件
+    可嵌入到 ytdownload_ui.py 的监控管理页面（Tkinter）组件。
+
+    账户列表使用 Canvas + 内部 Frame 分行绘制，替代 ttk.Treeview，
+    以便在账户较多时配合滚动条完整展示；操作列使用独立 Label 按钮，
+    避免 Treeview 单元格内难以布局的问题。
+
     用法:
         page = MonitorPage(parent_frame, colors)
         page.refresh()
@@ -477,37 +485,92 @@ class MonitorPage:
         tk.Label(ctrl_frame, text=" ",
                  bg=c["bg"]).pack(side=tk.LEFT, expand=True, fill=tk.X)
 
-        # ── 账户列表 ───────────────────────────────────────────
-        list_frame = tk.Frame(self.parent, bg=c["surface"],
-                              highlightbackground=c["border"], highlightthickness=1)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=8)
-        list_frame.columnconfigure(0, weight=1)
-        list_frame.rowconfigure(0, weight=1)
+        # ── 账户列表（Canvas + Scrollbar） ───────────────────────────
+        # Treeview 在列多、行多时滚动与样式扩展成本高；Canvas 内嵌 Frame
+        # 可任意放置控件。scrollregion 随 _account_rows_frame 的 Configure 更新。
+        list_outer = tk.Frame(self.parent, bg=c["surface"],
+                               highlightbackground=c["border"], highlightthickness=1)
+        list_outer.pack(fill=tk.BOTH, expand=True, padx=20, pady=8)
 
-        # 使用 ttk.Treeview 实现可滚动表格
-        cols = ("id", "name", "channel", "mode", "interval", "limit", "status", "notify", "actions")
-        self._account_tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=6)
-        self._account_tree.tag_configure("even", background=c["surface"])
-        self._account_tree.tag_configure("odd", background=c["surface2"])
-        col_configs = [
-            ("id", "ID", 35), ("name", "名称", 110), ("channel", "频道", 170),
-            ("mode", "模式", 55), ("interval", "间隔", 45), ("limit", "获取", 40),
-            ("status", "状态", 50), ("notify", "通知", 50), ("actions", "操作", 140),
+        self._account_canvas = tk.Canvas(
+            list_outer, bg=c["surface"], highlightthickness=0,
+            confine=True,
+        )
+        self._account_scroll_y = ttk.Scrollbar(list_outer, orient=tk.VERTICAL,
+                                               command=self._account_canvas.yview)
+        self._account_scroll_x = ttk.Scrollbar(list_outer, orient=tk.HORIZONTAL,
+                                                command=self._account_canvas.xview)
+        self._account_canvas.configure(
+            yscrollcommand=self._account_scroll_y.set,
+            xscrollcommand=self._account_scroll_x.set,
+        )
+
+        # 所有表头、数据行、空状态提示均挂在此 Frame 上，作为 Canvas 的单一子窗口
+        self._account_rows_frame = tk.Frame(self._account_canvas, bg=c["surface"])
+        self._account_canvas_window = self._account_canvas.create_window(
+            (0, 0), window=self._account_rows_frame, anchor=tk.NW,
+        )
+
+        # 垂直条贴右、水平条贴底，避免与 Canvas 重叠
+        self._account_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self._account_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
+        self._account_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Canvas 内部窗口大小变化时更新滚动区域
+        def _on_frame_configure(event=None):
+            self._account_canvas.configure(scrollregion=self._account_canvas.bbox("all"))
+        self._account_rows_frame.bind("<Configure>", _on_frame_configure)
+
+        # Canvas 窗口宽度跟随 Canvas 宽度变化
+        def _on_canvas_configure(event):
+            self._account_canvas.itemconfig(self._account_canvas_window, width=event.width)
+        self._account_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # 滚轮：Windows/macOS 用 MouseWheel；Linux/X11 常用 Button-4/5
+        def _on_mousewheel(e):
+            self._account_canvas.yview_scroll(int(-e.delta / 120), "units")
+
+        def _on_mousewheel_linux_up(_e):
+            self._account_canvas.yview_scroll(-1, "units")
+
+        def _on_mousewheel_linux_down(_e):
+            self._account_canvas.yview_scroll(1, "units")
+
+        for _w in (self._account_canvas, self._account_rows_frame):
+            _w.bind("<MouseWheel>", _on_mousewheel)
+            _w.bind("<Button-4>", _on_mousewheel_linux_up)
+            _w.bind("<Button-5>", _on_mousewheel_linux_down)
+
+        # 列宽（像素）与 place 的 x 累加一致，总宽约 820；操作列由下方按钮覆盖展示
+        col_widths = [
+            ("id",       "ID",      40),
+            ("name",     "名称",   120),
+            ("channel",  "频道",   200),
+            ("mode",     "模式",   60),
+            ("interval", "间隔",   50),
+            ("limit",    "获取",   50),
+            ("status",   "状态",   60),
+            ("notify",   "通知",   60),
+            ("actions",  "操作",  180),
         ]
-        for col_id, text, width in col_configs:
-            self._account_tree.heading(col_id, text=text)
-            self._account_tree.column(col_id, width=width, anchor=tk.W)
-        self._account_tree.column("actions", anchor=tk.CENTER)
-        self._account_tree.grid(row=0, column=0, sticky="nsew")
-        account_scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self._account_tree.yview)
-        self._account_tree.configure(yscrollcommand=account_scroll.set)
-        account_scroll.grid(row=0, column=1, sticky="ns")
-        # 鼠标滚轮支持
-        self._account_tree.bind("<MouseWheel>", lambda e: self._account_tree.yview_scroll(
-            int(-e.delta / 120), "units"))
-        self._account_tree.bind("<Button-4>", lambda e: self._account_tree.yview_scroll(-1, "units"))
-        self._account_tree.bind("<Button-5>", lambda e: self._account_tree.yview_scroll(1, "units"))
-        self._account_tree.bind("<Double-Button-1>", self._on_account_tree_click)
+
+        # 表头行
+        header_frame = tk.Frame(self._account_rows_frame, bg=c["surface2"], height=28)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        col_x = 0
+        for col_id, col_text, col_w in col_widths:
+            lbl = tk.Label(header_frame, text=col_text, bg=c["surface2"],
+                            fg=c["text_secondary"], font=("Segoe UI", 8, "bold"),
+                            anchor=tk.W, padx=6)
+            lbl.place(x=col_x, y=0, width=col_w, height=28)
+            col_x += col_w
+
+        # refresh() 时先销毁下列表，避免泄漏；表头固定不放入此列表
+        self._account_row_widgets: list = []
+
+        self._account_canvas.xview_moveto(0)
+        self._total_col_width = col_x  # 与 col_widths 累加一致，供后续扩展横向滚动
 
         # ── 事件日志 ──────────────────────────────────────────
         tk.Label(self.parent, text="扫描事件日志", bg=c["bg"], fg=c["text"],
@@ -538,7 +601,10 @@ class MonitorPage:
         # ↑ 绑定在下面 refresh 里
 
     def refresh(self):
-        """刷新账户列表 + 调度器状态"""
+        """刷新调度器状态，重建账户列表行，并更新 Canvas 滚动区域。
+
+        每 3 秒由 after 再次调用自身，实现定时刷新。
+        """
         c = self.c
 
         # 调度器状态
@@ -551,29 +617,76 @@ class MonitorPage:
             bg=c["error"] if is_running else c["success"],
         )
 
-        # 清空并重建账户列表
-        for item in self._account_tree.get_children():
-            self._account_tree.delete(item)
+        # 清理旧行
+        for w in self._account_row_widgets:
+            w.destroy()
+        self._account_row_widgets.clear()
 
         accounts = _db.list_accounts()
         if not accounts:
-            self._account_tree.insert("", tk.END, values=("暂无监控账户，点击右上角'添加账户'", "", "", "", "", "", "", "", ""))
+            empty_lbl = tk.Label(self._account_rows_frame, text="暂无监控账户，点击右上角「添加账户」",
+                                  bg=c["surface"], fg=c["text_muted"],
+                                  font=("Segoe UI", 9), anchor=tk.W, padx=6, pady=6)
+            empty_lbl.pack(fill=tk.X)
+            self._account_row_widgets.append(empty_lbl)
+        else:
+            for i, acc in enumerate(accounts):
+                row_frame = tk.Frame(self._account_rows_frame, bg=c["surface"] if i % 2 == 0 else c["surface2"],
+                                     height=32, cursor="hand2")
+                row_frame.pack(fill=tk.X)
+                row_frame.pack_propagate(False)
 
-        for i, acc in enumerate(accounts):
-            enabled = acc["enabled"]
-            notify = acc["notify_enabled"]
-            values = (
-                str(acc["id"]),
-                acc["name"],
-                acc["channel_url"][:25],
-                acc["fetch_mode"],
-                f"{acc['scan_interval']}m",
-                str(acc["fetch_limit"]),
-                "启用" if enabled else "禁用",
-                "通知" if notify else "静默",
-                "编辑 | 删 | 停/启 | 测",
-            )
-            item_id = self._account_tree.insert("", tk.END, values=values, tags=("even" if i % 2 == 0 else "odd", str(acc["id"])))
+                bg_color = c["surface"] if i % 2 == 0 else c["surface2"]
+                # 前 8 列为文本；第 9 列区域由下方独立按钮占据，此处不再放占位 Label
+                values = [
+                    (0,  str(acc["id"]),       40),
+                    (40, acc["name"],          120),
+                    (160, acc["channel_url"][:28] if len(acc["channel_url"]) > 28 else acc["channel_url"], 200),
+                    (360, acc["fetch_mode"],    60),
+                    (420, f"{acc['scan_interval']}m", 50),
+                    (470, str(acc["fetch_limit"]), 50),
+                    (520, "启用" if acc["enabled"] else "禁用", 60),
+                    (580, "通知" if acc["notify_enabled"] else "静默", 60),
+                ]
+                for x, text, width in values:
+                    lbl = tk.Label(row_frame, text=text, bg=bg_color,
+                                   fg=c["text"], font=("Segoe UI", 8),
+                                   anchor=tk.W, padx=6)
+                    lbl.place(x=x, y=0, width=width, height=32)
+
+                # 操作按钮区域
+                for btn_idx, (btn_text, cmd) in enumerate([
+                    ("编辑", lambda a=acc: self._edit_account(a)),
+                    ("删除", lambda a=acc: self._delete_account(a)),
+                    ("停用" if acc["enabled"] else "启用", lambda a=acc: self._toggle_account(a)),
+                    ("测试", lambda a=acc: self._test_account(a)),
+                ]):
+                    is_edit = (btn_idx == 0)
+                    btn_x = 640 + btn_idx * 45
+                    btn = tk.Label(row_frame, text=btn_text, bg=c["accent"] if is_edit else c["surface2"],
+                                   fg="#ffffff" if is_edit else c["text_secondary"],
+                                   font=("Segoe UI", 7), anchor=tk.CENTER,
+                                   cursor="hand2")
+                    btn.place(x=btn_x, y=5, width=42, height=22)
+                    btn.bind("<Button-1>", cmd)
+                    normal_bg = c["accent"] if is_edit else c["surface2"]
+                    hover_bg = c["accent_hover"] if is_edit else c["border"]
+                    btn.bind("<Enter>", lambda e, b=btn, h=hover_bg: b.configure(bg=h))
+                    btn.bind("<Leave>", lambda e, b=btn, n=normal_bg: b.configure(bg=n))
+
+                self._account_row_widgets.append(row_frame)
+
+                # 鼠标悬停高亮
+                def _on_enter(e, rf=row_frame):
+                    rf.configure(bg=c["border"])
+                def _on_leave(e, rf=row_frame, idx=i):
+                    rf.configure(bg=c["surface"] if idx % 2 == 0 else c["surface2"])
+                row_frame.bind("<Enter>", _on_enter)
+                row_frame.bind("<Leave>", _on_leave)
+
+        # 更新 Canvas 滚动区域
+        self._account_rows_frame.update_idletasks()
+        self._account_canvas.configure(scrollregion=self._account_canvas.bbox("all"))
 
         # 定时刷新（每 3 秒）
         if self._job:
@@ -618,38 +731,6 @@ class MonitorPage:
                 self.refresh()
             except Exception as e:
                 messagebox.showerror("错误", str(e))
-
-    def _on_account_tree_click(self, event):
-        """Treeview 行点击事件处理"""
-        region = self._account_tree.identify_region(event.x, event.y)
-        if region == "cell":
-            column = self._account_tree.identify_column(event.x)
-            row_id = self._account_tree.identify_row(event.y)
-            if not row_id:
-                return
-            item = self._account_tree.item(row_id)
-            values = item["values"]
-            if not values or values[0] == "暂无监控账户，点击右上角'添加账户'":
-                return
-            # 从 tags 中获取 account id
-            acc_id = int(row_id)
-            accs = _db.list_accounts()
-            acc = next((a for a in accs if a["id"] == acc_id), None)
-            if not acc:
-                return
-            # 操作列（#9）
-            if column == "#9":
-                # 在点击位置显示操作菜单
-                menu = tk.Menu(self._account_tree, tearoff=0)
-                menu.add_command(label="编辑", command=lambda: self._edit_account(acc))
-                menu.add_command(label="删除", command=lambda: self._delete_account(acc))
-                menu.add_command(label="停用" if acc["enabled"] else "启用",
-                               command=lambda: self._toggle_account(acc))
-                menu.add_command(label="测试扫描", command=lambda: self._test_account(acc))
-                menu.tk_popup(event.x_root, event.y_root)
-            else:
-                # 双击任意列打开编辑
-                self._edit_account(acc)
 
     def _edit_account(self, acc: dict):
         dialog = AccountDialog(self.parent, account=acc)
