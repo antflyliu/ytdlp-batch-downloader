@@ -13,7 +13,6 @@ import argparse
 import sys
 import os
 import sqlite3
-import subprocess
 import time
 import logging_config
 
@@ -22,6 +21,8 @@ import threading
 import concurrent.futures
 import re
 from datetime import datetime
+
+import yt_dlp
 
 
 # ---------------------------------------------------------------------------
@@ -387,24 +388,19 @@ def update_upload_dates_in_db(db_path, urls=None, progress_callback=None):
                 done[0] += 1
             return
 
-        for attempt in range(4):   # 最多 4 次尝试（含 1 次初始 + 3 次退避重试）
+        for attempt in range(4):
             try:
-                r = subprocess.run(
-                    ['yt-dlp', '--no-warnings', '--print', '%(upload_date)s',
-                     f'https://www.youtube.com/watch?v={vid}'],
-                    capture_output=True, text=True, timeout=45,
-                    stdin=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-                date_str = r.stdout.strip()
-                stderr_str = r.stderr.strip()
+                ydl_opts = {'quiet': True, 'no_warnings': True, 'socket_timeout': 450}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(
+                        f'https://www.youtube.com/watch?v={vid}', download=False)
 
-                # YouTube 限速 / 不可用时 yt-dlp 输出 warning 或 "false"
-                if date_str in ('NA', 'None', '', 'false') or not date_str:
+                date_raw = info.get('upload_date', '') if info else ''
+
+                if not date_raw or date_raw in ('NA', 'None', 'false'):
                     reason = 'no_upload_date'
-                elif len(date_str) == 8 and date_str.isdigit():
-                    # 正常：8位数字如 20180202 → 转为 YYYY-MM-DD
-                    date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                elif len(date_raw) == 8 and date_raw.isdigit():
+                    date_str = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
                     with lock:
                         upload_dates[video_url] = date_str
                     with lock:
@@ -413,29 +409,23 @@ def update_upload_dates_in_db(db_path, urls=None, progress_callback=None):
                         progress_callback(done[0], total)
                     return
                 else:
-                    # 意外输出（非标准日期格式）
-                    reason = f'unexpected_output:{date_str[:30]}'
+                    reason = f'unexpected_output:{str(date_raw)[:30]}'
 
-                # 非最终重试：检测到问题，等待后重试
                 if attempt < 3:
-                    wait = (attempt + 1) * 8   # 8s / 16s / 24s 退避
-                    # 429 = Too Many Requests 的典型特征
-                    if '429' in stderr_str or 'rate' in stderr_str.lower():
-                        wait = (attempt + 1) * 15
-                    time.sleep(wait)
+                    time.sleep((attempt + 1) * 8)
                     continue
 
-                # 4 次都失败
                 with lock:
-                    failed.append((video_url, reason or 'timeout'))
+                    failed.append((video_url, reason or 'unknown'))
 
-            except subprocess.TimeoutExpired:
+            except yt_dlp.utils.DownloadError as e:
+                err_msg = str(e).lower()
                 if attempt < 3:
-                    wait = (attempt + 1) * 12
+                    wait = (attempt + 1) * 15 if '429' in err_msg or 'rate' in err_msg else (attempt + 1) * 8
                     time.sleep(wait)
                     continue
                 with lock:
-                    failed.append((video_url, 'timeout'))
+                    failed.append((video_url, f'download_error:{e}'))
             except Exception as e:
                 if attempt < 3:
                     time.sleep((attempt + 1) * 8)
@@ -561,57 +551,53 @@ def fetch_channel_videos(channel_url, max_videos=None, save_format='csv', save_d
     print_fmt = f"%(title)s{sep}%(id)s{sep}%(duration)s{sep}%(view_count)s"
 
     # Step 1: 快速扫描获取全部视频 ID（flat-playlist，无 upload_date）
-    cmd_flat = [
-        'yt-dlp', '--flat-playlist', '--no-warnings',
-        '--playlist-reverse',
-        '--print', print_fmt, fetch_url,
-    ]
+    ydl_flat_opts = {
+        'extract_flat': True,
+        'quiet': True,
+        'no_warnings': True,
+        'playlistreverse': True,
+        'socket_timeout': 600,
+    }
     if max_videos:
-        cmd_flat.extend(['--playlist-end', str(max_videos)])
+        ydl_flat_opts['playlistend'] = max_videos
 
     try:
-        result = subprocess.run(
-            cmd_flat, capture_output=True, text=True,
-            encoding='utf-8', stdin=subprocess.DEVNULL,
-            timeout=600, creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if result.returncode != 0 and not result.stdout.strip():
-            print(f"错误：yt-dlp 返回码 {result.returncode}")
-            if result.stderr:
-                print(f"  STDERR: {result.stderr.strip()}")
-            return [], None, 0
-    except subprocess.TimeoutExpired:
-        print("错误：获取频道视频超时（600秒）")
-        return [], None, 0
-    except FileNotFoundError:
-        print("错误：找不到 yt-dlp，请确保已安装并在 PATH 中")
+        with yt_dlp.YoutubeDL(ydl_flat_opts) as ydl:
+            info = ydl.extract_info(fetch_url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        print(f"错误：yt-dlp 获取频道视频失败: {e}")
         return [], None, 0
     except Exception as e:
         print(f"错误：{e}")
         return [], None, 0
 
-    # 解析 flat-playlist 输出
+    if not info:
+        print("错误：未获取到频道信息")
+        return [], None, 0
+
+    entries = info.get('entries', [])
+
     videos = []
     video_ids = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
+    for entry in entries:
+        if entry is None:
             continue
-        parts = line.split(sep)
-        if len(parts) < 4:
-            continue
-        title, video_id, duration_raw, view_raw = parts[0], parts[1], parts[2], parts[3]
+        video_id = entry.get('id', '')
+        title = entry.get('title', 'Unknown') or 'Unknown'
+        dur_raw = entry.get('duration')
+        view_raw = entry.get('view_count')
+
         try:
-            duration_sec = int(float(duration_raw)) if duration_raw not in ('', 'NA', 'None') else 0
+            duration_sec = int(float(dur_raw)) if dur_raw is not None else 0
         except (ValueError, TypeError):
             duration_sec = 0
         try:
-            view_count = int(view_raw) if view_raw not in ('', 'NA', 'None') else 0
+            view_count = int(view_raw) if view_raw is not None else 0
         except (ValueError, TypeError):
             view_count = 0
 
         videos.append({
-            '标题': title or 'Unknown',
+            '标题': title,
             'URL': f"https://www.youtube.com/watch?v={video_id}",
             '视频ID': video_id,
             '上传日期': '',
@@ -633,49 +619,46 @@ def fetch_channel_videos(channel_url, max_videos=None, save_format='csv', save_d
     if video_count <= SMALL_CHANNEL_THRESHOLD:
         # 小频道：全量 extractor 一次拉取（包含 upload_date）
         print(f"小频道（{video_count}个），使用全量 extractor...")
-        sep2 = '>>>'
-        full_fmt = f"%(title)s{sep2}%(id)s{sep2}%(duration)s{sep2}%(view_count)s{sep2}%(upload_date)s"
-        cmd_full = [
-            'yt-dlp', '--no-warnings',
-            '--playlist-reverse',
-            '--print', full_fmt, fetch_url,
-        ]
+        ydl_full_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'playlistreverse': True,
+            'socket_timeout': 600,
+        }
         if max_videos:
-            cmd_full.extend(['--playlist-end', str(max_videos)])
+            ydl_full_opts['playlistend'] = max_videos
 
         try:
-            result2 = subprocess.run(
-                cmd_full, capture_output=True, text=True,
-                encoding='utf-8', stdin=subprocess.DEVNULL,
-                timeout=600, creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            if result2.returncode == 0 and result2.stdout.strip():
-                # 重解析，用 full_fmt 替换 videos 列表
+            with yt_dlp.YoutubeDL(ydl_full_opts) as ydl:
+                full_info = ydl.extract_info(fetch_url, download=False)
+
+            if full_info and full_info.get('entries'):
                 new_videos = []
-                for line in result2.stdout.splitlines():
-                    line = line.strip()
-                    if not line:
+                for entry in full_info['entries']:
+                    if entry is None:
                         continue
-                    parts = line.split(sep2)
-                    if len(parts) < 5:
-                        continue
-                    title, vid, dur_raw, view_raw, date_raw = (parts[0], parts[1], parts[2], parts[3], parts[4])
+                    vid = entry.get('id', '')
+                    title = entry.get('title', 'Unknown') or 'Unknown'
+                    dur_raw = entry.get('duration')
+                    view_raw = entry.get('view_count')
+                    date_raw = entry.get('upload_date', '')
+
                     try:
-                        dur_sec = int(float(dur_raw)) if dur_raw not in ('', 'NA', 'None') else 0
+                        dur_sec = int(float(dur_raw)) if dur_raw is not None else 0
                     except (ValueError, TypeError):
                         dur_sec = 0
                     try:
-                        vcnt = int(view_raw) if view_raw not in ('', 'NA', 'None') else 0
+                        vcnt = int(view_raw) if view_raw is not None else 0
                     except (ValueError, TypeError):
                         vcnt = 0
-                    # 格式化日期 YYYYMMDD → YYYY-MM-DD
+
                     upload_date = ''
                     if date_raw and len(date_raw) == 8 and date_raw.isdigit():
                         upload_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
                         upload_date_count += 1
 
                     new_videos.append({
-                        '标题': title or 'Unknown',
+                        '标题': title,
                         'URL': f"https://www.youtube.com/watch?v={vid}",
                         '视频ID': vid,
                         '上传日期': upload_date,
@@ -757,16 +740,13 @@ def fetch_upload_dates_for_videos(videos, progress_callback=None):
     def _fetch_one(vid, url):
         for attempt in range(4):
             try:
-                r = subprocess.run(
-                    ['yt-dlp', '--no-warnings', '--print', '%(upload_date)s',
-                     f'https://www.youtube.com/watch?v={vid}'],
-                    capture_output=True, text=True, timeout=45,
-                    stdin=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-                date_str = r.stdout.strip()
-                if date_str and len(date_str) == 8 and date_str.isdigit():
-                    date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                ydl_opts = {'quiet': True, 'no_warnings': True, 'socket_timeout': 450}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(
+                        f'https://www.youtube.com/watch?v={vid}', download=False)
+                date_raw = info.get('upload_date', '') if info else ''
+                if date_raw and len(date_raw) == 8 and date_raw.isdigit():
+                    date_str = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
                     with lock:
                         results[url] = date_str
                     return
