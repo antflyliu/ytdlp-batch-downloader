@@ -641,7 +641,7 @@ def serve(port: int = 5000):
         _INDEX_HTML.write_text("<html><body><h1>UI not found</h1></body></html>", encoding="utf-8")
     server = HTTPServer(("127.0.0.1", port), MonitorHandler)
     print(f"\n🌐 监控 Web UI: http://127.0.0.1:{port}")
-    print(f"   按 Ctrl+C 停止\n")
+    print("   按 Ctrl+C 停止\n")
     server.serve_forever()
 
 
