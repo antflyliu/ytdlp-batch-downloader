@@ -9,6 +9,9 @@ import threading
 from datetime import datetime, timezone
 from contextlib import contextmanager
 
+# 哨兵值：区分 update_account 中「参数未传入」和「显式传 None 清空字段」
+_UNSET = type("_Unset", (), {"__repr__": lambda s: "<UNSET>", "__bool__": lambda s: False})()
+
 # ── PyInstaller 兼容路径 ──────────────────────────────────────
 # exe 内：sys._MEIPASS/...；源码：__file__/...
 if getattr(sys, "frozen", False):
@@ -39,6 +42,7 @@ def _config_default() -> dict:
         "quota_budget_per_day": 8000,
         "download_cookies_file": "",
         "download_output_path": "",
+        "default_sub_langs": "zh-Hans,en",
     }
 
 
@@ -92,8 +96,10 @@ def _migrate_monitor_accounts(conn) -> None:
 
 @contextmanager
 def get_connection():
-    """线程安全的数据库连接上下文管理器"""
+    """线程安全的数据库连接上下文管理器（启用 WAL 模式提升并发性能）"""
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -173,11 +179,16 @@ def update_account(
     enabled: bool | None = None,
     notify_enabled: bool | None = None,
     notify_platform: str | None = None,
-    webhook_url: str | None = None,
+    webhook_url=_UNSET,
     feishu_message_mode: str | None = None,
-    feishu_template_id: str | None = None,
-    feishu_scan_template_id: str | None = None,
+    feishu_template_id=_UNSET,
+    feishu_scan_template_id=_UNSET,
 ) -> None:
+    """更新账户字段。
+
+    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id），
+    使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
+    """
     fields, values = [], []
     if name             is not None: fields.append("name=?");             values.append(name)
     if channel_url      is not None: fields.append("channel_url=?");      values.append(channel_url)
@@ -188,10 +199,10 @@ def update_account(
     if enabled          is not None: fields.append("enabled=?");          values.append(int(enabled))
     if notify_enabled   is not None: fields.append("notify_enabled=?");   values.append(int(notify_enabled))
     if notify_platform  is not None: fields.append("notify_platform=?");  values.append(notify_platform)
-    if webhook_url     is not None: fields.append("webhook_url=?");     values.append(webhook_url)
+    if webhook_url     is not _UNSET: fields.append("webhook_url=?");     values.append(webhook_url)
     if feishu_message_mode is not None: fields.append("feishu_message_mode=?"); values.append(feishu_message_mode)
-    if feishu_template_id is not None: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
-    if feishu_scan_template_id is not None: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
+    if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
+    if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
     fields.append("updated_at=?"); values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
@@ -507,3 +518,35 @@ def ensure_app_state_table() -> None:
                 value TEXT NOT NULL
             )"""
         )
+
+
+# ── 数据库备份（保留最近 7 份）────────────────────────────────
+
+def backup_db() -> str | None:
+    """
+    备份 SQLite 数据库到 data/backup/ 目录，保留最近 7 份。
+    返回备份文件路径，失败返回 None。
+    """
+    if not os.path.exists(_DB_PATH):
+        return None
+    backup_dir = os.path.join(_DATA_DIR, "backup")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"monitor_{ts}.db")
+
+    try:
+        import shutil
+        shutil.copy2(_DB_PATH, backup_path)
+
+        # 清理超过 7 份的旧备份
+        existing = sorted([
+            f for f in os.listdir(backup_dir)
+            if f.startswith("monitor_") and f.endswith(".db")
+        ])
+        for old in existing[:-7]:
+            os.remove(os.path.join(backup_dir, old))
+
+        return backup_path
+    except Exception:
+        return None
