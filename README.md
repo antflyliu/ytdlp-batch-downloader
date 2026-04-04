@@ -12,8 +12,8 @@
 - 支持 HTTP 代理设置
 - 可视化下载进度条
 - 自动保存代理配置
-- **字幕下载**：yt-dlp 自动字幕优先、手动字幕降级
-- **WhisperX ASR**：无字幕视频自动生成 SRT 字幕
+- **字幕下载**：Web UI 批量下载默认不下载字幕；开启「字幕」开关后，yt-dlp 用 cookies 下载官方字幕
+- **WhisperX ASR**：仅在用户显式开启字幕 + 无官方字幕时，由 yt-dlp 触发 ASR 生成
 
 ---
 
@@ -36,8 +36,8 @@ pip install -r requirements.txt
 
 ### 可选
 
-- **aria2c** — 多线程加速下载。如需使用，请确保已安装并添加到 PATH。
-- **whisperx** — 无字幕视频 ASR 生成字幕（自动启用）。需要 torch CPU 版，GPU 可加速。
+- **aria2c** — 多线程加速下载（CLI 默认启用，见下方 [aria2 安装（Windows）](#aria2-安装windows)）。未安装时可使用 `--no-aria2` 仅依赖 yt-dlp 内置分片。
+- **whisperx** — 仅在用户显式开启字幕 + 无官方字幕时触发 ASR 生成字幕（需要 torch CPU 版，GPU 可加速）。Web UI 批量下载默认不下载字幕，WhisperX 不会被自动触发。
   ```bash
   pip install whisperx
   ```
@@ -49,6 +49,51 @@ WhisperX 默认使用 `medium` 模型，支持本地缓存：
 - `faster-distil-whisper-large-v2` ✅（本地已有，可选更高质量）
 
 首次使用 WhisperX 时会自动下载模型到 `~/.cache/huggingface/hub/`。
+
+### aria2 安装（Windows）
+
+本项目 `Youtube_Downloader.py` 默认通过 **aria2c** 作为外部下载器加速；请确保本机可执行 `aria2c`（已加入 PATH）。
+
+**方式一：winget（推荐）**
+
+在 PowerShell 或 CMD 中执行（可能需要管理员权限或 UAC 确认）：
+
+```powershell
+winget install --id aria2.aria2 --source winget --accept-package-agreements --accept-source-agreements
+```
+
+装完后**新开一个终端**，验证：
+
+```powershell
+aria2c --version
+```
+
+若能看到版本号（例如 `aria2 version 1.37.0`），即安装成功。
+
+**方式二：手动安装**
+
+1. 打开 [aria2 Releases](https://github.com/aria2/aria2/releases)，下载 Windows 压缩包并解压到任意目录。
+2. 将该目录（内含 `aria2c.exe`）加入系统 **环境变量 → Path**。
+3. 新开终端后执行 `aria2c --version` 验证。
+
+**不使用 aria2 时**：运行 CLI 时加 `--no-aria2`，将仅使用 yt-dlp 内置分片并发（可用 `--concurrent-fragments` 调整）。
+
+#### aria2 与内置分片对比测试（CLI）
+
+速度差异因网络、代理、YouTube 限流而异，**以本机实测为准**。建议用**同一 URL、同一网络与代理**做两次下载对比总耗时：
+
+1. **清空或换目录**：两次测试使用**不同输出目录**（例如 `-o test_aria2` 与 `-o test_native`），避免断点续传与已合并文件干扰观感。
+2. **方案 A（默认 aria2）**：不加 `--no-aria2`，例如：
+   ```bash
+   python Youtube_Downloader.py -i "https://www.youtube.com/watch?v=VIDEO_ID" -o test_aria2 --no-subs
+   ```
+3. **方案 B（仅 yt-dlp 分片）**：关闭 aria2，并适当提高内置分片数以便对比公平，例如：
+   ```bash
+   python Youtube_Downloader.py -i "https://www.youtube.com/watch?v=VIDEO_ID" -o test_native --no-aria2 --concurrent-fragments 16 --no-subs
+   ```
+4. **记录**：各跑 1～2 次，用系统时钟或日志时间戳看**从开始到「下载完成」**的墙钟时间；若出现 429、频繁重试，说明并发过高，可把 `--concurrent-fragments` 或 aria2 连接相关参数调低再测。
+
+说明：监控 Web UI（⚙ 全局配置 → 启用 aria2 多连接加速）支持一键开启 aria2 加速，开启后「启动监控」自动下载、「立即扫描」自动下载、视频详情「下载选中」三条路径均走 aria2c 16 连接并发。CLI `Youtube_Downloader.py` 默认启用 aria2，加 `--no-aria2` 可关闭。
 
 ---
 
@@ -79,14 +124,14 @@ python Youtube_Downloader.py -i urls.xlsx -o videos -r 1080p -p http://127.0.0.1
 # 不下载字幕
 python Youtube_Downloader.py -i urls.xlsx --no-subs
 
-# 指定字幕语言
+# 指定字幕语言（CLI 默认下载字幕；Web UI 批量下载默认不下载字幕）
 python Youtube_Downloader.py -i urls.xlsx --sub-lang "zh-Hans,en,ja"
 
 # 指定 WhisperX 模型和设备
 python Youtube_Downloader.py -i urls.xlsx --whisper-model large-v3 --whisper-device cpu
 ```
 
-### 方式二：运行打包好的 exe
+### 方式三：运行打包好的 exe
 
 ```bash
 # 双击 dist/YouTube批量下载器.exe 即可运行
@@ -231,45 +276,5 @@ ytdlp-batch-downloader/
 - **下载引擎**: [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - **外部下载器**: aria2c（可选）
 - **视频处理**: ffmpeg
-- **字幕生成**: [WhisperX](https://github.com/m-bain/whisperX)（ASR 自动生成）
+- **字幕生成**: [WhisperX](https://github.com/m-bain/whisperX)（用户显式开启字幕时触发 ASR 生成）
 
-```
-
-(venv_build) PS D:\WORKSPACE\video-download-space\ytdlp-batch-downloader> nvidia-smi
-Tue Mar 31 13:08:08 2026
-+-----------------------------------------------------------------------------------------+
-| NVIDIA-SMI 572.40                 Driver Version: 572.40         CUDA Version: 12.8     |
-|-----------------------------------------+------------------------+----------------------+
-| GPU  Name                  Driver-Model | Bus-Id          Disp.A | Volatile Uncorr. ECC |
-| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
-|                                         |                        |               MIG M. |
-|=========================================+========================+======================|
-|   0  NVIDIA GeForce MX150         WDDM  |   00000000:01:00.0 Off |                  N/A |
-| N/A   56C    P5            N/A  / 5001W |     592MiB /   2048MiB |     29%      Default |
-|                                         |                        |                  N/A |
-+-----------------------------------------+------------------------+----------------------+
-
-+-----------------------------------------------------------------------------------------+
-| Processes:                                                                              |
-|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
-|        ID   ID                                                               Usage      |
-|=========================================================================================|
-|    0   N/A  N/A            6024    C+G   ...yb3d8bbwe\WindowsTerminal.exe      N/A      |
-|    0   N/A  N/A            8904    C+G   ...e-2.7.1-Beta-x64\Snipaste.exe      N/A      |
-|    0   N/A  N/A            9144    C+G   D:\INSTALLED\Typora\Typora.exe        N/A      |
-|    0   N/A  N/A           12584    C+G   ...y\StartMenuExperienceHost.exe      N/A      |
-|    0   N/A  N/A           13856    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
-|    0   N/A  N/A           14376    C+G   ...5n1h2txyewy\TextInputHost.exe      N/A      |
-|    0   N/A  N/A           14404    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
-|    0   N/A  N/A           16368    C+G   ....0.3856.84\msedgewebview2.exe      N/A      |
-|    0   N/A  N/A           18192    C+G   ...y\Comet\Application\comet.exe      N/A      |
-|    0   N/A  N/A           21864    C+G   C:\Program Files\flomo\flomo.exe      N/A      |
-|    0   N/A  N/A           23128    C+G   ..._cw5n1h2txyewy\SearchHost.exe      N/A      |
-|    0   N/A  N/A           24056    C+G   ...App_cw5n1h2txyewy\LockApp.exe      N/A      |
-|    0   N/A  N/A           28160    C+G   ...indows\System32\ShellHost.exe      N/A      |
-+-----------------------------------------------------------------------------------------+
-
-
-(venv_build) PS D:\WORKSPACE\video-download-space\ytdlp-batch-downloader> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-
-```
