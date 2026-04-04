@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -q pytest ruff
+
+      - name: Lint
+        run: ruff check monitor_server.py monitor/scheduler.py monitor/db.py monitor/fetcher.py --ignore E501
+
+      - name: Test
+        run: pytest tests/ -q
+
+  build:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -q pyinstaller pyyaml
+
+      - name: Build exe
+        run: pyinstaller YouTubeMonitor.spec --noconfirm 2>&1 | tail -5
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTubeMonitor
+          path: dist/
