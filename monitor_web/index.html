@@ -436,20 +436,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-  #modalVideoDetail > .modal {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 0;
-    border: none;
-    box-shadow: none;
-    transform: none;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
     flex-shrink: 0;
   }
   #modalVideoDetail > .modal > .modal-body {
@@ -914,10 +900,11 @@
       <!-- 飞书模板配置（仅飞书平台显示） -->
       <div class="form-group" id="feishuTemplateConfig" style="display:none">
         <label class="form-label">飞书发送方式</label>
-        <select class="form-input" id="accFeishuMode" style="width:100%">
-          <option value="card_json">硬编码卡片（向后兼容）</option>
-          <option value="template">卡片模板（推荐）</option>
+        <select class="form-input" id="accFeishuMode" style="width:100%" onchange="updateFeishuModeUI()">
+          <option value="card_json">Markdown 卡片（推荐）</option>
+          <option value="template">飞书模板卡片</option>
         </select>
+        <div class="form-hint">Markdown 卡片：代码拼装富文本卡片；飞书模板：需在飞书开放平台创建卡片模板</div>
       </div>
       <div class="form-group" id="feishuTemplateIdGroup" style="display:none">
         <label class="form-label">详情模板 ID</label>
@@ -978,6 +965,10 @@
         </select>
         <button class="btn btn-sm" onclick="vdSearch()">🔍 搜索</button>
         <button class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-left:auto">
+          <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
+          <span id="vdSubLabel">字幕:否</span>
+        </label>
       </div>
       <!-- 下载进度条 -->
       <div class="vd-dl-bar" id="vdDlBar">
@@ -1085,6 +1076,20 @@
           <input class="form-input" id="cfgDownloadPath" placeholder="留空默认: videos/">
           <div class="form-hint">视频下载文件的保存目录（绝对路径）</div>
         </div>
+        <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <label class="form-label">⚡ 下载加速</label>
+          <label class="checkbox-label" style="margin-top:6px">
+            <input type="checkbox" id="cfgEnableAria2">
+            <span class="checkbox-box"></span>
+            启用 aria2 多连接加速
+          </label>
+          <div class="form-hint">开启后所有下载（启动监控自动下载、立即扫描自动下载、视频详情下载选中）均使用 aria2c 16 连接并发，速度显著提升。需提前安装 aria2 并加入 PATH。</div>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label class="form-label">📝 字幕语言（批量下载时）</label>
+          <input class="form-input" id="cfgSubLangs" placeholder="zh-Hans,en">
+          <div class="form-hint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -1147,11 +1152,17 @@
     document.querySelector(`.platform-btn:nth-child(${p === 'feishu' ? 1 : p === 'dingtalk' ? 2 : 3})`).className =
       `platform-btn active-${p}`;
     document.getElementById('accPlatform').value = p;
-    // 飞书模板配置仅在飞书平台显示
     const isFeishu = p === 'feishu';
     document.getElementById('feishuTemplateConfig').style.display = isFeishu ? '' : 'none';
-    document.getElementById('feishuTemplateIdGroup').style.display = isFeishu ? '' : 'none';
-    document.getElementById('feishuScanTemplateIdGroup').style.display = isFeishu ? '' : 'none';
+    updateFeishuModeUI();
+  }
+
+  function updateFeishuModeUI() {
+    const isFeishu = document.getElementById('accPlatform').value === 'feishu';
+    const isTemplate = document.getElementById('accFeishuMode').value === 'template';
+    const show = isFeishu && isTemplate;
+    document.getElementById('feishuTemplateIdGroup').style.display = show ? '' : 'none';
+    document.getElementById('feishuScanTemplateIdGroup').style.display = show ? '' : 'none';
   }
 
   // ── 加载状态 ──────────────────────────────────────────────────
@@ -1304,20 +1315,38 @@
     btn.innerHTML = '<span class="spinner"></span>';
     btn.style.pointerEvents = 'none';
     try {
-      const r = schedulerRunning
-        ? await api('POST', '/scheduler/stop')
-        : await api('POST', '/scheduler/start');
-      if (r.ok !== false) {
-        schedulerRunning = !schedulerRunning;
-        updateSchedulerUI();
-        toast(schedulerRunning ? '调度器已启动' : '调度器已停止', 'ok');
+      if (schedulerRunning) {
+        const r = await api('POST', '/scheduler/stop');
+        if (r.ok !== false) {
+          schedulerRunning = false;
+          updateSchedulerUI();
+          toast('调度器已停止', 'ok');
+        } else {
+          toast(r.error || '操作失败', 'err');
+        }
       } else {
-        toast(r.error || '操作失败', 'err');
+        const autoDl = confirm(
+          "启动监控\n\n☑ 扫描到新视频后立即下载？\n\n" +
+          "（勾选 → 每次扫描完成自动开始下载，\n" +
+          "   最多 2 个视频同时下载）"
+        );
+        const r = await api('POST', '/scheduler/start', {
+          auto_download: autoDl
+        });
+        if (r.ok !== false) {
+          schedulerRunning = true;
+          updateSchedulerUI();
+          toast('调度器已启动' + (autoDl ? '（含自动下载）' : ''), 'ok');
+        } else {
+          toast(r.error || '启动失败', 'err');
+        }
       }
     } catch(e) {
       toast('网络错误', 'err');
     }
     btn.style.pointerEvents = '';
+    btn.innerHTML = '';
+    updateSchedulerUI();
   }
 
   async function reloadJobs() {
@@ -1369,13 +1398,13 @@
 
   async function saveAccount() {
     const body = {
-      id: parseInt(document.getElementById('accId').value) || null,
+      id: parseInt(document.getElementById('accId').value, 10) || null,
       name: document.getElementById('accName').value.trim(),
       channel_url: document.getElementById('accChannel').value.trim(),
       api_key_env: document.getElementById('accApiKey').value.trim() || 'YOUTUBE_Data_API_V3',
       fetch_mode: document.getElementById('accMode').value,
-      fetch_limit: parseInt(document.getElementById('accLimit').value) || 5,
-      scan_interval: parseInt(document.getElementById('accInterval').value) || 5,
+      fetch_limit: parseInt(document.getElementById('accLimit').value, 10) || 5,
+      scan_interval: parseInt(document.getElementById('accInterval').value, 10) || 5,
       notify_platform: document.getElementById('accPlatform').value,
       webhook_url: document.getElementById('accWebhook').value.trim() || null,
       feishu_message_mode: document.getElementById('accFeishuMode').value,
@@ -1409,6 +1438,7 @@
   let _vdAccId = null;
   let _vdPage = 1;
   let _vdSel = new Set();
+  let _gConfig = null;  // 全局配置缓存（打开配置弹窗时填充）
   let _vdEscHandler = null;
 
   document.getElementById('vdTbody').addEventListener('click', (e) => {
@@ -1423,6 +1453,9 @@
     _vdAccId = accId;
     _vdPage = 1;
     _vdSel.clear();
+    // 重置字幕下载开关（默认不下载字幕，避免 WhisperX 拖慢）
+    document.getElementById('vdSubToggle').checked = false;
+    _updateVdSubLabelText();
     const accounts = await api('GET', '/accounts');
     const acc = accounts && accounts.find(a => a.id === accId);
     document.getElementById('vdAccountName').textContent = acc ? '— ' + acc.name : '';
@@ -1433,20 +1466,12 @@
     await vdLoad();
   }
 
-  function closeModal(id) {
-    if (id === 'modalVideoDetail' && _vdEscHandler) {
-      document.removeEventListener('keydown', _vdEscHandler);
-      _vdEscHandler = null;
-    }
-    document.getElementById(id).classList.remove('show');
-  }
-
   async function vdLoad() {
     const titleKw = document.getElementById('vdTitleSearch').value.trim();
     const urlKw   = document.getElementById('vdUrlSearch').value.trim();
     const sortBy  = document.getElementById('vdSortBy').value;
     const sortDir = document.getElementById('vdSortDir').value;
-    const pageSize = parseInt(document.getElementById('vdPageSize').value) || 20;
+    const pageSize = parseInt(document.getElementById('vdPageSize').value, 10) || 20;
     const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=' + pageSize);
     document.getElementById('vdTotal').textContent = '共 ' + res.total + ' 条';
     document.getElementById('vdPageInfo').textContent = res.page + ' / ' + res.pages + ' 页';
@@ -1508,20 +1533,39 @@
   }
   function vdToggle(id, checked) {
     if (checked) _vdSel.add(id); else _vdSel.delete(id);
-    vdLoad();
+    // 仅更新 checkbox 状态和选中计数，不重新请求 API
+    const row = document.querySelector(`tr[data-id="${id}"]`);
+    if (row) {
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb) cb.checked = checked;
+    }
+    _updateVdSelCount();
+    _syncVdCheckAll();
+  }
+  function _syncVdCheckAll() {
+    const rows = document.querySelectorAll('#vdTbody tr');
+    const allChecked = rows.length > 0 && [...rows].every(r =>
+      _vdSel.has(parseInt(r.dataset.id))
+    );
+    document.getElementById('vdCheckAll').checked = allChecked;
   }
   function vdToggleAll(el) {
-    vdLoad().then(() => {
-      const rows = document.querySelectorAll('#vdTbody tr');
-      if (el.checked) {
-        rows.forEach(r => { const cb = r.querySelector('input[type=checkbox]'); if (cb) cb.checked = true; });
-        document.querySelectorAll('#vdTbody tr').forEach(r => _vdSel.add(parseInt(r.dataset.id)));
-      } else {
-        rows.forEach(r => { const cb = r.querySelector('input[type=checkbox]'); if (cb) cb.checked = false; });
-        _vdSel.clear();
-      }
-      _updateVdSelCount();
-    });
+    // 仅更新当前页的 checkbox 状态，不重新请求 API
+    const rows = document.querySelectorAll('#vdTbody tr');
+    if (el.checked) {
+      rows.forEach(r => {
+        const cb = r.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = true;
+        _vdSel.add(parseInt(r.dataset.id));
+      });
+    } else {
+      rows.forEach(r => {
+        const cb = r.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = false;
+        _vdSel.delete(parseInt(r.dataset.id));
+      });
+    }
+    _updateVdSelCount();
   }
   function _updateVdSelCount() {
     document.getElementById('vdSelCount').textContent = _vdSel.size;
@@ -1529,13 +1573,25 @@
   }
   let _vdDlPollTimer = null;
 
+  function _updateVdSubLabelText() {
+    const on = document.getElementById('vdSubToggle').checked;
+    document.getElementById('vdSubLabel').textContent = on ? '字幕:是' : '字幕:否';
+  }
+  function _getVdSubPayload() {
+    const on = document.getElementById('vdSubToggle').checked;
+    // 从全局配置读取字幕语言，支持用户自定义（打开配置弹窗后 _gConfig 被填充）
+    const subLangs = (_gConfig && _gConfig.default_sub_langs) || 'zh-Hans,en';
+    return on ? { sub_langs: subLangs, no_subs: false } : { no_subs: true };
+  }
+
   async function vdBatchDownload() {
     if (_vdSel.size === 0) return;
     const btn = document.getElementById('vdBatchBtn');
     btn.disabled = true;
     btn.textContent = '提交中...';
 
-    const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', { video_ids: Array.from(_vdSel) });
+    const payload = Object.assign({ video_ids: Array.from(_vdSel) }, _getVdSubPayload());
+    const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', payload);
     if (!r.ok) {
       toast('下载失败: ' + (r.error || ''), 'err');
       btn.disabled = false;
@@ -1602,23 +1658,34 @@
   }
 
   async function scanNow(id) {
+    const autoDl = confirm(
+        "立即扫描\n\n☑ 扫描到新视频后立即下载？\n\n" +
+        "（勾选 → 扫描完成后自动开始下载，\n" +
+        "   最多 2 个视频同时下载）"
+    );
     const btn = event.target;
     btn.innerHTML = '<span class="spinner"></span>';
     btn.disabled = true;
-    await api('POST', '/accounts/scan', { account_id: id });
-    toast('扫描已触发', 'info');
+    await api('POST', '/accounts/scan', {
+        account_id: id,
+        auto_download: autoDl
+    });
+    toast('扫描已触发' + (autoDl ? '（含自动下载）' : ''), 'info');
     setTimeout(() => { btn.textContent = '立即扫描'; btn.disabled = false; }, 3000);
   }
 
   // ── 全局配置 ────────────────────────────────────────────────────
   async function openConfig() {
     const cfg = await api('GET', '/config');
+    _gConfig = cfg;  // 缓存，供字幕配置等使用
     document.getElementById('cfgFeishu').value = cfg.global_feishu_url || '';
     document.getElementById('cfgDingtalk').value = cfg.global_dingtalk_url || '';
     document.getElementById('cfgWecom').value = cfg.global_wecom_url || '';
     document.getElementById('cfgQuotaBudget').value = cfg.quota_budget_per_day || 8000;
     document.getElementById('cfgCookiesFile').value = cfg.download_cookies_file || '';
     document.getElementById('cfgDownloadPath').value = cfg.download_output_path || '';
+    document.getElementById('cfgEnableAria2').checked = !!cfg.enable_aria2;
+    document.getElementById('cfgSubLangs').value = cfg.default_sub_langs || 'zh-Hans,en';
     openModal('modalConfig');
   }
 
@@ -1627,9 +1694,11 @@
       global_feishu_url: document.getElementById('cfgFeishu').value.trim(),
       global_dingtalk_url: document.getElementById('cfgDingtalk').value.trim(),
       global_wecom_url: document.getElementById('cfgWecom').value.trim(),
-      quota_budget_per_day: parseInt(document.getElementById('cfgQuotaBudget').value) || 8000,
+      quota_budget_per_day: parseInt(document.getElementById('cfgQuotaBudget').value, 10) || 8000,
       download_cookies_file: document.getElementById('cfgCookiesFile').value.trim(),
       download_output_path: document.getElementById('cfgDownloadPath').value.trim(),
+      enable_aria2: document.getElementById('cfgEnableAria2').checked,
+      default_sub_langs: document.getElementById('cfgSubLangs').value.trim() || 'zh-Hans,en',
     };
     const r = await api('POST', '/config', body);
     if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
@@ -1715,7 +1784,7 @@
     try {
       const d = new Date(iso);
       return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-    } catch { return iso; }
+    } catch { return '—'; }
   }
 
   function fmtDuration(sec) {

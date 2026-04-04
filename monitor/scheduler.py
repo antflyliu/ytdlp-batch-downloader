@@ -19,6 +19,8 @@ import monitor.detector as _detector
 import monitor.fetcher as _fetcher
 import monitor.notifier as _notifier
 import monitor.quota as _quota
+from concurrent.futures import ThreadPoolExecutor
+from Youtube_Downloader import batch_download, build_aria2_opts
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -47,13 +49,20 @@ def _ensure_global_webhooks() -> None:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True
 
-# PyInstaller 兼容路径
+# PyInstaller 兼容路径（统一基于 __file__ 推导，确保源码/打包模式一致）
+#   源码：__file__ = monitor/scheduler.py → _PKG_DIR = monitor/ → _EXE_DIR = 项目根/
+#   打包（onedir）：sys._MEIPASS = exe所在目录/ + 打包资源 → _PKG_DIR = exe所在目录/Monitor → _EXE_DIR = exe所在目录
+#   打包（onefile）：sys._MEIPASS = _MEIPASS temp dir → _PKG_DIR = temp/Monitor → _EXE_DIR = temp（错误！）
+#   → 解决方案：_EXE_DIR 在打包模式用 sys.executable 的父目录，但 videos/ 路径应始终基于项目根目录
 if getattr(sys, "frozen", False):
     _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")
     _EXE_DIR = os.path.dirname(sys.executable)
 else:
     _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = os.path.dirname(os.path.dirname(_PKG_DIR))
+    _EXE_DIR = os.path.dirname(_PKG_DIR)
+
+# 项目根目录（用于下载等应始终指向项目源码根的路径，不依赖 sys.executable）
+_MONITOR_ROOT = _PKG_DIR  # = monitor/
 
 # 日志目录（exe 同级 logs/）
 _LOG_DIR = os.path.join(_EXE_DIR, "logs")
@@ -112,8 +121,104 @@ def set_global_wecom_url(url: str | None) -> None:
 _scheduler: "BackgroundScheduler | None" = None
 _scheduler_lock = threading.Lock()
 
+# 稳妥配置：2 线程池 × 2 分片 = 4 并发（安全不触发 YouTube 429）
+_auto_dl_pool = ThreadPoolExecutor(max_workers=2)
 
-def _scan_account(account_id: int) -> None:
+# 调度器运行期间的自动下载开关（由 start() 设置，stop() 重置）
+_auto_download_on_scan: bool = False
+
+
+def _auto_download_videos(video_records: list[dict]) -> None:
+    """
+    后台线程池执行：并发下载新视频（max_workers=2，每视频 2 分片）
+    避免触发 YouTube 429 限流。
+
+    字幕：始终不下载字幕（no_subs=True），不触发 WhisperX，专注快速下载视频。
+    """
+    if not video_records:
+        return
+
+    urls = [r["url"] for r in video_records if r.get("url")]
+    if not urls:
+        return
+
+    cfg = _db.load_config()
+    output_path = cfg.get("download_output_path", "").strip()
+    if not output_path:
+        # 兜底：始终基于 monitor/ 的父目录（项目根），不受 sys.executable 位置影响
+        output_path = os.path.join(_MONITOR_ROOT, "..", "videos")
+        output_path = os.path.normpath(output_path)
+    os.makedirs(output_path, exist_ok=True)
+
+    cookies_file = cfg.get("download_cookies_file", "") or None
+    enable_aria2 = bool(cfg.get("enable_aria2", False))
+    extra_ydl_opts = build_aria2_opts() if enable_aria2 else None
+
+    BATCH_SIZE = 2
+    for i in range(0, len(urls), BATCH_SIZE):
+        chunk = urls[i:i + BATCH_SIZE]
+        chunk_records = video_records[i:i + BATCH_SIZE]
+        chunk_ids = [r["id"] for r in chunk_records]
+
+        _log.info(
+            f"自动下载批次 {i // BATCH_SIZE + 1}: "
+            f"{len(chunk)} 个视频 (第 {i + 1}~{i + len(chunk)} 个，共 {len(urls)} 个)"
+            f"{' [aria2]' if enable_aria2 else ''}"
+        )
+
+        def _dl_batch(batch_urls, batch_ids):
+            try:
+                _db.update_videos_download_status(batch_ids, "downloading")
+                results = batch_download(
+                    batch_urls,
+                    output_path,
+                    "best",
+                    cookies_file=cookies_file,
+                    concurrent_fragments=2,
+                    no_subs=True,  # 自动下载不下载字幕，避免触发 WhisperX CPU 推理
+                    extra_ydl_opts=extra_ydl_opts,
+                )
+
+                success_ids = []
+                failed_ids = []
+                for idx, r in enumerate(results):
+                    vid = batch_ids[idx] if idx < len(batch_ids) else None
+                    if not vid:
+                        continue
+                    if r.get("状态") == "成功":
+                        success_ids.append(vid)
+                    else:
+                        failed_ids.append(vid)
+
+                now_str = _db.now_iso()
+                if success_ids:
+                    _db.update_videos_download_status(
+                        success_ids, "downloaded",
+                        download_at=now_str,
+                        download_path=output_path,
+                    )
+                if failed_ids:
+                    _db.update_videos_download_status(
+                        failed_ids, "failed",
+                        download_error="auto download failed",
+                    )
+
+                _log.info(
+                    f"批次下载完成: 成功={len(success_ids)} 失败={len(failed_ids)}"
+                )
+            except Exception as exc:
+                _log.error("自动下载批次异常", exc_info=True)
+                _db.update_videos_download_status(
+                    batch_ids, "failed",
+                    download_error=f"自动下载失败: {type(exc).__name__}",
+                )
+
+        _auto_dl_pool.submit(_dl_batch, chunk, chunk_ids)
+
+    _log.info(f"自动下载任务已全部提交: {len(urls)} 个视频")
+
+
+def _scan_account(account_id: int, auto_download: bool = False) -> None:
     """
     执行单个账户的扫描任务
     在 APScheduler 的线程池中执行
@@ -204,11 +309,18 @@ def _scan_account(account_id: int) -> None:
             duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
 
-        # ── 4. 发送通知 ────────────────────────────────────
+        # ── 4. 发送通知（仅当有新视频时才发送，避免每次扫描都推送消息） ──
         _ensure_global_webhooks()
         duration_ms = int((time.perf_counter() - start_time) * 1000)
-        if account["notify_enabled"]:
-            # 优先用账户级 Webhook，其次全局 Webhook
+        _log.info(
+            f"通知决策: notify_enabled={account['notify_enabled']} "
+            f"new_videos={len(new_videos) if new_videos else 0} "
+            f"platform={account.get('notify_platform','feishu')} "
+            f"feishu_mode={account.get('feishu_message_mode','card_json')} "
+            f"account_webhook={bool(account.get('webhook_url'))} "
+            f"global_webhook={bool(_GLOBAL_WEBHOOKS.get(account.get('notify_platform','feishu')))}"
+        )
+        if account["notify_enabled"] and new_videos:
             webhook_url = account.get("webhook_url") or _GLOBAL_WEBHOOKS.get(account.get("notify_platform", "feishu"))
             channel_name = (channel_info or {}).get("channel_name") or account["name"]
             _notifier.notify(
@@ -227,11 +339,32 @@ def _scan_account(account_id: int) -> None:
                 feishu_template_id=account.get("feishu_template_id"),
                 feishu_scan_template_id=account.get("feishu_scan_template_id"),
             )
+        elif account["notify_enabled"] and not new_videos:
+            _log.info(f"无新视频，跳过通知推送: {account['name']}")
 
         _log.info(
             f"扫描完成: 账户={account['name']} "
             f"API返回={len(videos)} 新增={inserted} 耗时={duration_ms}ms"
         )
+
+        # ── 新增：自动下载新视频 ───────────────────────────────
+        # 显式参数（立即扫描）或全局开关（定时扫描）均可触发
+        effective_auto_dl = auto_download or _auto_download_on_scan
+        if effective_auto_dl and inserted > 0:
+            with _db.get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT id, url FROM monitor_videos WHERE event_id = ?",
+                    (event_id,),
+                ).fetchall()
+            new_video_records = [dict(r) for r in rows]
+
+            threading.Thread(
+                target=_auto_download_videos,
+                args=(new_video_records,),
+                daemon=True,
+                name=f"auto-dl-{event_id}",
+            ).start()
+            _log.info(f"自动下载已触发: {inserted} 个新视频")
 
         # ── 5. Quota 预警检查 ────────────────────────────────
         _check_quota_alert(account, api_key, budget)
@@ -249,16 +382,19 @@ def _scan_account(account_id: int) -> None:
         )
 
 
-def start() -> bool:
+def start(auto_download: bool = False) -> bool:
     """
     启动调度器
+    auto_download: 启动后每次扫描到新视频是否自动下载（当前扫描有效，非全局持久化）
     """
-    global _scheduler
+    global _scheduler, _auto_download_on_scan
 
     with _scheduler_lock:
         if _scheduler and _scheduler.running:
             _log.warning("调度器已在运行中")
             return False
+
+        _auto_download_on_scan = auto_download
 
         # 初始化日志
         _notifier.setup_file_logging(_LOG_DIR)
@@ -319,7 +455,10 @@ def start() -> bool:
             "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
 
-        _log.info(f"调度器已启动，共注册 {len(accounts)} 个任务")
+        _log.info(
+            f"调度器已启动，共注册 {len(accounts)} 个任务"
+            f"{'（自动下载已开启）' if auto_download else ''}"
+        )
         return True
 
 
@@ -327,13 +466,14 @@ def stop() -> bool:
     """
     停止调度器
     """
-    global _scheduler
+    global _scheduler, _auto_download_on_scan
 
     with _scheduler_lock:
         if not _scheduler or not _scheduler.running:
             _log.warning("调度器未运行")
             return False
 
+        _auto_download_on_scan = False
         _scheduler.shutdown(wait=True)
         _db.set_scheduler_state({"running": False, "stopped_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
         _log.info("调度器已停止")

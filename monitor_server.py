@@ -30,7 +30,7 @@ import monitor.scheduler as _scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
-from Youtube_Downloader import batch_download
+from Youtube_Downloader import batch_download, build_aria2_opts
 
 _log = logging_config.get_logger("monitor_server")
 
@@ -194,7 +194,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         path = self._path_only()
         if path == "/api/scheduler/start":
-            self._api_scheduler_start()
+            self._api_scheduler_start(body)
         elif path == "/api/scheduler/stop":
             self._api_scheduler_stop()
         elif path == "/api/scheduler/reload":
@@ -300,12 +300,23 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json(result)
 
     def _api_config(self):
+        """
+        GET /api/config — 获取全局配置
+        返回包含 default_sub_langs、download_cookies_file 等所有配置项
+        """
         self._send_json(_db.load_config())
 
     def _api_config_save(self, body):
+        """
+        POST /api/config — 保存全局配置
+        可保存: global_feishu_url, global_dingtalk_url, global_wecom_url,
+               quota_budget_per_day, download_cookies_file, download_output_path,
+               enable_aria2, default_sub_langs
+        """
         cfg = _db.load_config()
         for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
-                    "quota_budget_per_day", "download_cookies_file", "download_output_path"]:
+                    "quota_budget_per_day", "download_cookies_file", "download_output_path",
+                    "enable_aria2", "default_sub_langs"]:
             if key in body:
                 cfg[key] = body[key]
         path = _db.get_config_path()
@@ -316,8 +327,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
         self._send_json({"ok": True})
 
-    def _api_scheduler_start(self):
-        ok = _scheduler.start()
+    def _api_scheduler_start(self, body: dict):
+        auto_dl = bool(body.get("auto_download", False))
+        ok = _scheduler.start(auto_download=auto_dl)
         self._send_json({"ok": ok})
 
     def _api_scheduler_stop(self):
@@ -371,16 +383,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
                 self._send_json({"ok": True, "id": account_id})
-        except Exception as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("账户操作异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_account_scan(self, body):
-        try:
-            acc_id = int(body.get("account_id", 0))
-            _scheduler._scan_account(acc_id)
-            self._send_json({"ok": True})
-        except Exception as e:
-            self._send_json({"error": str(e)}, 400)
+        acc_id = int(body.get("account_id", 0))
+        auto_dl = bool(body.get("auto_download", False))
+        _scheduler._scan_account(acc_id, auto_download=auto_dl)
+        self._send_json({"ok": True})
 
     def _api_account_delete(self, acc_id):
         try:
@@ -388,8 +399,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if _scheduler.is_running():
                 _scheduler.reload_jobs()
             self._send_json({"ok": True})
-        except Exception as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("账户删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_cache_list(self):
         """GET /api/cache — 列出所有缓存"""
@@ -460,8 +472,32 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         })
 
     def _api_account_videos_batch_download(self, acc_id: str, body: dict):
-        """POST /api/accounts/{id}/videos/batch-download — 批量下载视频（Python yt_dlp 库）"""
-        video_ids: list = body.get("video_ids", [])
+        """
+        POST /api/accounts/{id}/videos/batch-download — 批量下载视频（Python yt_dlp 库）
+
+        Request Body:
+            video_ids    (int[])   必填，monitor_videos 表的主键 ID 列表
+            sub_langs   (str)     可选，字幕语言代码，逗号分隔，如 "zh-Hans,en"
+                                 仅在 no_subs=False 时生效；Web UI 字幕开关开启时传入
+            no_subs     (bool)    可选，默认 True（不下载字幕，避免 WhisperX 拖慢）
+                                 设为 False + sub_langs 有值时，yt-dlp 下载官方字幕
+            output_path (str)     可选，下载保存路径，未填则取全局配置。
+                                 已通过规范化 + 允许根目录校验防目录穿越。
+            cookies_file(str)     可选，Cookie 文件路径，未填则取全局配置
+
+        Response:
+            200: {ok: true, task_id: str, queued: int}
+            400: {error: "未选择视频" | "video_ids 必须为数组" | "video_ids 数组元素必须为整数" | ...}
+            404: {error: "未找到视频记录"}
+        """
+        video_ids = body.get("video_ids", [])
+        if not isinstance(video_ids, list):
+            self._send_json({"error": "video_ids 必须为数组"}, 400)
+            return
+        for vid in video_ids:
+            if not isinstance(vid, int):
+                self._send_json({"error": "video_ids 数组元素必须为整数"}, 400)
+                return
         if not video_ids:
             self._send_json({"error": "未选择视频"}, 400)
             return
@@ -474,7 +510,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if not output_path:
             output_path = os.path.join(_PROJECT_ROOT, "videos")
 
-        os.makedirs(output_path, exist_ok=True)
+        # 路径安全校验：规范化并限制在允许范围内
+        abs_output = os.path.abspath(output_path)
+        abs_root = os.path.abspath(_PROJECT_ROOT)
+        # 允许：项目根目录下任何子目录 + 全局配置中明确设置的路径
+        cfg_abs = os.path.abspath(cfg.get("download_output_path", "")) if cfg.get("download_output_path") else ""
+        allowed_roots = [abs_root, cfg_abs] if cfg_abs else [abs_root]
+        if not any(abs_output.startswith(r) for r in allowed_roots):
+            self._send_json({"error": "输出路径必须在允许范围内"}, 400)
+            return
+
+        os.makedirs(abs_output, exist_ok=True)
 
         video_records = _db.get_videos_by_ids(video_ids)
         if not video_records:
@@ -486,14 +532,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "视频记录中无有效 URL"}, 400)
             return
 
-        task_id = _task_mgr.create_task(video_records, output_path)
-        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={output_path}")
+        task_id = _task_mgr.create_task(video_records, abs_output)
+        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={abs_output}")
 
         _db.update_videos_download_status(video_ids, "downloading")
 
-        sub_langs = body.get("sub_langs", "zh-Hans,en")
-        no_subs = body.get("no_subs", False)
+        sub_langs = body.get("sub_langs")   # Web UI 显式传入，未传则不下载字幕
+        no_subs = body.get("no_subs", True)  # 默认不下载字幕（避免 WhisperX 拖慢）
         cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
+        # cookies_file 存在性校验（不存在时 yt-dlp 静默跳过，但给出提示）
+        if cookies_file and not os.path.isfile(cookies_file):
+            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
+            cookies_file = None
+        enable_aria2 = bool(cfg.get("enable_aria2", False))
+        extra_ydl_opts = build_aria2_opts() if enable_aria2 else None
 
         def _bg_download():
             try:
@@ -503,12 +555,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
                 results = batch_download(
                     urls,
-                    output_path,
+                    abs_output,
                     'best',
                     progress_callback=progress_cb,
                     sub_langs=sub_langs if not no_subs else None,
                     no_subs=no_subs,
                     cookies_file=cookies_file,
+                    extra_ydl_opts=extra_ydl_opts,
                 )
 
                 _task_mgr.finish_task(task_id, results)
@@ -530,7 +583,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     _db.update_videos_download_status(
                         success_ids, "downloaded",
                         download_at=now_str,
-                        download_path=output_path,
+                        download_path=abs_output,
                     )
                 if failed_ids:
                     _db.update_videos_download_status(
