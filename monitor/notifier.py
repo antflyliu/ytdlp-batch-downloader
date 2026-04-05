@@ -102,6 +102,23 @@ def _sanitize_url_for_md(url: str) -> str:
     return url.replace(")", "%29").replace(" ", "%20")
 
 
+def _format_duration_sec(sec: int | float | None) -> str:
+    """将视频时长（秒）格式化为 H:MM:SS 或 M:SS；缺失或无效时返回 \"—\"。"""
+    if sec is None:
+        return "—"
+    try:
+        total = int(sec)
+    except (TypeError, ValueError):
+        return "—"
+    if total < 0:
+        return "—"
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
 def _format_feishu_video_variable(v: dict) -> dict:
     """将单个视频 dict 格式化为模板变量"""
     pub_date = (v.get("published_at") or v.get("upload_date") or "")[:10]
@@ -110,16 +127,20 @@ def _format_feishu_video_variable(v: dict) -> dict:
     comments = int(v.get("comment_count") or 0)
     title = _escape_lark_md((v.get("title") or "").strip())
     url = v.get("url", "")
+    duration_text = _format_duration_sec(v.get("duration_sec"))
 
     return {
         "title": title,
         "title_link": f"[{title}]({url})" if url else title,
         "video_url": url,
         "published_date": pub_date,
+        "duration_text": duration_text,
         "view_count_text": f"{views:,}",
         "like_count_text": f"{likes:,}",
         "comment_count_text": f"{comments:,}",
-        "stats_line": f"📅 {pub_date}  👁 {views:,}  👍 {likes:,}",
+        "stats_line": (
+            f"📅 {pub_date}  ⏱ {duration_text}  👁 {views:,}  👍 {likes:,}"
+        ),
         "thumbnail_url": v.get("thumbnail_url", ""),
     }
 
@@ -254,10 +275,14 @@ def _build_video_list_md(videos: list[dict], max_items: int = _FEISHU_MAX_ITEMS)
         views = int(v.get("view_count") or 0)
         likes = int(v.get("like_count") or 0)
         comments = int(v.get("comment_count") or 0)
+        duration_text = _format_duration_sec(v.get("duration_sec"))
 
         title_part = f"[{title}]({url})" if url else title
         lines.append(f"**{idx}.** {title_part}")
-        stats = f"📅 {pub_date}  👁 {views:,}  👍 {likes:,}  💬 {comments:,}"
+        stats = (
+            f"📅 {pub_date}  ⏱ {duration_text}  👁 {views:,}  "
+            f"👍 {likes:,}  💬 {comments:,}"
+        )
         lines.append(stats)
         if idx < len(show):
             lines.append("")
@@ -343,13 +368,14 @@ def _build_feishu_card(
         pub_date = (v.get("published_at") or "")[:10]
         views = v.get("view_count") or 0
         likes = v.get("like_count") or 0
+        duration_text = _format_duration_sec(v.get("duration_sec"))
         video_items.append({
             "tag": "div",
             "text": {
                 "tag": "lark_md",
                 "content": (
                     f"**{v.get('title', '')}**\n"
-                    f"📅 {pub_date}  👁 {views:,}  👍 {likes:,}\n"
+                    f"📅 {pub_date}  ⏱ {duration_text}  👁 {views:,}  👍 {likes:,}\n"
                     f"[👉 前往观看]({v.get('url', '')})"
                 ),
             },
