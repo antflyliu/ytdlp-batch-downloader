@@ -68,7 +68,7 @@ _MONITOR_ROOT = _PKG_DIR  # = monitor/
 _LOG_DIR = os.path.join(_EXE_DIR, "logs")
 
 
-# 已发送过的 quota 报警（key = f"{api_key}:{threshold}"，避免重复发送）
+# 已发送过的 quota 报警（key = f"{api_key}:{date}:{threshold}"，每日重置避免内存泄漏）
 _quota_alerted: set[str] = set()
 
 
@@ -131,11 +131,12 @@ def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
 
 
 def _check_quota_alert(account: dict, api_key: str, budget: int) -> None:
-    """检查是否需要发送 quota 预警（80%/90%/100%）"""
+    """检查是否需要发送 quota 预警（80%/90%/100%）。每日重置，避免内存泄漏。"""
     _, usage = _quota.check_budget(api_key, budget)
     used = usage["api_calls"]
+    today = datetime.now().astimezone().strftime("%Y-%m-%d")
     for threshold in (80, 90, 100):
-        alert_key = f"{api_key}:{threshold}"
+        alert_key = f"{api_key}:{today}:{threshold}"
         if alert_key in _quota_alerted:
             continue
         if threshold == 100:

@@ -79,26 +79,56 @@ def init_db() -> None:
         schema = f.read()
     with get_connection() as conn:
         conn.executescript(schema)
+        _ensure_schema_migrations(conn)
         _migrate_monitor_accounts(conn)
 
 
+def _ensure_schema_migrations(conn) -> None:
+    """确保 schema_migrations 表存在"""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )"""
+    )
+
+
 def _migrate_monitor_accounts(conn) -> None:
-    """对老数据库迁移补列（PRAGMA table_info 方式，兼容已有数据）"""
-    cur = conn.execute("PRAGMA table_info(monitor_accounts)")
-    cols = {row[1] for row in cur.fetchall()}
-    migrations = []
-    if "feishu_message_mode" not in cols:
-        migrations.append("ADD COLUMN feishu_message_mode TEXT NOT NULL DEFAULT 'card_json'")
-    if "feishu_template_id" not in cols:
-        migrations.append("ADD COLUMN feishu_template_id TEXT")
-    if "feishu_scan_template_id" not in cols:
-        migrations.append("ADD COLUMN feishu_scan_template_id TEXT")
-    if "api_key_id" not in cols:
-        migrations.append("ADD COLUMN api_key_id INTEGER DEFAULT NULL")
-        # 旧数据：从 api_key_env 读取实际 Key 值写入 api_keys 表
-        _migrate_legacy_api_keys(conn)
-    for mig in migrations:
-        conn.execute(f"ALTER TABLE monitor_accounts {mig}")
+    """对老数据库迁移补列（基于 schema_migrations 版本追踪，幂等）"""
+    applied = set(
+        row[0] for row in conn.execute("SELECT version FROM schema_migrations")
+    )
+    today = _today_str()
+
+    # v1: api_key_id 列
+    if "v1_api_key_id" not in applied:
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "api_key_id" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN api_key_id INTEGER DEFAULT NULL"
+            )
+            _migrate_legacy_api_keys(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v1_api_key_id", today),
+        )
+
+    # v2: feishu 扩展列
+    if "v2_feishu_ext" not in applied:
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        for col, ddl in [
+            ("feishu_message_mode", "TEXT NOT NULL DEFAULT 'card_json'"),
+            ("feishu_template_id", "TEXT"),
+            ("feishu_scan_template_id", "TEXT"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE monitor_accounts ADD COLUMN {col} {ddl}")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v2_feishu_ext", today),
+        )
 
 
 def _migrate_legacy_api_keys(conn) -> None:
@@ -698,7 +728,22 @@ def backup_db() -> str | None:
 
     try:
         import shutil
-        shutil.copy2(_DB_PATH, backup_path)
+        # 备份时排除 api_keys 表以防明文 Key 泄露
+        conn_backup = sqlite3.connect(backup_path)
+        conn_src = sqlite3.connect(_DB_PATH)
+        conn_backup.execute("PRAGMA journal_mode=WAL")
+        for line in conn_src.iterdump():
+            stripped = line.strip()
+            if (stripped.startswith("CREATE TABLE api_keys")
+                    or stripped.startswith("INSERT INTO api_keys")):
+                continue
+            try:
+                conn_backup.execute(line)
+            except Exception:
+                pass
+        conn_backup.commit()
+        conn_backup.close()
+        conn_src.close()
 
         # 清理超过 7 份的旧备份
         existing = sorted([
