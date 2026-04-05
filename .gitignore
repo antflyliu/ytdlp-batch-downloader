@@ -30,6 +30,9 @@ YouTube批量下载器.spec
 *.xlsx
 *.txt
 
+# MCP (contains API keys)
+.mcp.json
+
 # User data (sensitive)
 cookies.json
 channel_videos.csv
