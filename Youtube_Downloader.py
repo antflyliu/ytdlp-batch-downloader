@@ -15,6 +15,27 @@ import logging_config
 _log = logging_config.get_logger("ytdl_downloader")
 
 
+def build_aria2_opts(proxy: str | None = None) -> dict:
+    """构建 aria2c 外部下载器的 yt-dlp 选项字典。
+
+    CLI main() 和监控模块（scheduler / monitor_server）共用此函数，
+    保证 aria2 参数只在一处维护。
+    """
+    args = [
+        '--min-split-size=1M',
+        '--max-connection-per-server=16',
+        '--split=16',
+        '--max-concurrent-downloads=3',
+        '--continue=true',
+    ]
+    if proxy:
+        args.append(f'--all-proxy={proxy}')
+    return {
+        'external_downloader': 'aria2c',
+        'external_downloader_args': args,
+    }
+
+
 def load_proxy_pool(file_path):
     """
     从文件加载代理池，每行一个代理地址
@@ -229,12 +250,15 @@ def convert_vtt_to_srt(vtt_path):
 
 def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
                   sub_langs=None, no_subs=False, proxy_pool=None,
-                  cookies_from_browser=None, cookies_file=None):
+                  cookies_from_browser=None, cookies_file=None,
+                  concurrent_fragments=4, extra_ydl_opts=None):
     """
     批量下载视频的函数
     sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
     no_subs: True 则不下载字幕
     proxy_pool: 代理池列表（每行一个地址），自动轮换；单个 proxy 优先于代理池
+    concurrent_fragments: yt-dlp 内置分片并发数（与 aria2 二选一生效时以外部下载器为准）
+    extra_ydl_opts: 额外合并到 yt-dlp 的选项（如 external_downloader='aria2c'）
     """
     results = []
     total = len(urls)
@@ -269,13 +293,15 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
         'quiet': True,
         'no_warnings': True,
         'format_sort': ['vcodec:h264'],
-        'concurrent_fragment_downloads': 4,
+        'concurrent_fragment_downloads': concurrent_fragments,
         # Cookie 配置（绕过 YouTube 机器人检测）
         'cookies_from_browser': cookies_from_browser,
         'cookiefile': _cookies_file,
         # 指定 JS 运行时以解决 YouTube 播放器签名挑战
         'js_runtimes': {'node': {'path': None}},
     }
+    if extra_ydl_opts:
+        ydl_opts_base.update(extra_ydl_opts)
 
     def _apply_proxy(opts, p):
         opts = {**opts}
@@ -511,6 +537,8 @@ def main():
     parser.add_argument('-p', '--proxy', help='代理地址 (如: http://127.0.0.1:7890)')
     parser.add_argument('-n', '--max', type=int, help='最多下载视频数量')
     parser.add_argument('--no-aria2', action='store_true', help='不使用 aria2c 加速')
+    parser.add_argument('--concurrent-fragments', type=int, default=4, metavar='N',
+                        help='yt-dlp 分片并发数（未使用 aria2 时生效；默认 4，可试 8–16）')
     # 字幕相关参数
     parser.add_argument('--sub-lang', default='zh-Hans,en', help='字幕语言，逗号分隔 (默认: zh-Hans,en)')
     parser.add_argument('--whisper-model', default='medium',
@@ -562,22 +590,11 @@ def main():
     output_path = os.path.abspath(args.output)
     os.makedirs(output_path, exist_ok=True)
 
-    # 构建下载选项
-    ydl_opts_base = {}
-    if not args.no_aria2:
-        ydl_opts_base['external_downloader'] = 'aria2c'
-        ydl_opts_base['external_downloader_args'] = [
-            '--min-split-size=1M',
-            '--max-connection-per-server=16',
-            '--split=16',
-            '--max-concurrent-downloads=3',
-            '--continue=true',
-        ]
+    # 额外 yt-dlp 选项（合并进 batch_download；默认启用 aria2c 多连接分片）
+    extra_ydl_opts = {} if args.no_aria2 else build_aria2_opts(proxy=args.proxy)
 
     if args.proxy:
-        ydl_opts_base['proxy'] = args.proxy
-        if not args.no_aria2:
-            ydl_opts_base['external_downloader_args'].append(f'--all-proxy={args.proxy}')
+        extra_ydl_opts['proxy'] = args.proxy
 
     # 代理池加载
     proxy_pool = None
@@ -598,6 +615,10 @@ def main():
     print(f"分辨率: {args.resolution}")
     if not args.no_subs:
         print(f"字幕语言: {args.sub_lang}")
+    if args.no_aria2:
+        print(f"下载加速: yt-dlp 内置分片 (concurrent_fragment_downloads={args.concurrent_fragments})")
+    else:
+        print("下载加速: aria2c（请确保已安装 aria2 且在 PATH 中）")
     if args.cookies_from_browser:
         print(f"Cookie: 从 {args.cookies_from_browser} 浏览器读取")
     elif args.cookies:
@@ -625,6 +646,8 @@ def main():
             proxy_pool=proxy_pool,
             cookies_from_browser=args.cookies_from_browser,
             cookies_file=args.cookies,
+            concurrent_fragments=args.concurrent_fragments,
+            extra_ydl_opts=extra_ydl_opts if extra_ydl_opts else None,
         )
 
         # 更新进度条到完成
