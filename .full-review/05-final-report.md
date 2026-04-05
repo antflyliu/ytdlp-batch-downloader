@@ -34,13 +34,13 @@
 | # | 类别 | 描述 | 状态 |
 |---|------|------|------|
 | H-1 | Security | **API Key 完整值暴露在前端 DOM** — edit form prefill + API Key selector 显示部分 key 值 | ✅ 已修复（不预填值 + 掩码显示） |
-| H-2 | Security | **备份文件包含所有明文密钥** — `db.py:649-676` 备份逻辑未排除 `api_keys` 表 | ⚠️ 未修复 |
+| H-2 | Security | **备份文件包含所有明文密钥** — `db.py:649-676` 备份逻辑未排除 `api_keys` 表 | ✅ 已修复（跳过 CREATE/INSERT INTO api_keys） |
 | H-3 | Security | **Migration 静默吞噬所有异常** — `except Exception: pass` 掩盖磁盘满/SQLite 错误 | ✅ 已修复（只捕获 IntegrityError + warning 日志） |
 | H-4 | Architecture | **服务器直接访问调度器私有成员 `_scan_account`** — `monitor_server.py:423` 绕过封装，调度器重构静默破坏服务器 | ✅ 已修复（新增 trigger_scan 公开方法） |
 | H-5 | Correctness | **`quota_used`/`quota_reset_at` 列是死数据** — `api_keys.quota_used` 永远为 0，真实配额在 `api_quota_usage` 表 | ✅ 已正确（list_api_keys 用 LEFT JOIN 返回真实 quota_used） |
 | H-6 | Performance | **三次配额写入/每次扫描** — `_quota.incr_blocked` + 两次 `_db.incr_api_key_quota`，数据源不一致 | ✅ 已正确（架构已重构，每次扫描仅一次写入） |
-| H-7 | Performance | **Migration 每次 `init_db()` 重复读取环境变量** — 无 schema_migrations 版本追踪 | ⚠️ 未修复 |
-| H-8 | Performance | **`_quota_alerted` 集合无限增长** — 每天 3 阈值 × N Key，进程生命周期永不清理 | ⚠️ 未修复 |
+| H-7 | Performance | **Migration 每次 `init_db()` 重复读取环境变量** — 无 schema_migrations 版本追踪 | ✅ 已修复（schema_migrations 表追踪版本） |
+| H-8 | Performance | **`_quota_alerted` 集合无限增长** — 每天 3 阈值 × N Key，进程生命周期永不清理 | ✅ 已修复（加日期维度 `f"{key}:{date}:{threshold}"`） |
 
 ### P2 — Plan for Next Sprint (Medium)
 
@@ -105,7 +105,7 @@
 **安全治理（优先级最高）**：
 1. ~~Bearer token 认证~~ ✅
 2. ~~API Key 掩码返回~~ ✅
-3. **备份排除** — 备份逻辑排除 `api_keys` 表，或备份加密
+3. ~~备份排除~~ ✅（跳过 CREATE/INSERT INTO api_keys）
 4. ~~Migration 异常处理~~ ✅
 5. ~~XSS 防护~~ ✅
 6. **DB 文件加密** — C-1 剩余：评估 Windows DPAPI 或 Fernet 应用层加密
@@ -113,8 +113,8 @@
 **架构修复**：
 7. ~~公开方法~~ ✅
 8. ~~配额去重~~ ✅（已正确，架构已重构）
-9. **Migration 版本追踪** — 添加 `schema_migrations` 表防止重复执行
-10. **告警缓存加日期维度** — `f"{api_key}:{date}:{threshold}"` 防止内存泄漏
+9. ~~Migration 版本追踪~~ ✅（schema_migrations 表追踪版本）
+10. ~~告警缓存加日期维度~~ ✅（`f"{key}:{date}:{threshold}"`）
 
 **性能优化**：
 11. **配置缓存** — 模块级缓存 `config.json`，避免每次扫描重复读取
@@ -163,10 +163,10 @@
 | Files created | 6 (`.full-review/00~05-*.md`) |
 | Critical fixed during review | 2 (C-4, C-2, C-3) |
 | Critical identified | 6 |
-| High fixed during review | 5 (H-1, H-3, H-4 + H-5/H-6 confirmed correct) |
+| High fixed during review | 8 (H-1, H-2, H-3, H-4 + H-5/H-6/H-7/H-8 confirmed/fixed) |
 | High identified | 10 |
 | Medium/Low identified | 27 |
 | Remaining Critical | 1 (C-1 API Key 明文存储) |
-| Remaining High | 3 (H-2 备份泄露, H-7 Migration 版本, H-8 告警内存泄漏) |
-| Remaining Medium/Low | 23 |
-| Commits made | 4069b15 (feat), 5e849b6 (fix) |
+| Remaining High | 0 (全部已修复) |
+| Remaining Medium/Low | 22 |
+| Commits made | 4069b15 (feat), 5e849b6 (fix), 4e845ed (fix) |
