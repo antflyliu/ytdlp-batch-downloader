@@ -133,6 +133,36 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v2_feishu_ext", today),
         )
 
+    # v3: api_quota_usage.api_key_env → api_key_value 列重命名
+    if "v3_quota_col_rename" not in applied:
+        cur = conn.execute("PRAGMA table_info(api_quota_usage)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "api_key_env" in cols and "api_key_value" not in cols:
+            conn.execute("ALTER TABLE api_quota_usage RENAME COLUMN api_key_env TO api_key_value")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v3_quota_col_rename", today),
+        )
+
+    # v4: webhook_url 加密（明文 → enc:... 格式）
+    if "v4_webhook_encrypt" not in applied:
+        rows = conn.execute(
+            "SELECT id, webhook_url FROM monitor_accounts "
+            "WHERE webhook_url IS NOT NULL AND webhook_url != '' AND webhook_url NOT LIKE 'enc:%'"
+        ).fetchall()
+        for row in rows:
+            acct_id, url = row
+            if url and not url.startswith("enc:"):
+                encrypted = _encrypt_webhook(url)
+                conn.execute(
+                    "UPDATE monitor_accounts SET webhook_url=? WHERE id=?",
+                    (encrypted, acct_id),
+                )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v4_webhook_encrypt", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
@@ -200,7 +230,7 @@ def list_api_keys() -> list[dict]:
                       aqu.blocked_scans
                FROM api_keys ak
                LEFT JOIN api_quota_usage aqu
-                 ON aqu.api_key_env = ak.key_value
+                 ON aqu.api_key_value = ak.key_value
                 AND aqu.date_key = ?
                ORDER BY ak.id""",
             (today,),
@@ -288,7 +318,15 @@ def list_accounts(enabled_only: bool = False) -> list[dict]:
             rows = conn.execute(
                 "SELECT * FROM monitor_accounts ORDER BY id"
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [_decrypt_account_webhook(dict(r)) for r in rows]
+
+
+def _decrypt_account_webhook(account: dict) -> dict:
+    """解密账户的 webhook_url"""
+    if account and account.get("webhook_url"):
+        account = dict(account)
+        account["webhook_url"] = _decrypt_webhook(account["webhook_url"])
+    return account
 
 
 def get_account(account_id: int) -> dict | None:
@@ -296,7 +334,7 @@ def get_account(account_id: int) -> dict | None:
         row = conn.execute(
             "SELECT * FROM monitor_accounts WHERE id=?", (account_id,)
         ).fetchone()
-        return dict(row) if row else None
+        return _decrypt_account_webhook(dict(row)) if row else None
 
 
 def add_account(
@@ -323,7 +361,8 @@ def add_account(
                 api_key_id, created_at, updated_at)
                VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
-             scan_interval, int(notify_enabled), notify_platform, webhook_url,
+             scan_interval, int(notify_enabled), notify_platform,
+             _encrypt_webhook(webhook_url),
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
              api_key_id, now_iso(), now_iso()),
         )
@@ -362,7 +401,7 @@ def update_account(
     if enabled          is not None: fields.append("enabled=?");          values.append(int(enabled))
     if notify_enabled   is not None: fields.append("notify_enabled=?");   values.append(int(notify_enabled))
     if notify_platform  is not None: fields.append("notify_platform=?");  values.append(notify_platform)
-    if webhook_url     is not _UNSET: fields.append("webhook_url=?");     values.append(webhook_url)
+    if webhook_url     is not _UNSET: fields.append("webhook_url=?");     values.append(_encrypt_webhook(webhook_url))
     if feishu_message_mode is not None: fields.append("feishu_message_mode=?"); values.append(feishu_message_mode)
     if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
     if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
@@ -706,6 +745,61 @@ def set_api_token(token: str) -> None:
             """INSERT OR REPLACE INTO app_state (key, value) VALUES ('api_token', ?)""",
             (token,),
         )
+
+
+# ── Webhook URL 加密（M-5）──────────────────────────────────────
+
+def _get_webhook_enc_key() -> bytes:
+    """
+    获取 Webhook URL 加密密钥（从 app_state 读取，不存在则自动生成）。
+    使用 Fernet.generate_key() 生成符合规范的 base64 编码密钥。
+    """
+    from cryptography.fernet import Fernet
+    ensure_app_state_table()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_state WHERE key='webhook_enc_key'"
+        ).fetchone()
+        if row:
+            return row[0].encode("utf-8")
+    key_str = Fernet.generate_key().decode("utf-8")
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO app_state (key, value) VALUES ('webhook_enc_key', ?)""",
+            (key_str,),
+        )
+    return key_str.encode("utf-8")
+
+
+def _encrypt_webhook(url: str | None) -> str | None:
+    """加密 Webhook URL，明文为空或已加密则原样返回"""
+    if not url:
+        return None
+    if url.startswith("enc:"):
+        return url  # 已加密，跳过
+    try:
+        from cryptography.fernet import Fernet
+        key = _get_webhook_enc_key()
+        f = Fernet(key)
+        encrypted = f.encrypt(url.encode("utf-8"))
+        return "enc:" + encrypted.decode("utf-8")
+    except Exception:
+        return url  # 加密失败时降级为明文
+
+
+def _decrypt_webhook(encrypted: str | None) -> str | None:
+    """解密 Webhook URL，非加密值或解密失败则原样返回"""
+    if not encrypted:
+        return None
+    if not encrypted.startswith("enc:"):
+        return encrypted  # 明文原样返回
+    try:
+        from cryptography.fernet import Fernet
+        key = _get_webhook_enc_key()
+        f = Fernet(key)
+        return f.decrypt(encrypted[4:].encode("utf-8")).decode("utf-8")
+    except Exception:
+        return encrypted  # 解密失败时返回原始值（可能已损坏）
 
 
 # 确保 app_state 表存在（懒创建）

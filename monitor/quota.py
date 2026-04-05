@@ -29,13 +29,13 @@ def _ensure_schema():
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS api_quota_usage (
-                api_key_env   TEXT NOT NULL,
-                date_key      TEXT NOT NULL,
-                api_calls     INTEGER DEFAULT 0,
-                scans_done    INTEGER DEFAULT 0,
-                blocked_scans INTEGER DEFAULT 0,
-                updated_at    TEXT NOT NULL,
-                PRIMARY KEY (api_key_env, date_key)
+                api_key_value  TEXT NOT NULL,
+                date_key       TEXT NOT NULL,
+                api_calls      INTEGER DEFAULT 0,
+                scans_done     INTEGER DEFAULT 0,
+                blocked_scans  INTEGER DEFAULT 0,
+                updated_at     TEXT NOT NULL,
+                PRIMARY KEY (api_key_value, date_key)
             )
         """)
         conn.execute("""
@@ -59,18 +59,18 @@ def _today() -> str:
 
 # ── 核心 API ───────────────────────────────────────────────────
 
-def get_usage(api_key_env: str, date_key: str | None = None) -> dict:
+def get_usage(api_key_value: str, date_key: str | None = None) -> dict:
     """获取某 API Key 某日的 quota 使用情况"""
     date_key = date_key or _today()
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT * FROM api_quota_usage WHERE api_key_env=? AND date_key=?",
-            (api_key_env, date_key),
+            "SELECT * FROM api_quota_usage WHERE api_key_value=? AND date_key=?",
+            (api_key_value, date_key),
         ).fetchone()
         return dict(row) if row else {
-            "api_key_env": api_key_env,
+            "api_key_value": api_key_value,
             "date_key": date_key,
             "api_calls": 0,
             "scans_done": 0,
@@ -96,7 +96,7 @@ def get_all_usage(date_key: str | None = None) -> list[dict]:
         conn.close()
 
 
-def incr(api_key_env: str, calls: int = 1, scans: int = 0) -> None:
+def incr(api_key_value: str, calls: int = 1, scans: int = 0) -> None:
     """增加 API 调用计数（当日）"""
     today = _today()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -104,13 +104,13 @@ def incr(api_key_env: str, calls: int = 1, scans: int = 0) -> None:
     try:
         conn.execute("""
             INSERT INTO api_quota_usage
-                (api_key_env, date_key, api_calls, scans_done, blocked_scans, updated_at)
+                (api_key_value, date_key, api_calls, scans_done, blocked_scans, updated_at)
             VALUES (?, ?, ?, ?, 0, ?)
-            ON CONFLICT(api_key_env, date_key) DO UPDATE SET
+            ON CONFLICT(api_key_value, date_key) DO UPDATE SET
                 api_calls = api_calls + excluded.api_calls,
                 scans_done = scans_done + excluded.scans_done,
                 updated_at = excluded.updated_at
-        """, (api_key_env, today, calls, scans, now))
+        """, (api_key_value, today, calls, scans, now))
         conn.commit()
     except Exception as e:
         _log.warning(f"incr 失败: {e}")
@@ -118,7 +118,7 @@ def incr(api_key_env: str, calls: int = 1, scans: int = 0) -> None:
         conn.close()
 
 
-def incr_blocked(api_key_env: str) -> None:
+def incr_blocked(api_key_value: str) -> None:
     """增加被阻止的扫描次数"""
     today = _today()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -126,12 +126,12 @@ def incr_blocked(api_key_env: str) -> None:
     try:
         conn.execute("""
             INSERT INTO api_quota_usage
-                (api_key_env, date_key, api_calls, scans_done, blocked_scans, updated_at)
+                (api_key_value, date_key, api_calls, scans_done, blocked_scans, updated_at)
             VALUES (?, ?, 0, 0, 1, ?)
-            ON CONFLICT(api_key_env, date_key) DO UPDATE SET
+            ON CONFLICT(api_key_value, date_key) DO UPDATE SET
                 blocked_scans = blocked_scans + 1,
                 updated_at = excluded.updated_at
-        """, (api_key_env, today, now))
+        """, (api_key_value, today, now))
         conn.commit()
     except Exception as e:
         _log.warning(f"incr_blocked 失败: {e}")
@@ -139,13 +139,13 @@ def incr_blocked(api_key_env: str) -> None:
         conn.close()
 
 
-def check_budget(api_key_env: str, budget: int) -> tuple[bool, dict]:
+def check_budget(api_key_value: str, budget: int) -> tuple[bool, dict]:
     """
     检查是否允许扫描
     :return: (allowed, usage_info)
              allowed=False 表示已达上限
     """
-    usage = get_usage(api_key_env)
+    usage = get_usage(api_key_value)
     allowed = usage["api_calls"] < budget
     return allowed, usage
 
@@ -174,7 +174,7 @@ def _mask_key(key: str) -> str:
     return key[:4] + "••••••••" + key[-4:]
 
 
-def send_alert(api_key_env: str, usage: dict, budget: int, webhook_url: str | None) -> None:
+def send_alert(api_key_value: str, usage: dict, budget: int, webhook_url: str | None) -> None:
     """发送 quota 耗尽报警"""
     if not webhook_url:
         return
@@ -185,7 +185,7 @@ def send_alert(api_key_env: str, usage: dict, budget: int, webhook_url: str | No
         "content": {
             "text": (
                 f"⚠️ YouTube API Quota 预警\n\n"
-                f"API Key: `{_mask_key(api_key_env)}`\n"
+                f"API Key: `{_mask_key(api_key_value)}`\n"
                 f"今日已用: {usage['api_calls']} / {budget} ({percent}%)\n"
                 f"扫描次数: {usage['scans_done']} 次\n"
                 f"已阻止: {usage['blocked_scans']} 次\n"

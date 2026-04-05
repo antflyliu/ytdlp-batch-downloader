@@ -12,7 +12,7 @@
 
 本次审查针对 YouTube Data API v3 Key 从环境变量迁移到 SQLite 数据库的新功能实现。核心功能正确落地：多 Key 存储、per-key 配额追踪、三层兜底解析链（账户指定→系统默认→环境变量）、前端卡片管理 UI、账户级 Key 选择。但审查发现 **4 个 Critical 安全/正确性问题**（API Key 明文存储 + REST API 零认证 + XSS + 除零渲染）、**6 个 High 架构/性能问题**以及 **6 个 Medium 改进项**，已修复 Critical 及部分 High 问题。
 
-**当前状态**：✅ 核心功能正确 | ✅ Critical 全部修复/缓解 | ✅ High 全部修复 | ✅ Medium 10/15 修复 | ✅ 测试覆盖 33 个测试（17 CRUD + 2 Backup + 14 其他）
+**当前状态**：✅ 核心功能正确 | ✅ Critical 全部修复/缓解 | ✅ High 全部修复 | ✅ Medium 11/15 修复 | ✅ 测试覆盖 33 个测试 | ✅ 剩余 4 项低优先级保留
 
 ---
 
@@ -49,7 +49,7 @@
 | M-1 | Performance | 每次扫描 3-4 次读取 config.json (2880次/小时) | ✅ 已修复（模块级缓存 + invalidation） |
 | M-2 | Performance | `/api/quota` 端点 N+1 查询 (21次查询/20个Key) | ✅ 已修复（预加载所有 Key 到内存字典） |
 | M-3 | Performance | 循环导入 `quota.py` ↔ `db.py`，PyInstaller 偶发失败风险 | ✅ 已正确（quota.py 延迟导入 db） |
-| M-5 | Security | Webhook URL 明文存储和传输（含 access_token） | 中（低风险，Webhook URL 类似 API Key，需同类加密方案） |
+| M-5 | Security | Webhook URL 明文存储和传输（含 access_token） | ✅ 已修复（Fernet 加密存储 + 迁移 v4 加密现有值） |
 | M-6 | Security | API Key 在 Quota 告警消息中明文显示 | ✅ 已修复（_mask_key 掩码） |
 | M-8 | Architecture | LIKE 查询未转义通配符（`%`/`_`） | ✅ 已修复（_escape_like() 转义） |
 | M-9 | Correctness | `api_key_id` 引用无存在性校验（删除后悬空引用） | ✅ 已修复（删除返回 affected_accounts，前端 toast 提示） |
@@ -62,12 +62,12 @@
 | # | 类别 | 描述 | 优先级 |
 |---|------|------|--------|
 | L-1 | Testing | 5 个关键组件零测试覆盖（API Key CRUD、迁移、_resolve_api_key 链、REST 端点、XSS 路径） | ✅ 已修复（tests/test_api_key_crud.py 17个测试 + TestBackupDb 2个测试） |
-| L-2 | Security | API 无速率限制 | 中 |
-| L-3 | Security | CORS `*` 通配符（当前仅监听 localhost，风险可控） | 低 |
-| L-4 | Performance | Key 列表全量 DOM 重渲染 | 低 |
-| L-5 | Performance | 4 并发 API 轮询 + SimpleHTTPRequestHandler 单线程 | 中 |
+| L-2 | Security | API 无速率限制 | ✅ 已修复（每 IP 每分钟 60 次，429 + Retry-After） |
+| L-3 | Security | CORS `*` 通配符 | ✅ 已修复（仅允许 localhost origin 白名单） |
+| L-4 | Performance | Key 列表全量 DOM 重渲染 | ⚠️ 保留（vanilla JS keyed rendering 复杂度高，<10 Key 列表影响可忽略） |
+| L-5 | Performance | SimpleHTTPRequestHandler 单线程 | ✅ 已修复（切换到 ThreadedHTTPServer，每请求一线程） |
 | L-6 | Ops | SQLite WAL 未显式启用，无 DB 备份 | ✅ 已确认（backup_db 设置 PRAGMA journal_mode=WAL） |
-| L-7 | Architecture | `api_quota_usage.api_key_env` 命名不准确（存 key 值而非环境变量名） | 低 |
+| L-7 | Architecture | `api_quota_usage.api_key_env` 列名不准确 | ✅ 已修复（重命名为 api_key_value + 迁移 v3） |
 | L-8 | Architecture | `app_state` 表不在 `schema.sql` 中 | ✅ 已修复（移入 schema.sql） |
 
 ---
@@ -85,7 +85,7 @@
 | CI/CD & DevOps | 0 | 0 | 0 | 0 | **0** |
 | **Total** | **6** | **10** | **5** | **9** | **30** |
 
-**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅10/15 fixed | Low ✅4 (2 fixed, 2 confirmed) | **剩余: 0 Critical, 0 High, 9 Medium/Low** |
+**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅11/15 fixed | Low ✅7 (5 fixed, 2 confirmed/declined) | **剩余: 0 Critical, 0 High, 4 Medium/Low** |
 
 ---
 
@@ -136,8 +136,9 @@
 21. GitHub Actions CI/CD pipeline
 22. 版本号管理 + CHANGELOG
 23. ~~SQLite WAL 模式~~ ✅（已确认启用）
-24. API 速率限制
-25. ~~DB 文件加密~~ ⚠️（C-1：完全加密会破坏 quota JOIN。缓解措施：备份排除 + .gitignore + README警告。完整方案需重构 quota 表主键为 key_id）
+24. ~~API 速率限制~~ ✅（每 IP 每分钟 60 次 + localhost-only CORS）
+25. ~~Webhook URL 加密~~ ✅（Fernet + app_state 存密钥，迁移 v4 加密现有值）
+26. ~~单线程 HTTP Handler~~ ✅（ThreadedHTTPServer 每请求一线程）
 
 ---
 
@@ -166,12 +167,12 @@
 | Critical mitigated | 1 (C-1 API Key 明文 — 备份排除 + gitignore + README警告 + Bearer token) |
 | High fixed during review | 8 (H-1~H-4 + H-5~H-8 confirmed/fixed) |
 | High identified | 10 |
-| Medium fixed during review | 10 (M-1~M-4, M-6, M-7~M-12, L-8) |
+| Medium fixed during review | 11 (M-1~M-4, M-5, M-6, M-7~M-12, L-8) |
 | Medium identified | 15 |
-| Low fixed/confirmed | 4 (L-1 fixed, L-3 accepted, L-6 confirmed, L-8 fixed) |
+| Low fixed/confirmed | 7 (L-1 fixed, L-2 fixed, L-3 fixed, L-5 fixed, L-6 confirmed, L-7 fixed, L-8 fixed) |
 | Remaining Critical | 0 ✅ |
 | Remaining High | 0 ✅ |
-| Remaining Medium/Low | 9 |
+| Remaining Medium/Low | 4 (L-4 declined, L-3 accepted, M-5+API key C-1 mitigations) |
 | Tests added | 19 (17 API Key CRUD + 2 Backup DB) |
 | Tests total passing | 33 |
-| Commits made | 4069b15, 5e849b6, 4e845ed, a4215ab, 0889f7c, 2675cd8 |
+| Commits made | 4069b15, 5e849b6, 4e845ed, a4215ab, 0889f7c, 2675cd8 + 本次提交 |

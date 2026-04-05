@@ -9,15 +9,19 @@ REST API 后端 + 静态文件服务
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
+import re
 import secrets
 import sys
 import threading
+import time
 import uuid
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+import socketserver
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -34,6 +38,19 @@ import logging_config
 from Youtube_Downloader import batch_download, build_aria2_opts
 
 _log = logging_config.get_logger("monitor_server")
+
+# ── 速率限制器（每 IP 每分钟 60 次请求）─────────────────────────
+_RATE_LIMIT_WINDOW = 60  # 秒
+_RATE_LIMIT_MAX = 60     # 每窗口最大请求数
+_rate_limiter: dict[str, collections.deque] = {}
+_rate_limiter_lock = threading.Lock()
+
+
+def _get_client_ip() -> str:
+    """从请求中提取真实 IP（支持 X-Forwarded-For）"""
+    # SimpleHTTPRequestHandler 不提供 parsed headers as dict,
+    # 用 self.headers.get directly in handler context
+    return ""  # placeholder, overridden in handler
 
 
 # ── 下载任务管理器 ────────────────────────────────────────────
@@ -130,11 +147,57 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     # ── 工具方法 ─────────────────────────────────────────────
 
+    # localhost origin 白名单（CORS L-3）
+    _LOCALHOST_ORIGIN_RE = re.compile(
+        r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+    )
+
+    def _allowed_origin(self) -> str | None:
+        """返回允许的 CORS origin，若请求 origin 不在白名单则返回 None"""
+        origin = self.headers.get("Origin", "")
+        if self._LOCALHOST_ORIGIN_RE.match(origin):
+            return origin
+        return None
+
+    def _check_rate_limit(self) -> bool:
+        """
+        速率限制：每 IP 每分钟最多 _RATE_LIMIT_MAX 次请求。
+        返回 True 表示通过，False 表示触发限流（已发送 429）。
+        """
+        # 获取真实 IP（优先 X-Forwarded-For）
+        xff = self.headers.get("X-Forwarded-For", "")
+        ip = xff.split(",")[0].strip() if xff else self.client_address[0]
+        now = time.time()
+        with _rate_limiter_lock:
+            if ip not in _rate_limiter:
+                _rate_limiter[ip] = collections.deque(maxlen=_RATE_LIMIT_MAX)
+            times = _rate_limiter[ip]
+            # 清理过期时间戳
+            cutoff = now - _RATE_LIMIT_WINDOW
+            while times and times[0] < cutoff:
+                times.popleft()
+            if len(times) >= _RATE_LIMIT_MAX:
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Retry-After", str(_RATE_LIMIT_WINDOW))
+                origin = self._allowed_origin()
+                if origin:
+                    self.send_header("Access-Control-Allow-Origin", origin)
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({"error": "请求过于频繁，请稍后再试"}, ensure_ascii=False).encode("utf-8")
+                )
+                return False
+            times.append(now)
+        return True
+
     def _send_json(self, data, status=200):
         """发送 JSON 响应（含 CORS headers）"""
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
@@ -180,12 +243,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self._path_only()
-        # /api/status 是健康检查，跳过认证
+        # /api/status 是健康检查，跳过认证和限流
         if path == "/api/status":
             self._api_status()
             return
-        # 其余所有 /api/* 均需认证
+        # 其余所有 /api/* 均需认证和限流
         if not self._require_auth():
+            return
+        if not self._check_rate_limit():
             return
         if path == "/api/accounts":
             self._api_accounts()
@@ -222,12 +287,16 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.command == "OPTIONS":
             self.send_response(200)
-            self.send_header("Access-Control-Allow-Origin", "*")
+            origin = self._allowed_origin()
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.end_headers()
             return
         if not self._require_auth():
+            return
+        if not self._check_rate_limit():
             return
         body = self._read_json()
         if body is None:
@@ -267,12 +336,16 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self):
         if self.command == "OPTIONS":
             self.send_response(200)
-            self.send_header("Access-Control-Allow-Origin", "*")
+            origin = self._allowed_origin()
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.end_headers()
             return
         if not self._require_auth():
+            return
+        if not self._check_rate_limit():
             return
         path = self._path_only()
         if path.startswith("/api/accounts/"):
@@ -290,7 +363,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
@@ -798,7 +873,10 @@ def serve(port: int = 5000):
     if not _INDEX_HTML.exists():
         _log.error(f"index.html not found at {_STATIC_DIR}")
         _INDEX_HTML.write_text("<html><body><h1>UI not found</h1></body></html>", encoding="utf-8")
-    server = HTTPServer(("127.0.0.1", port), MonitorHandler)
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+        """支持并发的 HTTPServer（每请求一个线程）"""
+        daemon_threads = True
+    server = ThreadedHTTPServer(("127.0.0.1", port), MonitorHandler)
     print(f"\n🌐 监控 Web UI: http://127.0.0.1:{port}")
     print("   按 Ctrl+C 停止\n")
     server.serve_forever()
