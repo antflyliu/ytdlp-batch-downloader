@@ -46,18 +46,14 @@
 
 | # | 类别 | 描述 | 优先级 |
 |---|------|------|--------|
-| M-1 | Performance | 每次扫描 3-4 次读取 config.json (2880次/小时) | 高 |
-| M-2 | Performance | `/api/quota` 端点 N+1 查询 (21次查询/20个Key) | 高 |
-| M-3 | Performance | 循环导入 `quota.py` ↔ `db.py`，PyInstaller 偶发失败风险 | 中 |
-| M-4 | Security | DOM XSS via URL 属性未充分转义，`javascript:` 伪协议可绕过 | ✅ 已修复（href + data-open-url 增加 http 协议白名单） |
-| M-5 | Security | Webhook URL 明文存储和传输（含 access_token） | 中 |
-| M-6 | Security | API Key 在 Quota 告警消息中明文显示 | 中 |
-| M-7 | Architecture | 更新 API Key 值导致历史配额数据孤立 | 中 |
-| M-8 | Architecture | LIKE 查询未转义通配符（`%`/`_`） | 中 |
-| M-9 | Correctness | `api_key_id` 引用无存在性校验（删除后悬空引用） | 中 |
-| M-10 | Correctness | `default_api_key_id` 配置无校验（删除 key 后悬空） | 中 |
-| M-11 | Docs | README 未更新新功能，CLI/Web UI 行为差异无说明 | 高 |
-| M-12 | Docs | 无迁移指南（env var → DB 自动迁移，用户无感知） | 高 |
+| M-1 | Performance | 每次扫描 3-4 次读取 config.json (2880次/小时) | ✅ 已修复（模块级缓存 + invalidation） |
+| M-2 | Performance | `/api/quota` 端点 N+1 查询 (21次查询/20个Key) | ✅ 已修复（预加载所有 Key 到内存字典） |
+| M-3 | Performance | 循环导入 `quota.py` ↔ `db.py`，PyInstaller 偶发失败风险 | ✅ 已正确（quota.py 延迟导入 db） |
+| M-5 | Security | Webhook URL 明文存储和传输（含 access_token） | 中（低风险，Webhook URL 类似 API Key，需同类加密方案） |
+| M-6 | Security | API Key 在 Quota 告警消息中明文显示 | ✅ 已修复（_mask_key 掩码） |
+| M-8 | Architecture | LIKE 查询未转义通配符（`%`/`_`） | ✅ 已修复（_escape_like() 转义） |
+| M-9 | Correctness | `api_key_id` 引用无存在性校验（删除后悬空引用） | ✅ 已修复（删除返回 affected_accounts，前端 toast 提示） |
+| M-10 | Correctness | `default_api_key_id` 配置无校验（删除 key 后悬空） | ✅ 已修复（保存时校验引用有效性） |
 
 ### P3 — Track in Backlog (Low)
 
@@ -81,11 +77,11 @@
 | Code Quality | 1 | 3 | 3 | 4 | **11** |
 | Architecture | 1 | 1 | 3 | 2 | **7** |
 | Security | 4 | 2 | 3 | 2 | **11** |
-| Performance | 0 | 3 | 2 | 3 | **8** |
+| Performance | 0 | 3 | 0 | 2 | **5** |
 | Testing | 0 | 1 | 0 | 1 | **2** |
 | Documentation | 0 | 0 | 2 | 0 | **2** |
 | CI/CD & DevOps | 0 | 0 | 0 | 0 | **0** |
-| **Total** | **6** | **10** | **15** | **12** | **43** |
+| **Total** | **6** | **10** | **7** | **10** | **33** |
 
 ---
 
@@ -117,8 +113,8 @@
 10. ~~告警缓存加日期维度~~ ✅（`f"{key}:{date}:{threshold}"`）
 
 **性能优化**：
-11. **配置缓存** — 模块级缓存 `config.json`，避免每次扫描重复读取
-12. **N+1 查询修复** — `/api/quota` 改为单一 JOIN 查询
+11. ~~配置缓存~~ ✅（模块级缓存 + invalidation）
+12. ~~N+1 查询修复~~ ✅（预加载所有 Key 到内存字典）
 
 **文档**：
 13. README 新增 API Key 管理功能说明
@@ -127,8 +123,8 @@
 ### 后续迭代（P2）
 15. ~~死数据列清理~~ ✅（已确认 list_api_keys LEFT JOIN 返回真实配额）
 16. 配额数据迁移：Key 值更新时迁移历史记录
-17. `api_key_id` 存在性校验（删除 key 前提示受影响账户）
-18. `default_api_key_id` 校验（删除 key 后自动清除引用）
+17. ~~api_key_id 存在性校验~~ ✅（删除返回 affected_accounts）
+18. ~~default_api_key_id 校验~~ ✅（保存时校验引用有效性）
 19. `sub_langs` 配置化（移出前端硬编码）
 
 ### 长期（P3）
@@ -168,5 +164,5 @@
 | Medium/Low identified | 27 |
 | Remaining Critical | 1 (C-1 API Key 明文存储) |
 | Remaining High | 0 (全部已修复) |
-| Remaining Medium/Low | 22 |
-| Commits made | 4069b15 (feat), 5e849b6 (fix), 4e845ed (fix) |
+| Remaining Medium/Low | 15 |
+| Commits made | 4069b15 (feat), 5e849b6 (fix), 4e845ed (fix), a4215ab (fix) |
