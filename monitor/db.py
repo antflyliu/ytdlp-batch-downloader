@@ -570,12 +570,16 @@ def get_account_videos(
     where_clauses = ["account_id = ?"]
     params: list = [account_id]
 
+    def _escape_like(s: str) -> str:
+        """转义 LIKE 通配符，防止 %/_ 产生意外宽匹配"""
+        return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
     if title_kw:
         where_clauses.append("title LIKE ?")
-        params.append(f"%{title_kw}%")
+        params.append(f"%{_escape_like(title_kw)}%")
     if url_kw:
         where_clauses.append("url LIKE ?")
-        params.append(f"%{url_kw}%")
+        params.append(f"%{_escape_like(url_kw)}%")
 
     where_sql = " AND ".join(where_clauses)
 

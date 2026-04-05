@@ -372,7 +372,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         POST /api/config — 保存全局配置
         可保存: global_feishu_url, global_dingtalk_url, global_wecom_url,
                quota_budget_per_day, download_cookies_file, download_output_path,
-               enable_aria2, default_sub_langs
+               enable_aria2, default_sub_langs, default_api_key_id
         """
         cfg = _db.load_config()
         for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
@@ -380,12 +380,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     "enable_aria2", "default_sub_langs", "default_api_key_id"]:
             if key in body:
                 cfg[key] = body[key]
+        # 校验 default_api_key_id 引用有效性
+        default_key_id = cfg.get("default_api_key_id")
+        if default_key_id:
+            ak = _db.get_api_key(default_key_id)
+            if not ak:
+                self._send_json({"error": f"指定的默认 API Key (id={default_key_id}) 不存在"}, 400)
+                return
         path = _db.get_config_path()
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
+        _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})
 
     def _api_scheduler_start(self, body: dict):
@@ -500,12 +508,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """GET /api/quota — 获取所有 API Key 今日 quota 使用情况"""
         today = datetime.now().astimezone().strftime("%Y-%m-%d")
         rows = _quota.get_all_usage(today)
-        # 补充 per-key 配额上限，掩码 key_value
+        # 预加载所有 API Key 到内存字典（避免 N+1 查询）
+        all_keys = {k["key_value"]: k for k in _db.list_api_keys()}
         for row in rows:
             raw_key = row.get("api_key_env", "")
             if raw_key:
                 row["api_key_env"] = self._mask_key(raw_key)
-            ak = _db.get_api_key_by_value(raw_key) if raw_key else None
+            ak = all_keys.get(raw_key)
             if ak:
                 row["daily_quota"] = ak.get("daily_quota", 8000)
                 row["key_name"] = ak.get("name", "")
@@ -575,10 +584,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_api_key_delete(self, key_id: int):
-        """DELETE /api/api-keys/{id} — 删除 API Key"""
+        """DELETE /api/api-keys/{id} — 删除 API Key（返回受影响账户供前端提示）"""
         try:
+            # 查找使用此 Key 的账户
+            accounts = [a for a in _db.list_accounts() if a.get("api_key_id") == key_id]
+            affected = [{"id": a["id"], "name": a["name"]} for a in accounts]
             _db.delete_api_key(key_id)
-            self._send_json({"ok": True})
+            self._send_json({"ok": True, "affected_accounts": affected})
         except Exception:
             _log.error("API Key 删除异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)

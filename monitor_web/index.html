@@ -2019,10 +2019,19 @@
   }
 
   async function deleteApiKey(id) {
-    if (!confirm('确定删除此 API Key？\n\n关联的账户将使用系统默认 Key。')) return;
+    const keys = await api('GET', '/api-keys');
+    const k = keys && keys.find(x => x.id === id);
+    if (!k) return toast('API Key 不存在', 'err');
+    if (!confirm(`确定删除「${k.name}」？\n\n关联的账户将改用系统默认 Key。`)) return;
     const r = await api('DELETE', `/api-keys/${id}`);
-    if (r.error) toast(r.error, 'err');
-    else { toast('已删除', 'ok'); await loadApiKeysList(); await refreshApiKeySelectors(); }
+    if (r.error) { toast(r.error, 'err'); return; }
+    if (r.affected_accounts && r.affected_accounts.length > 0) {
+      toast(`已删除（${r.affected_accounts.length} 个账户已改用默认 Key）`, 'ok');
+    } else {
+      toast('已删除', 'ok');
+    }
+    await loadApiKeysList();
+    await refreshApiKeySelectors();
   }
 
   async function refreshApiKeySelectors() {

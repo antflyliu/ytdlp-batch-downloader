@@ -167,6 +167,13 @@ def get_budget_limit(api_key: str) -> int:
         return 8000  # 默认 8000
 
 
+def _mask_key(key: str) -> str:
+    """返回 API Key 掩码版本（首4+末4字符）"""
+    if len(key) <= 12:
+        return key[:4] + "••••••"
+    return key[:4] + "••••••••" + key[-4:]
+
+
 def send_alert(api_key_env: str, usage: dict, budget: int, webhook_url: str | None) -> None:
     """发送 quota 耗尽报警"""
     if not webhook_url:
@@ -178,7 +185,7 @@ def send_alert(api_key_env: str, usage: dict, budget: int, webhook_url: str | No
         "content": {
             "text": (
                 f"⚠️ YouTube API Quota 预警\n\n"
-                f"API Key: `{api_key_env}`\n"
+                f"API Key: `{_mask_key(api_key_env)}`\n"
                 f"今日已用: {usage['api_calls']} / {budget} ({percent}%)\n"
                 f"扫描次数: {usage['scans_done']} 次\n"
                 f"已阻止: {usage['blocked_scans']} 次\n"

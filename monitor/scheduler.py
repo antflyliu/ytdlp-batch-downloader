@@ -31,6 +31,23 @@ _log = logging_config.get_logger("monitor.scheduler")
 _GLOBAL_WEBHOOKS: dict[str, str | None] = {}
 _GLOBAL_WEBHOOKS_LOADED = False
 
+# 模块级配置缓存（避免每次扫描重复读取 config.json）
+_config_cache: dict | None = None
+
+
+def _get_config() -> dict:
+    """获取配置（带模块级缓存，外部保存配置时需调用 _invalidate_config_cache）"""
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = _db.load_config()
+    return _config_cache
+
+
+def _invalidate_config_cache() -> None:
+    """配置已更新，清空缓存，下次 _get_config 会重新加载"""
+    global _config_cache
+    _config_cache = None
+
 
 def _ensure_global_webhooks() -> None:
     """确保全局 Webhook 已加载（模块加载时 + 每次扫描前）"""
@@ -93,7 +110,7 @@ def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
 
     优先级：账户 api_key_id → 系统 default_api_key_id → 账户 api_key_env 环境变量（兼容）
     """
-    cfg = _db.load_config()
+    cfg = _get_config()
     api_key = None
     api_key_record = None
     budget = cfg.get("quota_budget_per_day", 8000)
@@ -187,10 +204,9 @@ def _auto_download_videos(video_records: list[dict]) -> None:
     if not urls:
         return
 
-    cfg = _db.load_config()
+    cfg = _get_config()
     output_path = cfg.get("download_output_path", "").strip()
     if not output_path:
-        # 兜底：始终基于 monitor/ 的父目录（项目根），不受 sys.executable 位置影响
         output_path = os.path.join(_MONITOR_ROOT, "..", "videos")
         output_path = os.path.normpath(output_path)
     os.makedirs(output_path, exist_ok=True)
