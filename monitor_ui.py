@@ -18,7 +18,7 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -61,7 +61,7 @@ _COLORS = {
 # ── 工具函数 ────────────────────────────────────────────────────────────────
 
 def _now_str():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _load_config() -> dict:
@@ -194,11 +194,15 @@ class AccountDialog(tk.Toplevel):
         tk.Label(self._feishu_template_group, text="飞书发送方式", bg=c["bg"],
                  fg=c["text_secondary"], font=("Segoe UI", 9)).grid(
                      row=0, column=0, sticky=tk.W, pady=(8, 0))
+        self._feishu_mode_labels = {"Markdown 卡片（推荐）": "card_json", "飞书模板卡片": "template"}
+        self._feishu_mode_reverse = {v: k for k, v in self._feishu_mode_labels.items()}
+        raw_mode = self.account.get("feishu_message_mode", "card_json") if self.account else "card_json"
         self._vars["feishu_message_mode"] = tk.StringVar(
-            value=(self.account.get("feishu_message_mode", "card_json") if self.account else "card_json")
+            value=self._feishu_mode_reverse.get(raw_mode, "Markdown 卡片（推荐）")
         )
         mode_combo = ttk.Combobox(self._feishu_template_group, textvariable=self._vars["feishu_message_mode"],
-                                   font=("Segoe UI", 9), values=["card_json", "template"],
+                                   font=("Segoe UI", 9),
+                                   values=list(self._feishu_mode_labels.keys()),
                                    state="readonly", width=18)
         mode_combo.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
 
@@ -267,6 +271,8 @@ class AccountDialog(tk.Toplevel):
             except ValueError:
                 messagebox.showwarning("提示", "每次获取条数和扫描间隔必须是数字")
                 return
+            mode_display = self._vars["feishu_message_mode"].get()
+            mode_raw = self._feishu_mode_labels.get(mode_display, "card_json")
             self.result = {
                 "name": name,
                 "channel_url": channel_url,
@@ -278,7 +284,7 @@ class AccountDialog(tk.Toplevel):
                 "notify_enabled": self._vars["notify_enabled"].get(),
                 "notify_platform": self._vars["notify_platform"].get(),
                 "webhook_url": self._vars["webhook_url"].get().strip() or None,
-                "feishu_message_mode": self._vars["feishu_message_mode"].get(),
+                "feishu_message_mode": mode_raw,
                 "feishu_template_id": self._vars["feishu_template_id"].get().strip() or None,
                 "feishu_scan_template_id": self._vars["feishu_scan_template_id"].get().strip() or None,
             }
@@ -724,6 +730,9 @@ class MonitorPage:
                     notify_enabled=dialog.result["notify_enabled"],
                     notify_platform=dialog.result["notify_platform"],
                     webhook_url=dialog.result.get("webhook_url"),
+                    feishu_message_mode=dialog.result.get("feishu_message_mode", "card_json"),
+                    feishu_template_id=dialog.result.get("feishu_template_id"),
+                    feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
                 )
                 self._append_log(f"账户添加成功: {dialog.result['name']} (id={account_id})")
                 if _scheduler.is_running():
@@ -749,6 +758,9 @@ class MonitorPage:
                     notify_enabled=dialog.result["notify_enabled"],
                     notify_platform=dialog.result["notify_platform"],
                     webhook_url=dialog.result.get("webhook_url"),
+                    feishu_message_mode=dialog.result.get("feishu_message_mode"),
+                    feishu_template_id=dialog.result.get("feishu_template_id"),
+                    feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
                 )
                 self._append_log(f"账户已更新: {dialog.result['name']} (id={acc['id']})")
                 if _scheduler.is_running():
