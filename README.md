@@ -332,6 +332,11 @@ Skill 文件位于项目内 `.claude/skills/` 目录，需创建软链接到 Cla
 # 管理员权限打开 PowerShell
 mklink /D "$env:USERPROFILE%\.claude\skills\yt-dlp-batch-download" "%CD%\.claude\skills\yt-dlp-batch-download"
 mklink /D "$env:USERPROFILE%\.claude\skills\youtube-channel-monitor" "%CD%\.claude\skills\youtube-channel-monitor"
+
+
+mklink /J "C:\Users\Administrator\.claude\skills\youtube-channel-monitor" ".claude\skills\youtube-channel-monitor"
+
+
 ```
 
 **macOS / Linux：**
