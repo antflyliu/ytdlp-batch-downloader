@@ -15,7 +15,7 @@ import sys
 import threading
 import uuid
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -59,7 +59,7 @@ class _DownloadTaskManager:
             "current_video": "",
             "results": [],
             "output_path": output_path,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "finished_at": None,
         }
         with self._lock:
@@ -82,7 +82,7 @@ class _DownloadTaskManager:
                 t["completed"] = t["total"]
                 t["success"] = sum(1 for r in results if r.get("状态") == "成功")
                 t["failed"] = sum(1 for r in results if r.get("状态") == "失败")
-                t["finished_at"] = datetime.now(timezone.utc).isoformat()
+                t["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
 
     def fail_task(self, task_id: str, error: str):
         with self._lock:
@@ -90,7 +90,7 @@ class _DownloadTaskManager:
             if t:
                 t["status"] = "error"
                 t["error"] = error
-                t["finished_at"] = datetime.now(timezone.utc).isoformat()
+                t["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
 
     def get_task(self, task_id: str) -> dict | None:
         with self._lock:
@@ -99,7 +99,7 @@ class _DownloadTaskManager:
 
     def cleanup_old(self, max_age_sec: int = 3600):
         """清理超过 max_age_sec 的已完成任务"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now().astimezone()
         with self._lock:
             to_del = []
             for tid, t in self._tasks.items():

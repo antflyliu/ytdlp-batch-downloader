@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 
 # ── 路径（与 db.py 保持一致）────────────────────────────────────
@@ -54,7 +54,7 @@ _ensure_schema()
 # ── 工具 ───────────────────────────────────────────────────────
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now().astimezone().strftime("%Y-%m-%d")
 
 
 # ── 核心 API ───────────────────────────────────────────────────
@@ -99,7 +99,7 @@ def get_all_usage(date_key: str | None = None) -> list[dict]:
 def incr(api_key_env: str, calls: int = 1, scans: int = 0) -> None:
     """增加 API 调用计数（当日）"""
     today = _today()
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     try:
         conn.execute("""
@@ -121,7 +121,7 @@ def incr(api_key_env: str, calls: int = 1, scans: int = 0) -> None:
 def incr_blocked(api_key_env: str) -> None:
     """增加被阻止的扫描次数"""
     today = _today()
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     try:
         conn.execute("""

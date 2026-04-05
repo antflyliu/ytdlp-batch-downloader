@@ -7,7 +7,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import apscheduler.schedulers.background
@@ -435,7 +435,7 @@ def start(auto_download: bool = False) -> bool:
                 func=_scan_account,
                 trigger=apscheduler.triggers.interval.IntervalTrigger(
                     minutes=acc["scan_interval"],
-                    start_date=datetime.now(timezone.utc),
+                    start_date=datetime.now().astimezone(),
                 ),
                 args=[acc["id"]],
                 id=f"account_{acc['id']}",
@@ -452,7 +452,7 @@ def start(auto_download: bool = False) -> bool:
         # 持久化运行状态
         _db.set_scheduler_state({
             "running": True,
-            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "started_at": _db.now_iso(),
         })
 
         _log.info(
@@ -475,7 +475,7 @@ def stop() -> bool:
 
         _auto_download_on_scan = False
         _scheduler.shutdown(wait=True)
-        _db.set_scheduler_state({"running": False, "stopped_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        _db.set_scheduler_state({"running": False, "stopped_at": _db.now_iso()})
         _log.info("调度器已停止")
         return True
 
@@ -505,7 +505,7 @@ def reload_jobs() -> int:
             "func": _scan_account,
             "trigger": apscheduler.triggers.interval.IntervalTrigger(
                 minutes=acc["scan_interval"],
-                start_date=datetime.now(timezone.utc),
+                start_date=datetime.now().astimezone(),
             ),
             "args": [acc["id"]],
             "name": f"{acc['name']} ({acc['channel_url']})",

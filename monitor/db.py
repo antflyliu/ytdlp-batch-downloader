@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime
 from contextlib import contextmanager
 
 # 哨兵值：区分 update_account 中「参数未传入」和「显式传 None 清空字段」
@@ -111,7 +111,8 @@ def get_connection():
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """当前本地时间的 ISO 8601 字符串（含时区偏移，如 +08:00）。"""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 # ── monitor_accounts CRUD ─────────────────────────────────

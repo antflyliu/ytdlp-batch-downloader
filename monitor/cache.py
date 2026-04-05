@@ -146,8 +146,8 @@ def save_channel_meta(
     写入/更新缓存
     """
     normalized = _normalize_handle(handle)
-    from datetime import datetime, timezone
-    cached_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from datetime import datetime
+    cached_at = datetime.now().astimezone().isoformat(timespec="seconds")
     try:
         with _get_conn() as conn:
             conn.execute(
