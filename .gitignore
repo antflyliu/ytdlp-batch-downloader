@@ -9,7 +9,16 @@ venv/
 # Environment
 .env
 
-.claude
+# Claude Code user config (sensitive)
+.claude/settings.json
+.claude/hooks/
+.claude/memory/
+.claude/plugins/
+.claude/projects/
+
+# Claude Code skills — keep all skill definitions tracked
+!.claude/skills/
+!.claude/skills/**
 
 .cocoindex_code
 
