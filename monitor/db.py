@@ -42,6 +42,7 @@ def _config_default() -> dict:
         "download_cookies_file": "",
         "download_output_path": "",
         "default_sub_langs": "zh-Hans,en",
+        "default_api_key_id": None,   # 系统默认 API Key（账户未指定时使用）
     }
 
 
@@ -89,8 +90,35 @@ def _migrate_monitor_accounts(conn) -> None:
         migrations.append("ADD COLUMN feishu_template_id TEXT")
     if "feishu_scan_template_id" not in cols:
         migrations.append("ADD COLUMN feishu_scan_template_id TEXT")
+    if "api_key_id" not in cols:
+        migrations.append("ADD COLUMN api_key_id INTEGER DEFAULT NULL")
+        # 旧数据：从 api_key_env 读取实际 Key 值写入 api_keys 表
+        _migrate_legacy_api_keys(conn)
     for mig in migrations:
         conn.execute(f"ALTER TABLE monitor_accounts {mig}")
+
+
+def _migrate_legacy_api_keys(conn) -> None:
+    """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
+    rows = conn.execute(
+        "SELECT DISTINCT api_key_env FROM monitor_accounts WHERE api_key_env IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        env_name = row[0]
+        key_value = os.environ.get(env_name, "")
+        if key_value:
+            # 写入 api_keys 表（忽略已存在）
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO api_keys
+                       (key_value, name, daily_quota, quota_used, quota_reset_at,
+                        is_active, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (key_value, env_name, 10000, 0, _today_str(),
+                     1, now_iso(), now_iso()),
+                )
+            except Exception:
+                pass  # 已存在则忽略
 
 
 @contextmanager
@@ -113,6 +141,100 @@ def get_connection():
 def now_iso() -> str:
     """当前本地时间的 ISO 8601 字符串（含时区偏移，如 +08:00）。"""
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _today_str() -> str:
+    """当前本地日期字符串 (YYYY-MM-DD)。"""
+    return datetime.now().astimezone().strftime("%Y-%m-%d")
+
+
+# ── api_keys CRUD ─────────────────────────────────────────
+
+def list_api_keys() -> list[dict]:
+    """列出所有 API Key（含今日配额使用情况）"""
+    today = _today_str()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT ak.*,
+                      COALESCE(aqu.api_calls, 0) AS quota_used,
+                      aqu.scans_done,
+                      aqu.blocked_scans
+               FROM api_keys ak
+               LEFT JOIN api_quota_usage aqu
+                 ON aqu.api_key_env = ak.key_value
+                AND aqu.date_key = ?
+               ORDER BY ak.id""",
+            (today,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_api_key(key_id: int) -> dict | None:
+    """获取单个 API Key"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM api_keys WHERE id=?", (key_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_api_key_by_value(key_value: str) -> dict | None:
+    """通过 Key 值查找"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM api_keys WHERE key_value=?", (key_value,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def add_api_key(
+    key_value: str,
+    name: str,
+    daily_quota: int = 10000,
+) -> int:
+    """新增 API Key"""
+    today = _today_str()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO api_keys
+               (key_value, name, daily_quota, quota_used, quota_reset_at,
+                is_active, created_at, updated_at)
+               VALUES (?, ?, ?, 0, ?, 1, ?, ?)""",
+            (key_value, name, daily_quota, today, now_iso(), now_iso()),
+        )
+        return cur.lastrowid
+
+
+def update_api_key(
+    key_id: int,
+    name: str | None = None,
+    key_value: str | None = None,
+    daily_quota: int | None = None,
+    is_active: bool | None = None,
+) -> None:
+    """更新 API Key"""
+    fields, values = [], []
+    if name is not None:        fields.append("name=?");          values.append(name)
+    # 空字符串表示"不修改"（前端留空时发送空字符串）
+    if key_value:               fields.append("key_value=?");     values.append(key_value)
+    if daily_quota is not None: fields.append("daily_quota=?"); values.append(daily_quota)
+    if is_active is not None:  fields.append("is_active=?");    values.append(int(is_active))
+    fields.append("updated_at=?"); values.append(now_iso())
+    values.append(key_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE api_keys SET {','.join(fields)} WHERE id=?", values)
+
+
+def delete_api_key(key_id: int) -> None:
+    """删除 API Key（关联的账户 api_key_id 会被 SET NULL）"""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
+
+
+def incr_api_key_quota(key_value: str, calls: int = 1, scans: int = 0) -> None:
+    """增加 API Key 的配额使用"""
+    import monitor.quota as _quota
+    _quota.incr(key_value, calls=calls, scans=scans)
 
 
 # ── monitor_accounts CRUD ─────────────────────────────────
@@ -151,6 +273,7 @@ def add_account(
     feishu_message_mode: str = "card_json",
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
+    api_key_id: int | None = None,
 ) -> int:
     with get_connection() as conn:
         cur = conn.execute(
@@ -158,12 +281,12 @@ def add_account(
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
+                api_key_id, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform, webhook_url,
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-             now_iso(), now_iso()),
+             api_key_id, now_iso(), now_iso()),
         )
         return cur.lastrowid
 
@@ -183,10 +306,11 @@ def update_account(
     feishu_message_mode: str | None = None,
     feishu_template_id=_UNSET,
     feishu_scan_template_id=_UNSET,
+    api_key_id=_UNSET,
 ) -> None:
     """更新账户字段。
 
-    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id），
+    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id），
     使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
     """
     fields, values = [], []
@@ -195,7 +319,7 @@ def update_account(
     if api_key_env      is not None: fields.append("api_key_env=?");      values.append(api_key_env)
     if fetch_mode       is not None: fields.append("fetch_mode=?");       values.append(fetch_mode)
     if fetch_limit      is not None: fields.append("fetch_limit=?");      values.append(fetch_limit)
-    if scan_interval    is not None: fields.append("scan_interval=?");    values.append(scan_interval)
+    if scan_interval    is not None: fields.append("scan_interval=?");   values.append(scan_interval)
     if enabled          is not None: fields.append("enabled=?");          values.append(int(enabled))
     if notify_enabled   is not None: fields.append("notify_enabled=?");   values.append(int(notify_enabled))
     if notify_platform  is not None: fields.append("notify_platform=?");  values.append(notify_platform)
@@ -203,6 +327,7 @@ def update_account(
     if feishu_message_mode is not None: fields.append("feishu_message_mode=?"); values.append(feishu_message_mode)
     if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
     if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
+    if api_key_id is not _UNSET: fields.append("api_key_id=?");            values.append(api_key_id)
     fields.append("updated_at=?"); values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
@@ -506,6 +631,37 @@ def set_scheduler_state(state: dict) -> None:
         conn.execute(
             """INSERT OR REPLACE INTO app_state (key, value) VALUES ('scheduler_state', ?)""",
             (json.dumps(state),),
+        )
+
+
+# ── API Token 管理（REST API 认证）─────────────────────────────
+
+def get_api_token() -> str:
+    """
+    获取 REST API 访问令牌。
+    若 app_state 中无 token 则自动生成并保存。
+    """
+    ensure_app_state_table()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_state WHERE key='api_token'"
+        ).fetchone()
+        if row:
+            return row[0]
+    # 无 token → 生成 40 字符十六进制随机串
+    import secrets
+    token = secrets.token_hex(20)
+    set_api_token(token)
+    return token
+
+
+def set_api_token(token: str) -> None:
+    """保存 REST API 访问令牌到 app_state"""
+    ensure_app_state_table()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO app_state (key, value) VALUES ('api_token', ?)""",
+            (token,),
         )
 
 

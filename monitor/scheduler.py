@@ -86,6 +86,50 @@ def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> 
     _quota.send_alert(api_key, usage, budget, webhook_url)
 
 
+def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
+    """
+    解析账户使用的 API Key。
+    返回 (api_key_value, api_key_record, budget)。
+
+    优先级：账户 api_key_id → 系统 default_api_key_id → 账户 api_key_env 环境变量（兼容）
+    """
+    cfg = _db.load_config()
+    api_key = None
+    api_key_record = None
+    budget = cfg.get("quota_budget_per_day", 8000)
+
+    # 1. 账户指定了 api_key_id
+    if account.get("api_key_id"):
+        ak = _db.get_api_key(account["api_key_id"])
+        if ak and ak.get("is_active"):
+            api_key = ak["key_value"]
+            api_key_record = ak
+            budget = ak.get("daily_quota", budget)
+        elif ak:
+            _log.warning(f"账户 {account['name']} 的 API Key [{ak['name']}] 已禁用，使用兜底方案")
+        else:
+            _log.warning(f"账户 {account['name']} 的 API Key ID={account['api_key_id']} 不存在，使用兜底方案")
+
+    # 2. 兜底：系统默认 API Key
+    if not api_key:
+        default_id = cfg.get("default_api_key_id")
+        if default_id:
+            ak = _db.get_api_key(default_id)
+            if ak and ak.get("is_active"):
+                api_key = ak["key_value"]
+                api_key_record = ak
+                budget = ak.get("daily_quota", budget)
+                _log.info(f"使用系统默认 API Key: {ak['name']}")
+
+    # 3. 兜底：旧环境变量方式（兼容）
+    if not api_key:
+        api_key = os.environ.get(account["api_key_env"], "")
+        if api_key:
+            _log.info(f"使用环境变量兜底: {account['api_key_env']}")
+
+    return api_key, api_key_record, budget
+
+
 def _check_quota_alert(account: dict, api_key: str, budget: int) -> None:
     """检查是否需要发送 quota 预警（80%/90%/100%）"""
     _, usage = _quota.check_budget(api_key, budget)
@@ -218,6 +262,14 @@ def _auto_download_videos(video_records: list[dict]) -> None:
     _log.info(f"自动下载任务已全部提交: {len(urls)} 个视频")
 
 
+def trigger_scan(account_id: int, auto_download: bool = False) -> None:
+    """
+    公开方法：触发指定账户的手动扫描。
+    替代直接调用 _scan_account()，提供稳定的公开接口。
+    """
+    _scan_account(account_id, auto_download=auto_download)
+
+
 def _scan_account(account_id: int, auto_download: bool = False) -> None:
     """
     执行单个账户的扫描任务
@@ -237,20 +289,19 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         _log.info(f"账户已禁用，跳过: {account['name']} ({account['channel_url']})")
         return
 
-    # 读取 API Key
-    api_key = os.environ.get(account["api_key_env"], "")
+    # 解析 API Key（优先级：账户指定 → 系统默认 → 环境变量兼容）
+    api_key, api_key_record, budget = _resolve_api_key(account)
     if not api_key:
-        _log.error(f"环境变量未设置: {account['api_key_env']} (账户={account['name']})")
+        _log.error(f"无法解析 API Key (账户={account['name']})")
         _db.finish_event(
             event_id=0, status="error",
             total_videos=0, new_videos=0,
-            error_message=f"环境变量未设置: {account['api_key_env']}",
+            error_message="无法解析 API Key，请检查 API Key 配置",
             duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
         return
 
     # ── Quota 预算检查 ─────────────────────────────────────────
-    budget = _quota.get_budget_limit(account["api_key_env"])
     allowed, usage = _quota.check_budget(api_key, budget)
     if not allowed:
         _log.warning(
@@ -287,7 +338,7 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
             _db.finish_event(event_id, "success", 0, 0, duration_ms=int((time.perf_counter() - start_time) * 1000))
             _log.info(f"扫描完成（无视频）: {account['name']}")
             _check_quota_alert(account, api_key, budget)
-            _quota.incr(api_key, scans=1)
+            _db.incr_api_key_quota(api_key, scans=1)
             return
 
         # ── 2. 检测新视频 ──────────────────────────────────
@@ -369,7 +420,7 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         # ── 5. Quota 预警检查 ────────────────────────────────
         _check_quota_alert(account, api_key, budget)
         # 更新扫描次数统计
-        _quota.incr(api_key, scans=1)
+        _db.incr_api_key_quota(api_key, scans=1)
 
     except Exception as e:
         _log.error(f"扫描异常: 账户={account['name']} — {e}")

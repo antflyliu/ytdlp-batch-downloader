@@ -5,12 +5,29 @@
 --       仅记录监控发现的新视频事件，不干预下载数据
 -- ============================================================
 
+-- ── YouTube API Key 配置表 ───────────────────────────────
+-- 存储多个 API Key，支持配额追踪和账户分配
+CREATE TABLE IF NOT EXISTS api_keys (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_value       TEXT    NOT NULL UNIQUE,   -- 实际的 API Key 值（敏感）
+    name            TEXT    NOT NULL,          -- 显示名称，如 "Key-1"
+    daily_quota     INTEGER NOT NULL DEFAULT 10000,  -- 该 Key 的每日配额上限
+    quota_used      INTEGER NOT NULL DEFAULT 0, -- 今日已用配额单位数
+    quota_reset_at  TEXT    NOT NULL,          -- 配额重置日期 (YYYY-MM-DD)
+    is_active       INTEGER NOT NULL DEFAULT 1, -- 0=禁用 1=启用
+    created_at      TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
+
 -- ── 监控账户配置表 ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS monitor_accounts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT    NOT NULL,          -- 显示名称，如"综艺Show"
     channel_url     TEXT    NOT NULL,          -- @C-HitShow / UCxxxx / https://...
-    api_key_env     TEXT    NOT NULL,           -- 环境变量名，如 "YOUTUBE_Data_API_V3"
+    api_key_id      INTEGER DEFAULT NULL,       -- 关联 api_keys.id（优先级高于 api_key_env）
+    api_key_env     TEXT    NOT NULL,           -- 兼容旧数据：环境变量名，如 "YOUTUBE_Data_API_V3"
     fetch_mode      TEXT    NOT NULL DEFAULT 'playlist',  -- 'search' | 'playlist'
     fetch_limit     INTEGER NOT NULL DEFAULT 5, -- 每次扫描获取的视频条数
     scan_interval   INTEGER NOT NULL DEFAULT 5, -- 扫描间隔（分钟）
@@ -22,7 +39,8 @@ CREATE TABLE IF NOT EXISTS monitor_accounts (
     feishu_template_id  TEXT DEFAULT NULL,  -- 飞书卡片模板ID（template模式用）
     feishu_scan_template_id TEXT DEFAULT NULL,  -- 扫描确认模板ID（template模式用）
     created_at      TEXT    NOT NULL,
-    updated_at      TEXT    NOT NULL
+    updated_at      TEXT    NOT NULL,
+    FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_channel_url ON monitor_accounts(channel_url);

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 import threading
 import uuid
@@ -135,7 +136,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
@@ -153,13 +154,40 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """去掉查询字符串，只保留路径"""
         return self.path.split("?")[0]
 
+    def _require_auth(self):
+        """验证 Bearer token，失败返回 401"""
+        if not hasattr(MonitorHandler, "_api_token") or MonitorHandler._api_token is None:
+            # 优先环境变量，回退数据库
+            MonitorHandler._api_token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
+        token = MonitorHandler._api_token
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            self._send_json({"error": "未授权，请提供 Bearer token"}, 401)
+            return False
+        provided = auth_header[7:]
+        if not secrets.compare_digest(provided, token):
+            self._send_json({"error": "无效的 token"}, 401)
+            return False
+        return True
+
+    def _mask_key(self, key_value: str) -> str:
+        """返回 API Key 的掩码版本（首4+末4字符）"""
+        if len(key_value) <= 12:
+            return key_value[:4] + "••••••"
+        return key_value[:4] + "••••••••" + key_value[-4:]
+
     # ── HTTP 方法 ────────────────────────────────────────────
 
     def do_GET(self):
         path = self._path_only()
+        # /api/status 是健康检查，跳过认证
         if path == "/api/status":
             self._api_status()
-        elif path == "/api/accounts":
+            return
+        # 其余所有 /api/* 均需认证
+        if not self._require_auth():
+            return
+        if path == "/api/accounts":
             self._api_accounts()
         elif path == "/api/events":
             self._api_events()
@@ -167,10 +195,21 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_stats()
         elif path == "/api/config":
             self._api_config()
+        elif path == "/api/token":
+            self._api_token_info()
         elif path == "/api/cache":
             self._api_cache_list()
         elif path == "/api/quota":
             self._api_quota()
+        elif path == "/api/api-keys":
+            self._api_api_keys_list()
+        elif path.startswith("/api/api-keys/"):
+            parts = path.split("/")
+            action = parts[-1]
+            if action == "add":
+                self._api_api_key_add(self._read_json() or {})
+            elif action.isdigit():
+                self._api_api_key_update(int(action), self._read_json() or {})
         elif path.startswith("/api/download-tasks/"):
             task_id = path.split("/")[-1]
             self._api_download_task_status(task_id)
@@ -185,8 +224,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.end_headers()
+            return
+        if not self._require_auth():
             return
         body = self._read_json()
         if body is None:
@@ -208,6 +249,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_account_videos_batch_download(acc_id, body)
         elif path == "/api/config":
             self._api_config_save(body)
+        elif path == "/api/api-keys":
+            self._api_api_key_add(body)
+        elif path.startswith("/api/api-keys/") and path.endswith("/update"):
+            key_id_str = path.split("/")[-2]
+            if key_id_str.isdigit():
+                self._api_api_key_update(int(key_id_str), body)
+        elif path.startswith("/api/api-keys/"):
+            pass  # handled in do_GET/do_DELETE; POST via /api/api-keys or /api/api-keys/{id}/update
         elif path == "/api/cache/refresh":
             self._api_cache_refresh(body)
         elif path == "/api/cache/clear":
@@ -220,13 +269,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.end_headers()
+            return
+        if not self._require_auth():
             return
         path = self._path_only()
         if path.startswith("/api/accounts/"):
             acc_id = path.split("/")[-1]
             self._api_account_delete(acc_id)
+        elif path.startswith("/api/api-keys/"):
+            key_id = path.split("/")[-1]
+            if key_id.isdigit():
+                self._api_api_key_delete(int(key_id))
         elif path.startswith("/api/cache/"):
             handle = path.split("/api/cache/", 1)[-1]
             self._api_cache_delete(handle)
@@ -237,7 +292,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     # ── REST API ────────────────────────────────────────────
@@ -254,6 +309,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "name": a["name"],
             "channel_url": a["channel_url"],
             "api_key_env": a["api_key_env"],
+            "api_key_id": a.get("api_key_id"),   # 新增
             "fetch_mode": a["fetch_mode"],
             "fetch_limit": a["fetch_limit"],
             "scan_interval": a["scan_interval"],
@@ -306,6 +362,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """
         self._send_json(_db.load_config())
 
+    def _api_token_info(self):
+        """GET /api/token — 返回当前 Bearer token（需认证）"""
+        token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
+        self._send_json({"token": token})
+
     def _api_config_save(self, body):
         """
         POST /api/config — 保存全局配置
@@ -316,7 +377,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         cfg = _db.load_config()
         for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
                     "quota_budget_per_day", "download_cookies_file", "download_output_path",
-                    "enable_aria2", "default_sub_langs"]:
+                    "enable_aria2", "default_sub_langs", "default_api_key_id"]:
             if key in body:
                 cfg[key] = body[key]
         path = _db.get_config_path()
@@ -343,6 +404,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_account_add(self, body):
         try:
             account_id = body.get("id")
+            # api_key_id: None=清空, 0=清空, >0=指定Key, absent=_UNSET(不修改)
+            api_key_id_val = body.get("api_key_id")
+            api_key_id_param = None  # None = _UNSET (不修改)
+            if api_key_id_val is not None:
+                api_key_id_param = int(api_key_id_val) if api_key_id_val else None
+
             if account_id:
                 # 编辑模式 → UPDATE
                 _db.update_account(
@@ -360,6 +427,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_message_mode=body.get("feishu_message_mode"),
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
+                    api_key_id=api_key_id_param,
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -379,6 +447,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_message_mode=body.get("feishu_message_mode", "card_json"),
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
+                    api_key_id=api_key_id_param,
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -390,7 +459,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_account_scan(self, body):
         acc_id = int(body.get("account_id", 0))
         auto_dl = bool(body.get("auto_download", False))
-        _scheduler._scan_account(acc_id, auto_download=auto_dl)
+        _scheduler.trigger_scan(acc_id, auto_download=auto_dl)
         self._send_json({"ok": True})
 
     def _api_account_delete(self, acc_id):
@@ -429,12 +498,90 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_quota(self):
         """GET /api/quota — 获取所有 API Key 今日 quota 使用情况"""
-        usage_list = _quota.get_all_usage()
-        budget = _quota.get_budget_limit("YOUTUBE_Data_API_V3")
-        self._send_json({
-            "budget_per_day": budget,
-            "items": usage_list,
-        })
+        today = datetime.now().astimezone().strftime("%Y-%m-%d")
+        rows = _quota.get_all_usage(today)
+        # 补充 per-key 配额上限，掩码 key_value
+        for row in rows:
+            raw_key = row.get("api_key_env", "")
+            if raw_key:
+                row["api_key_env"] = self._mask_key(raw_key)
+            ak = _db.get_api_key_by_value(raw_key) if raw_key else None
+            if ak:
+                row["daily_quota"] = ak.get("daily_quota", 8000)
+                row["key_name"] = ak.get("name", "")
+                row["is_active"] = bool(ak.get("is_active"))
+            else:
+                row["daily_quota"] = 8000
+                row["key_name"] = ""
+                row["is_active"] = True
+        self._send_json({"items": rows})
+
+    # ── API Key CRUD ─────────────────────────────────────────
+
+    def _api_api_keys_list(self):
+        """GET /api/api-keys — 列出所有 API Key（key_value 已掩码）"""
+        keys = _db.list_api_keys()
+        result = [{
+            "id": k["id"],
+            "name": k["name"],
+            "key_value": self._mask_key(k["key_value"]),
+            "daily_quota": k["daily_quota"],
+            "quota_used": k.get("quota_used") or 0,
+            "scans_done": k.get("scans_done") or 0,
+            "blocked_scans": k.get("blocked_scans") or 0,
+            "is_active": bool(k["is_active"]),
+            "created_at": k["created_at"],
+        } for k in keys]
+        self._send_json(result)
+
+    def _api_api_key_add(self, body):
+        """POST /api/api-keys — 新增 API Key"""
+        try:
+            key_value = body.get("key_value", "").strip()
+            name = body.get("name", "").strip()
+            daily_quota = int(body.get("daily_quota", 10000)) if str(body.get("daily_quota", "")).isdigit() else 10000
+            if not key_value or not name:
+                self._send_json({"error": "API Key 和名称均不能为空"}, 400)
+                return
+            key_id = _db.add_api_key(key_value, name, daily_quota)
+            self._send_json({"ok": True, "id": key_id})
+        except Exception as e:
+            if "UNIQUE constraint" in str(e):
+                self._send_json({"error": "该 API Key 已存在"}, 400)
+            else:
+                _log.error("API Key 操作异常", exc_info=True)
+                self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_api_key_update(self, key_id: int, body):
+        """POST /api/api-keys/{id} — 更新 API Key"""
+        try:
+            name = body.get("name")
+            key_value = body.get("key_value", "").strip() or None
+            daily_quota = int(body["daily_quota"]) if str(body.get("daily_quota", "")).isdigit() else None
+            is_active = bool(body.get("is_active")) if "is_active" in body else None
+            _db.update_api_key(
+                key_id,
+                name=name if name else None,
+                key_value=key_value,
+                daily_quota=daily_quota,
+                is_active=is_active,
+            )
+            self._send_json({"ok": True})
+        except Exception as e:
+            if "UNIQUE constraint" in str(e):
+                self._send_json({"error": "该 API Key 已存在"}, 400)
+            else:
+                _log.error("API Key 更新异常", exc_info=True)
+                self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_api_key_delete(self, key_id: int):
+        """DELETE /api/api-keys/{id} — 删除 API Key"""
+        try:
+            _db.delete_api_key(key_id)
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("API Key 删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_account_videos(self, acc_id: str):
         """GET /api/accounts/{id}/videos — 分页查询账户视频"""

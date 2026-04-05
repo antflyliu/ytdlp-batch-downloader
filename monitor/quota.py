@@ -150,10 +150,17 @@ def check_budget(api_key_env: str, budget: int) -> tuple[bool, dict]:
     return allowed, usage
 
 
-def get_budget_limit(api_key_env: str) -> int:
-    """从 config 中获取指定 API Key 的每日预算上限"""
+def get_budget_limit(api_key: str) -> int:
+    """获取指定 API Key 的每日预算上限。
+    优先级：api_keys 表中的 per-key 配额 > config 中的全局配额。
+    """
     try:
         import monitor.db as _db
+        # 先查 api_keys 表（per-key 配额）
+        ak = _db.get_api_key_by_value(api_key)
+        if ak:
+            return ak.get("daily_quota", 8000)
+        # 兜底：全局配置
         cfg = _db.load_config()
         return cfg.get("quota_budget_per_day", 8000)
     except Exception:
