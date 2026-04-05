@@ -78,12 +78,56 @@ python scripts/cli.py stats               # 查看统计
 | Codex | ✅ 同一 SKILL.md | ✅ |
 | OpenClaw | 🔜 MCP 封装 | 🔜 |
 
-OpenClaw MCP 封装路径（Phase 3）：
-- 将 `scripts/cli.py` 封装为 MCP Server
-- 解决容器环境下视频文件存储问题
+## 阶段三：OpenClaw MCP Server（Phase 3）✅
+
+### 3.1 MCP Server 实现
+
+**文件**：`mcp-server/server.py`（~280行，零依赖，纯 stdio 实现）
+
+- 8 个工具：`deps`、`check_url`、`download`、`monitor`、`stats`、`events`、`list_accounts`、`quota`
+- 每个工具调用 `scripts/cli.py --json`，解析输出为 `structuredContent`
+- MCP 协议：JSON-RPC 2.0 over stdin/stdout
+- 初始化 → `tools/list` → `tools/call` 标准流程
+
+### 3.2 OpenClaw 配置
+
+**文件**：`mcp-server/openclaw-config.json`
+
+```json
+{
+  "mcpServers": {
+    "ytdlp-downloader": {
+      "command": "python",
+      "args": ["mcp-server/server.py"],
+      "cwd": "D:\\WORKSPACE\\video-download-space\\ytdlp-batch-downloader",
+      "transportType": "stdio"
+    }
+  }
+}
+```
+
+### 3.3 使用方式
+
+1. 将 `openclaw-config.json` 内容合并到 OpenClaw 全局配置
+2. MCP Server 自动发现 8 个工具
+3. Agent 可直接调用：`tools/call { name: "deps" }`、`tools/call { name: "quota", arguments: { api_key_env: "YOUTUBE_Data_API_V3" } }`
+
+### 3.4 容器环境注意
+
+- **存储问题**：视频下载到容器内，重启丢失 → 建议配置 `download.output_dir` 映射到持久卷
+- **环境变量**：API Key / Webhook URL 通过 OpenClaw 环境变量注入
+- **超时控制**：download 工具超时 7200s，其他工具 15-60s
+
+## 三平台兼容性
+
+| 平台 | Phase 1 | Phase 2 | Phase 3 |
+|---|---|---|---|
+| Claude Code | ✅ `.claude/skills/` | ✅ | — |
+| Codex | ✅ 同一 SKILL.md | ✅ | — |
+| OpenClaw | ✅ MCP Server | ✅ MCP Server | ✅ |
 
 ## 预期成本
 
-- Phase 1（下载 Skill）：1-2 天
-- Phase 2（监控 Skill）：2-4 天
-- Phase 3（OpenClaw MCP）：0.5-1 天
+- Phase 1（下载 Skill）：✅ 完成
+- Phase 2（监控 Skill）：✅ 完成
+- Phase 3（OpenClaw MCP）：✅ 完成（~1小时）

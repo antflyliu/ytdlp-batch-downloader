@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.openclaw.ai/schemas/mcp-config.json",
+  "description": "OpenClaw MCP 配置示例 — 将 ytdlp-batch-downloader 接入 OpenClaw Agent",
+  "mcpServers": {
+    "ytdlp-downloader": {
+      "command": "python",
+      "args": ["mcp-server/server.py"],
+      "cwd": "D:\\WORKSPACE\\video-download-space\\ytdlp-batch-downloader",
+      "transportType": "stdio",
+      "description": "YouTube 批量下载 + 频道监控 MCP Server"
+    }
+  }
+}
