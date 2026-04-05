@@ -5,7 +5,7 @@
     "ytdlp-downloader": {
       "command": "python",
       "args": ["mcp-server/server.py"],
-      "cwd": "D:\\WORKSPACE\\video-download-space\\ytdlp-batch-downloader",
+      "cwd": "<项目根目录>",
       "transportType": "stdio",
       "description": "YouTube 批量下载 + 频道监控 MCP Server"
     }

@@ -20,8 +20,7 @@ description: |
 ## 统一 CLI 入口
 
 ```bash
-# 项目根目录执行
-cd D:\WORKSPACE\video-download-space\ytdlp-batch-downloader
+# 脚本自动定位项目根目录，从任意目录调用均有效
 python scripts/cli.py <subcommand> [options]
 ```
 

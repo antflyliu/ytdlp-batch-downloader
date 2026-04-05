@@ -17,8 +17,18 @@ import sys
 import time
 from pathlib import Path
 
-# 项目根目录 → 确保能 import 根目录的模块
-_ROOT = Path(__file__).parent.parent.resolve()
+# 项目根目录 → 通过向上查找 "Youtube_Downloader.py" 定位（允许脚本从任意目录调用）
+def _find_project_root() -> Path:
+    """向上遍历找到项目根目录（含 Youtube_Downloader.py）。"""
+    p = Path(__file__).resolve()
+    for parent in [p] + list(p.parents):
+        if (parent / "Youtube_Downloader.py").exists():
+            return parent
+    # fallback：脚本所在目录的父目录
+    return p.parent.parent
+
+
+_ROOT = _find_project_root()
 sys.path.insert(0, str(_ROOT))
 
 
