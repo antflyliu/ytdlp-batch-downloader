@@ -706,13 +706,7 @@ def set_api_token(token: str) -> None:
 
 # 确保 app_state 表存在（懒创建）
 def ensure_app_state_table() -> None:
-    with get_connection() as conn:
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS app_state (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )"""
-        )
+    """兼容旧代码：app_state 表已移入 schema.sql，此函数无操作"""
 
 
 # ── 数据库备份（保留最近 7 份）────────────────────────────────

@@ -100,6 +100,13 @@ CREATE INDEX IF NOT EXISTS idx_monitor_videos_event_id   ON monitor_videos(event
 CREATE INDEX IF NOT EXISTS idx_monitor_videos_published  ON monitor_videos(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_monitor_videos_notify     ON monitor_videos(notify_status);
 
+-- ── 应用状态表 ──────────────────────────────────────────────
+-- 存储调度器状态和 REST API 认证令牌
+CREATE TABLE IF NOT EXISTS app_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- ── Webhook 通知记录表 ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS monitor_notify_logs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

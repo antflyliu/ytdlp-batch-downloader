@@ -150,7 +150,44 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 
 - 全局配置：`monitor/config.json`（飞书/钉钉/企业微信 Webhook、默认扫描参数、下载目录与 cookies 路径、`enable_aria2` 等）。**勿将含真实密钥的配置提交到公开仓库**；本地可复制示例后自行填写。
 - 数据库：由 `monitor/db.py` 初始化，默认位于项目数据目录（见代码中的路径解析）。
-- **YouTube Data API**：需在环境变量中配置 API Key（默认环境变量名可参考 `python -m monitor --help` 中的 `--api-key-env`，常见为 `YOUTUBE_Data_API_V3`）。
+- **YouTube Data API**：API Key 存储于 SQLite 数据库（`api_keys` 表），通过 Web UI「🔑 API Keys」按钮管理。自动迁移：若存在 `YOUTUBE_Data_API_V3` 等环境变量，首次启动时自动导入为数据库 Key（优先级：账户指定 → 系统默认 → 环境变量）。
+- **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义。
+
+### REST API 端点
+
+所有端点（除 `/api/status`）均需 `Authorization: Bearer <token>` header。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/status` | 健康检查（无需认证） |
+| GET | `/api/accounts` | 列出所有监控账户 |
+| POST | `/api/accounts` | 新增/编辑账户 |
+| DELETE | `/api/accounts/{id}` | 删除账户 |
+| POST | `/api/accounts/scan` | 手动触发扫描 |
+| GET | `/api/accounts/{id}/videos` | 分页查询视频（含搜索/排序） |
+| GET | `/api/api-keys` | 列出所有 API Key（key_value 已掩码） |
+| POST | `/api/api-keys` | 新增 API Key |
+| POST | `/api/api-keys/{id}` | 更新 API Key |
+| DELETE | `/api/api-keys/{id}` | 删除 API Key |
+| GET | `/api/api-keys/{id}` | 获取单个 Key 详情 |
+| GET | `/api/token` | 获取当前 Bearer token |
+| GET | `/api/config` | 获取全局配置 |
+| POST | `/api/config` | 保存全局配置 |
+| GET | `/api/quota` | 今日 API 配额使用情况 |
+| GET | `/api/events` | 最近扫描事件 |
+| GET | `/api/stats` | 账户统计 |
+| POST | `/api/scheduler/start` | 启动调度器 |
+| POST | `/api/scheduler/stop` | 停止调度器 |
+| GET | `/api/download-tasks/{id}` | 下载任务进度 |
+
+调用示例：
+```bash
+# 获取当前 token
+curl http://127.0.0.1:5000/api/token
+
+# 列出 API Keys（需认证）
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:5000/api/api-keys
+```
 
 ### 与批量下载的关系
 
