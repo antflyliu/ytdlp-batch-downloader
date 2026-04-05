@@ -3,7 +3,7 @@ monitor.notifier — 多平台通知器
 支持：日志文件 / 飞书 / 钉钉 / 企业微信
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 
 import requests
@@ -24,11 +24,19 @@ FEISHU_MODE_CARD = "card_json"
 FEISHU_MODE_TEMPLATE = "template"
 _FEISHU_MAX_ITEMS = 10  # 模板变量中最多展示的视频数
 
+# 飞书卡片 JSON 2.0 常量
+_FEISHU_CARD_SCHEMA = "2.0"
+_FEISHU_HEADER_COLORS: dict[str, str] = {
+    "new_video": "purple",
+    "scan_ok": "blue",
+    "scan_new": "green",
+}
+
 
 # ── 飞书模板专用工具函数 ───────────────────────────────────────────────────
 
 def _feishu_now_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _escape_lark_md(text: str) -> str:
@@ -47,6 +55,51 @@ def _escape_lark_md(text: str) -> str:
     ):
         text = text.replace(src, dst)
     return text
+
+
+# 飞书 JSON 2.0 Markdown 使用 HTML 实体转义（官方文档）。
+# 顺序关键：& 先转义防止后续实体中 & 被重复转义；
+# # 紧随其后，因为后续替换均产生 &#XX; 格式，若 # 在后面会导致双重转义。
+_FEISHU_MD_V2_ESCAPE_MAP: list[tuple[str, str]] = [
+    ("&", "&amp;"),
+    ("#", "&#35;"),
+    ("!", "&#33;"),
+    ("<", "&#60;"),
+    (">", "&#62;"),
+    ("\\", "&#92;"),
+    ("[", "&#91;"),
+    ("]", "&#93;"),
+    ("(", "&#40;"),
+    (")", "&#41;"),
+    ("*", "&#42;"),
+    ("_", "&#95;"),
+    ("~", "&#126;"),
+    ("`", "&#96;"),
+]
+
+
+def _escape_feishu_md_v2(text: str) -> str:
+    """转义用户文本中的 Markdown 特殊字符（飞书 JSON 2.0 HTML 实体方式）。
+
+    仅用于需要「原样展示」的用户生成内容（如视频标题），
+    不要对已经包含 Markdown 语法的模板字符串调用此函数。
+    """
+    if not text:
+        return ""
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    for src, dst in _FEISHU_MD_V2_ESCAPE_MAP:
+        text = text.replace(src, dst)
+    return text
+
+
+def _sanitize_url_for_md(url: str) -> str:
+    """处理 URL 中可能破坏 Markdown 链接语法 [text](url) 的字符。
+
+    主要防御 `)` 提前关闭链接、空格截断 href 等情况。
+    """
+    if not url:
+        return ""
+    return url.replace(")", "%29").replace(" ", "%20")
 
 
 def _format_feishu_video_variable(v: dict) -> dict:
@@ -168,7 +221,113 @@ def _file_log(account_name: str, channel_url: str, videos: list[dict], duration_
     return "\n".join(lines)
 
 
-# ── 通知平台构建器 ────────────────────────────────────────────────────────
+# ── 飞书 JSON 2.0 Markdown 内容构建器 ──────────────────────────────────────
+
+
+def _build_summary_md(
+    channel_url: str,
+    video_count: int,
+    *,
+    channel_name: str | None = None,
+) -> str:
+    """构建卡片摘要区的 Markdown 文本"""
+    display_name = (
+        _escape_feishu_md_v2(channel_name) if channel_name
+        else _escape_feishu_md_v2(channel_url)
+    )
+    lines = [
+        f"**频道**：{display_name}",
+        f"**新增**：{video_count} 个视频",
+        f"**发送时间**：{_feishu_now_str()}",
+    ]
+    return "\n".join(lines)
+
+
+def _build_video_list_md(videos: list[dict], max_items: int = _FEISHU_MAX_ITEMS) -> str:
+    """构建视频列表区的 Markdown 文本（编号 + 标题链接 + 统计行）"""
+    show = videos[:max_items]
+    lines: list[str] = []
+    for idx, v in enumerate(show, 1):
+        title = _escape_feishu_md_v2((v.get("title") or "").strip())
+        url = _sanitize_url_for_md(v.get("url", ""))
+        pub_date = (v.get("published_at") or v.get("upload_date") or "")[:10]
+        views = int(v.get("view_count") or 0)
+        likes = int(v.get("like_count") or 0)
+        comments = int(v.get("comment_count") or 0)
+
+        title_part = f"[{title}]({url})" if url else title
+        lines.append(f"**{idx}.** {title_part}")
+        stats = f"📅 {pub_date}  👁 {views:,}  👍 {likes:,}  💬 {comments:,}"
+        lines.append(stats)
+        if idx < len(show):
+            lines.append("")
+    return "\n".join(lines)
+
+
+def _build_footer_md(total: int, displayed: int) -> str:
+    """构建页脚区的 Markdown 文本（溢出提示）"""
+    if total > displayed:
+        return f"还有 **{total - displayed}** 个新视频未展示"
+    return "本次已展示全部新视频"
+
+
+def _build_feishu_card_v2(
+    account_name: str,
+    channel_url: str,
+    videos: list[dict],
+    *,
+    channel_name: str | None = None,
+    header_color: str | None = None,
+) -> dict:
+    """飞书 JSON 2.0 卡片（Markdown 组件），用于新视频通知。
+
+    https://open.feishu.cn/document/feishu-cards/card-json-v2-components/content-components/rich-text
+    """
+    color = header_color or _FEISHU_HEADER_COLORS["new_video"]
+    displayed = min(len(videos), _FEISHU_MAX_ITEMS)
+
+    elements: list[dict] = [
+        {
+            "tag": "markdown",
+            "content": _build_summary_md(
+                channel_url, len(videos), channel_name=channel_name,
+            ),
+            "text_align": "left",
+        },
+        {"tag": "hr"},
+        {
+            "tag": "markdown",
+            "content": _build_video_list_md(videos),
+            "text_align": "left",
+        },
+        {"tag": "hr"},
+        {
+            "tag": "markdown",
+            "content": _build_footer_md(len(videos), displayed),
+            "text_align": "left",
+            "text_size": "notation",
+        },
+    ]
+
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "schema": _FEISHU_CARD_SCHEMA,
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"🎬 {account_name} — {len(videos)} 个新视频",
+                },
+                "template": color,
+            },
+            "body": {
+                "elements": elements,
+            },
+        },
+    }
+
+
+# ── 通知平台构建器（旧版 v1 保留供回退） ──────────────────────────────────
 
 def _build_feishu_card(
     account_name: str,
@@ -218,7 +377,7 @@ def _build_feishu_card(
                         "content": (
                             f"**频道**: {channel_url}\n"
                             f"**新增**: {len(videos)} 个视频\n"
-                            f"**时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                            f"**发送时间**: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
                         ),
                     },
                 },
@@ -240,7 +399,7 @@ def _build_dingtalk_text(
     """
     lines = [f"🎬 {account_name} — {len(videos)} 个新视频"]
     lines.append(f"📺 频道: {channel_url}")
-    lines.append(f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"⏰ {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
     for v in videos[:20]:
         pub_date = (v.get("published_at") or "")[:10]
@@ -264,7 +423,7 @@ def _build_dingtalk_markdown(
     """
     items = [f"### 🎬 {account_name} — {len(videos)} 个新视频"]
     items.append(f"**📺 频道**: {channel_url}")
-    items.append(f"**⏰ 时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    items.append(f"**⏰ 发送时间**: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
     items.append("")
     for v in videos[:10]:
         pub_date = (v.get("published_at") or "")[:10]
@@ -330,9 +489,11 @@ def build_notify_payload(
             )
         if feishu_message_mode == FEISHU_MODE_TEMPLATE and not feishu_template_id:
             _log.warning(
-                f"飞书已配置 template 模式，但未提供 feishu_template_id，自动回退到硬编码卡片"
+                "飞书已配置 template 模式，但未提供 feishu_template_id，自动回退到 card_json"
             )
-        return _build_feishu_card(account_name, channel_url, videos)
+        return _build_feishu_card_v2(
+            account_name, channel_url, videos, channel_name=channel_name,
+        )
     elif platform == "dingtalk":
         return _build_dingtalk_markdown(account_name, channel_url, videos)
     elif platform == "wecom":
@@ -404,27 +565,37 @@ def _build_scan_confirm_payload(
                     account_name, channel_name, channel_url, total_videos, new_videos
                 ),
             )
-        # 没有 scan 模板时，使用硬编码确认卡片
+        color = _FEISHU_HEADER_COLORS["scan_new" if new_videos > 0 else "scan_ok"]
+        status = (
+            f"扫描完成，新增 {new_videos} 个视频" if new_videos > 0
+            else "扫描正常，无新视频"
+        )
+        safe_url = _escape_feishu_md_v2(channel_url)
+        md_content = "\n".join([
+            f"**频道**：{safe_url}",
+            f"**API 返回**：{total_videos} 个视频",
+            f"**新增视频**：{new_videos} 个",
+            f"**状态**：{status}",
+            f"**发送时间**：{_feishu_now_str()}",
+        ])
         return {
             "msg_type": "interactive",
             "card": {
+                "schema": _FEISHU_CARD_SCHEMA,
                 "header": {
-                    "title": {"tag": "plain_text", "content": f"✅ {account_name} — 扫描完成"},
-                    "template": "green" if new_videos > 0 else "blue",
-                },
-                "elements": [{
-                    "tag": "div",
-                    "text": {
-                        "tag": "lark_md",
-                        "content": (
-                            f"**频道**: {channel_url}\n"
-                            f"**API 返回**: {total_videos} 个视频\n"
-                            f"**新增视频**: {new_videos} 个\n"
-                            f"**状态**: 扫描正常，无新视频\n"
-                            f"**时间**: {_feishu_now_str()}"
-                        ),
+                    "title": {
+                        "tag": "plain_text",
+                        "content": f"✅ {account_name} — 扫描完成",
                     },
-                }],
+                    "template": color,
+                },
+                "body": {
+                    "elements": [{
+                        "tag": "markdown",
+                        "content": md_content,
+                        "text_align": "left",
+                    }],
+                },
             },
         }
     elif platform == "dingtalk":
@@ -477,14 +648,14 @@ def notify(
 ) -> None:
     """
     统一通知入口：文件日志 + 指定平台 Webhook
-    即使无新视频也会发送确认通知（验证 Webhook 可达性）
+    仅在有新视频时由 scheduler 调用，无新视频不推送消息。
 
     :param total_videos: API 返回的总视频数
     :param feishu_message_mode: 飞书发送模式，card_json（默认）或 template
     :param feishu_template_id: 飞书详情卡片模板ID（template 模式用）
     :param feishu_scan_template_id: 飞书扫描确认模板ID（template 模式用）
     """
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_str = _db.now_iso()
 
     # ── 1. 文件日志 ──────────────────────────────────────
     if videos:
@@ -495,32 +666,31 @@ def notify(
 
     # ── 2. Webhook ──────────────────────────────────────
     if not webhook_url:
-        _log.info(f"未配置 Webhook（{platform}），跳过推送: {account_name}")
+        _log.warning(f"未配置 Webhook（{platform}），跳过推送: {account_name}")
         return
 
-    if videos:
-        # 有新视频：发送详情卡片（支持 template 模式）
-        payload = build_notify_payload(
-            platform, account_name, channel_url, videos,
-            channel_name=channel_name,
-            feishu_message_mode=feishu_message_mode,
-            feishu_template_id=feishu_template_id,
-        )
-        success, response = _send_webhook(webhook_url, payload, platform)
-        _log_result(platform, account_name, len(videos), success, response, event_id, account_id, now_str, webhook_url)
-        if success:
-            video_ids = [v["video_id"] for v in videos]
-            _db.mark_notify_sent(video_ids, now_str)
+    if not videos:
+        _log.info(f"无新视频，跳过 Webhook 推送: {account_name}")
+        return
+
+    _log.info(
+        f"准备发送 {platform} 通知: {account_name} ({len(videos)} 个新视频) "
+        f"mode={feishu_message_mode} webhook={webhook_url[:60]}..."
+    )
+    payload = build_notify_payload(
+        platform, account_name, channel_url, videos,
+        channel_name=channel_name,
+        feishu_message_mode=feishu_message_mode,
+        feishu_template_id=feishu_template_id,
+    )
+    success, response = _send_webhook(webhook_url, payload, platform)
+    _log_result(platform, account_name, len(videos), success, response, event_id, account_id, now_str, webhook_url)
+    if success:
+        _log.info(f"✅ {platform} 通知发送成功: {account_name} → {response[:120]}")
+        video_ids = [v["video_id"] for v in videos]
+        _db.mark_notify_sent(video_ids, now_str)
     else:
-        # 无新视频：发送扫描完成确认（验证 Webhook 可达，支持 template 模式）
-        payload = _build_scan_confirm_payload(
-            platform, account_name, channel_url, total_videos, 0,
-            channel_name=channel_name,
-            feishu_message_mode=feishu_message_mode,
-            feishu_scan_template_id=feishu_scan_template_id,
-        )
-        success, response = _send_webhook(webhook_url, payload, platform)
-        _log_result(platform, account_name, 0, success, response, event_id, account_id, now_str, webhook_url)
+        _log.error(f"❌ {platform} 通知发送失败: {account_name} → {response[:200]}")
 
 
 def _log_result(
