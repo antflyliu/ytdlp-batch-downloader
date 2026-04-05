@@ -720,8 +720,223 @@
   .vd-dl-bar .dl-status { font-size:11px; color:var(--text-dim); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   /* ── API Key 卡片 ─────────────────────────────────────────── */
-  .ak-card:hover { border-color: rgba(99,102,241,0.4); }
+  .ak-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: border-color 0.15s, box-shadow 0.2s;
+  }
+  .ak-card:hover {
+    border-color: rgba(99,102,241,0.4);
+    box-shadow: 0 0 0 1px rgba(99,102,241,0.1);
+  }
   .ak-card .btn-sm svg { display: block; }
+
+  /* API Key 配额环形图 */
+  .ak-ring {
+    flex-shrink: 0;
+    position: relative;
+    width: 56px;
+    height: 56px;
+  }
+  .ak-ring svg {
+    transform: rotate(-90deg);
+    width: 56px;
+    height: 56px;
+  }
+  .ak-ring-bg {
+    fill: none;
+    stroke: var(--surface3);
+    stroke-width: 4;
+  }
+  .ak-ring-progress {
+    fill: none;
+    stroke-width: 4;
+    stroke-linecap: round;
+    transition: stroke-dasharray 0.4s ease-out, stroke 0.3s;
+  }
+  .ak-ring-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .ak-ring-pct {
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+  .ak-ring-label {
+    font-size: 8px;
+    color: var(--text-dim);
+  }
+
+  /* API Key 详情区 */
+  .ak-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .ak-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .ak-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .ak-status {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .ak-status.active {
+    background: rgba(34,197,94,0.12);
+    color: var(--success);
+    border-color: rgba(34,197,94,0.2);
+  }
+  .ak-status.inactive {
+    background: rgba(239,68,68,0.12);
+    color: var(--error);
+    border-color: rgba(239,68,68,0.2);
+  }
+  .ak-key {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ak-key svg {
+    flex-shrink: 0;
+  }
+
+  /* API Key 配额进度条 */
+  .ak-quota-bar {
+    height: 4px;
+    background: var(--surface3);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .ak-quota-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s ease-out;
+  }
+  .ak-quota-stats {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .ak-quota-stats strong {
+    font-family: var(--mono);
+  }
+  .ak-quota-stats .used { color: var(--accent); }
+  .ak-quota-stats .remaining { color: var(--success); }
+
+  /* API Key 操作按钮 */
+  .ak-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  /* 空状态增强 */
+  .ak-empty {
+    text-align: center;
+    padding: 48px 24px;
+    background: var(--surface2);
+    border-radius: 12px;
+    border: 1px dashed var(--border);
+  }
+  .ak-empty-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+    background: var(--surface3);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ak-empty-icon svg {
+    width: 28px;
+    height: 28px;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+  .ak-empty-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .ak-empty-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+
+  /* 表单模态框增强 */
+  .ak-form-section {
+    margin-bottom: 20px;
+  }
+  .ak-form-section:last-child {
+    margin-bottom: 0;
+  }
+  .ak-form-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ak-form-section-title::before {
+    content: '';
+    width: 3px;
+    height: 12px;
+    border-radius: 2px;
+  }
+  .ak-form-section.identity .ak-form-section-title::before {
+    background: var(--accent);
+  }
+  .ak-form-section.quota .ak-form-section-title::before {
+    background: var(--warning);
+  }
+  .ak-form-section.quota {
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .ak-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .ak-form-row .form-group:last-child {
+    padding-top: 26px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
@@ -1027,8 +1242,10 @@
   <div class="modal" style="max-width:760px">
     <div class="modal-header">
       <div class="modal-title" style="display:flex;align-items:center;gap:10px">
-        <div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:rgba(99,102,241,0.15);border-radius:8px;border:1px solid rgba(99,102,241,0.25);font-size:13px;flex-shrink:0">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+          </svg>
         </div>
         API Key 管理
       </div>
@@ -1036,7 +1253,7 @@
     </div>
     <div class="modal-body" style="padding:16px 20px">
       <!-- 工具栏 -->
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
         <button class="btn btn-primary" onclick="openAddApiKey()" style="flex-shrink:0">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
           新增 Key
@@ -1063,11 +1280,8 @@
     <div class="modal-body">
       <input type="hidden" id="akId">
       <!-- Key Identity -->
-      <div style="margin-bottom:20px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <div style="width:16px;height:2px;background:var(--accent);border-radius:1px"></div>
-          身份信息
-        </div>
+      <div class="ak-form-section identity">
+        <div class="ak-form-section-title">身份信息</div>
         <div class="form-group" style="margin-bottom:10px">
           <label class="form-label">Key 名称</label>
           <input class="form-input" id="akName" placeholder="例如：主号专用 / Key-2 / 备用Key">
@@ -1079,18 +1293,15 @@
         </div>
       </div>
       <!-- Quota Config -->
-      <div style="margin-bottom:20px;padding-top:16px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <div style="width:16px;height:2px;background:var(--warning);border-radius:1px"></div>
-          配额设置
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
+      <div class="ak-form-section quota">
+        <div class="ak-form-section-title">配额设置</div>
+        <div class="ak-form-row">
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">每日配额上限</label>
             <input class="form-input" id="akQuota" type="number" value="10000" min="100" max="100000" placeholder="10000">
             <div class="form-hint" style="margin-top:4px">超过后该 Key 暂停扫描</div>
           </div>
-          <div class="form-group" style="margin-bottom:0;padding-top:26px">
+          <div class="form-group" style="margin-bottom:0">
             <label class="checkbox-label" style="font-size:13px">
               <input type="checkbox" id="akActive" checked>
               <span class="checkbox-box"></span>
@@ -1883,22 +2094,28 @@
     const el = document.getElementById('apiKeysList');
     if (!keys || !Array.isArray(keys)) {
       el.innerHTML = `
-        <div style="text-align:center;padding:48px 24px;background:var(--surface2);border-radius:12px;border:1px dashed var(--border)">
-          <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">无法加载 API Keys（请确认 Token 已配置）</div>
-          <button class="btn btn-primary btn-sm" onclick="_promptToken();loadApiKeysList()">重试</button>
+        <div class="ak-empty">
+          <div class="ak-empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+          </div>
+          <div class="ak-empty-title">无法加载 API Keys</div>
+          <div class="ak-empty-desc">请确认 Token 已正确配置</div>
+          <button class="btn btn-primary btn-sm" onclick="_promptToken();loadApiKeysList()">重新加载</button>
         </div>`;
       return;
     }
     if (keys.length === 0) {
       el.innerHTML = `
-        <div style="text-align:center;padding:48px 24px;background:var(--surface2);border-radius:12px;border:1px dashed var(--border)">
-          <div style="margin-bottom:12px">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-dim);margin:0 auto;display:block;opacity:0.4">
+        <div class="ak-empty">
+          <div class="ak-empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
             </svg>
           </div>
-          <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px">暂无 API Key</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">点击上方「新增 Key」添加第一个 YouTube API Key</div>
+          <div class="ak-empty-title">暂无 API Key</div>
+          <div class="ak-empty-desc">点击下方「新增 Key」添加第一个 YouTube API Key</div>
           <button class="btn btn-primary btn-sm" onclick="openAddApiKey()">+ 添加第一个 Key</button>
         </div>`;
       return;
@@ -1909,7 +2126,6 @@
       const pct = quota > 0 ? Math.min(Math.round(used / quota * 100), 100) : 0;
       const remaining = Math.max(quota - used, 0);
       const color = pct >= 90 ? 'var(--error)' : pct >= 70 ? 'var(--warning)' : 'var(--accent)';
-      const activeColor = k.is_active ? 'var(--success)' : 'var(--error-dim)';
 
       // SVG ring参数
       const R = 22, C = 2 * Math.PI * R;
@@ -1917,49 +2133,58 @@
       const dashGap = C - dashFill;
       const cx = 28, cy = 28;
 
-      return `<div class="ak-card" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:16px;transition:border-color 0.15s">
+      return `<div class="ak-card">
         <!-- 环形配额图 -->
-        <div style="flex-shrink:0;position:relative;width:56px;height:56px">
-          <svg width="56" height="56" viewBox="0 0 56 56" style="transform:rotate(-90deg)">
-            <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--surface3)" stroke-width="4"/>
-            <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="4"
-              stroke-dasharray="${dashFill.toFixed(1)} ${dashGap.toFixed(1)}"
-              stroke-linecap="round"
-              style="transition:stroke-dasharray 0.4s ease,stroke 0.3s"/>
+        <div class="ak-ring">
+          <svg viewBox="0 0 56 56">
+            <circle class="ak-ring-bg" cx="${cx}" cy="${cy}" r="${R}"/>
+            <circle class="ak-ring-progress" cx="${cx}" cy="${cy}" r="${R}"
+              stroke="${color}"
+              stroke-dasharray="${dashFill.toFixed(1)} ${dashGap.toFixed(1)}"/>
           </svg>
-          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1">
-            <span style="font-size:12px;font-weight:700;color:${color};font-family:var(--mono)">${pct}</span>
-            <span style="font-size:8px;color:var(--text-dim)">%</span>
+          <div class="ak-ring-text">
+            <span class="ak-ring-pct" style="color:${color}">${pct}</span>
+            <span class="ak-ring-label">%</span>
           </div>
         </div>
         <!-- 信息 -->
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-            <span style="font-size:14px;font-weight:600;color:var(--text)">${esc(k.name)}</span>
-            <span style="font-size:10px;padding:2px 6px;border-radius:3px;font-weight:500;background:${k.is_active ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'};color:${k.is_active ? 'var(--success)' : 'var(--error)'};border:1px solid ${k.is_active ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}">${k.is_active ? '启用' : '禁用'}</span>
+        <div class="ak-info">
+          <div class="ak-name-row">
+            <span class="ak-name">${esc(k.name)}</span>
+            <span class="ak-status ${k.is_active ? 'active' : 'inactive'}">${k.is_active ? '启用' : '禁用'}</span>
           </div>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-bottom:6px;display:flex;align-items:center;gap:4px">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/></svg>
+          <div class="ak-key">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4l2 2"/>
+            </svg>
             ${esc(k.key_value)}
           </div>
           <!-- 配额进度条 -->
-          <div style="height:4px;background:var(--surface3);border-radius:2px;overflow:hidden;margin-bottom:4px">
-            <div style="height:100%;width:${pct}%;background:${color};border-radius:2px;transition:width 0.4s ease"></div>
+          <div class="ak-quota-bar">
+            <div class="ak-quota-fill" style="width:${pct}%;background:${color}"></div>
           </div>
-          <div style="font-size:11px;color:var(--text-muted);display:flex;gap:12px">
-            <span>已用 <strong style="color:${color};font-family:var(--mono)">${used.toLocaleString()}</strong></span>
-            <span>限额 <strong style="font-family:var(--mono)">${quota.toLocaleString()}</strong></span>
-            <span>剩余 <strong style="font-family:var(--mono)">${remaining.toLocaleString()}</strong></span>
-            <span>扫描 <strong style="font-family:var(--mono)">${k.scans_done || 0}</strong> 次</span>
+          <div class="ak-quota-stats">
+            <span>已用 <strong class="used">${used.toLocaleString()}</strong></span>
+            <span>限额 <strong>${quota.toLocaleString()}</strong></span>
+            <span>剩余 <strong class="remaining">${remaining.toLocaleString()}</strong></span>
+            <span>扫描 <strong>${k.scans_done || 0}</strong> 次</span>
           </div>
         </div>
         <!-- 操作 -->
-        <div style="display:flex;gap:6px;flex-shrink:0">
+        <div class="ak-actions">
           <button class="btn-sm" onclick="openEditApiKey(${k.id})" title="编辑">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
           </button>
           <button class="btn-sm danger" onclick="deleteApiKey(${k.id})" title="删除">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14H6L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4h6v2"/>
+            </svg>
           </button>
         </div>
       </div>`;
