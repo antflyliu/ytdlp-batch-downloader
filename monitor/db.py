@@ -8,6 +8,9 @@ import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
 
+import logging_config
+_log = logging_config.get_logger("monitor.db")
+
 # 哨兵值：区分 update_account 中「参数未传入」和「显式传 None 清空字段」
 _UNSET = type("_Unset", (), {"__repr__": lambda s: "<UNSET>", "__bool__": lambda s: False})()
 
@@ -117,8 +120,10 @@ def _migrate_legacy_api_keys(conn) -> None:
                     (key_value, env_name, 10000, 0, _today_str(),
                      1, now_iso(), now_iso()),
                 )
+            except sqlite3.IntegrityError:
+                pass  # Key 已存在，忽略
             except Exception:
-                pass  # 已存在则忽略
+                _log.warning(f"Migration: 迁移 api_key_env={env_name} 失败: {e}")
 
 
 @contextmanager

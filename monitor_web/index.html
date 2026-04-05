@@ -1610,7 +1610,7 @@
     if (!opener) return;
     const targetUrl = opener.getAttribute('data-open-url');
     if (!targetUrl) return;
-    window.open(targetUrl, '_blank');
+    window.open(targetUrl.startsWith('http') ? targetUrl : '#', '_blank');
   });
 
   async function openVideoDetail(accId) {
@@ -1666,8 +1666,8 @@
       return '<tr data-id="' + v.id + '">' +
         '<td class="vd-check"><input type="checkbox" ' + sel + ' onchange="vdToggle(' + v.id + ', this.checked)"></td>' +
         '<td>' +
-          '<div class="vd-title vd-open-url" data-open-url="' + url + '" title="' + title + '">' + title + '</div>' +
-          '<a class="vd-url" href="' + url + '" target="_blank">' + url + '</a>' +
+          '<div class="vd-title vd-open-url" data-open-url="' + (url.startsWith('http') ? url : '#') + '" title="' + title + '">' + title + '</div>' +
+          '<a class="vd-url" href="' + (url.startsWith('http') ? url : '#') + '" target="_blank">' + url + '</a>' +
           (desc ? '<div class="vd-desc">' + desc + '</div>' : '') +
         '</td>' +
         '<td class="vd-num">' + pubDate + '</td>' +
@@ -1676,7 +1676,7 @@
         '<td class="vd-num">' + likes + '</td>' +
         '<td class="vd-num">' + comments + '</td>' +
         '<td>' + dlTag + '</td>' +
-        '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + url + '">▶</button></td>' +
+        '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + (url.startsWith('http') ? url : '#') + '">▶</button></td>' +
       '</tr>';
     }).join('');
     const allChecked = res.videos.length > 0 && res.videos.every(v => _vdSel.has(v.id));
