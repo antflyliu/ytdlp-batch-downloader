@@ -187,19 +187,62 @@ class TestConfigDefaultSubLangs(unittest.TestCase):
 
 
 class TestBackupDb(unittest.TestCase):
-    """数据库备份测试"""
+    """数据库备份测试：验证 iterdump 方式排除 api_keys 表"""
 
-    @patch("monitor.db.get_connection")
-    def test_backup_db_creates_backup_file(self, mock_conn):
+    def setUp(self):
+        import tempfile, shutil, sqlite3
+        self._tmpdir = tempfile.mkdtemp()
+        self._db_path = os.path.join(self._tmpdir, "monitor.db")
+        self._data_dir = self._tmpdir
+        # 创建源 DB：包含 api_keys 和另一个表
+        conn = sqlite3.connect(self._db_path)
+        conn.execute("CREATE TABLE api_keys (id INTEGER PRIMARY KEY, key_value TEXT, name TEXT)")
+        conn.execute("INSERT INTO api_keys (key_value, name) VALUES ('AIzaSySECRET123', 'TestKey')")
+        conn.execute("CREATE TABLE monitor_accounts (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("INSERT INTO monitor_accounts (name) VALUES ('TestAccount')")
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
         import shutil
-        with patch("shutil.copy2") as mock_copy:
-            with patch("os.listdir", return_value=["monitor_20260101_120000.db"]):
-                with patch("os.remove"):
-                    with patch("os.path.exists", return_value=True):
-                        from monitor import db
-                        path = db.backup_db()
-                        mock_copy.assert_called_once()
-                        self.assertIsNotNone(path)
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _ctx(self):
+        """patch db 模块的路径变量到临时目录"""
+        import monitor.db as _db
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(patch.object(_db, "_DB_PATH", self._db_path))
+        stack.enter_context(patch.object(_db, "_DATA_DIR", self._data_dir))
+        return stack
+
+    def test_backup_db_creates_backup_file(self):
+        """验证备份文件被创建"""
+        import monitor.db as _db
+        with self._ctx():
+            path = _db.backup_db()
+            self.assertIsNotNone(path)
+            self.assertTrue(os.path.exists(path))
+
+    def test_backup_db_excludes_api_keys_table(self):
+        """验证备份内容排除 api_keys 表（防止明文 Key 泄露）"""
+        import monitor.db as _db
+        import sqlite3
+        with self._ctx():
+            path = _db.backup_db()
+            self.assertIsNotNone(path)
+            # 读取备份文件，检查表和内容
+            bk = sqlite3.connect(path)
+            tables = [r[0] for r in bk.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            # api_keys 不应出现在备份中
+            self.assertNotIn("api_keys", tables)
+            # 其他表应保留
+            self.assertIn("monitor_accounts", tables)
+            # 确认其他表数据完整
+            acc_count = bk.execute("SELECT COUNT(*) FROM monitor_accounts").fetchone()[0]
+            self.assertEqual(acc_count, 1)
+            bk.close()
 
 
 if __name__ == "__main__":

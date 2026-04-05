@@ -81,6 +81,9 @@ def init_db() -> None:
         conn.executescript(schema)
         _ensure_schema_migrations(conn)
         _migrate_monitor_accounts(conn)
+    # 同步初始化 quota 表
+    import monitor.quota as _quota
+    _quota._ensure_schema()
 
 
 def _ensure_schema_migrations(conn) -> None:
@@ -158,10 +161,11 @@ def _migrate_legacy_api_keys(conn) -> None:
 
 @contextmanager
 def get_connection():
-    """线程安全的数据库连接上下文管理器（启用 WAL 模式提升并发性能）"""
+    """线程安全的数据库连接上下文管理器（启用 WAL 模式 + 外键约束）"""
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     try:
         yield conn

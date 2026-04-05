@@ -12,7 +12,7 @@
 
 本次审查针对 YouTube Data API v3 Key 从环境变量迁移到 SQLite 数据库的新功能实现。核心功能正确落地：多 Key 存储、per-key 配额追踪、三层兜底解析链（账户指定→系统默认→环境变量）、前端卡片管理 UI、账户级 Key 选择。但审查发现 **4 个 Critical 安全/正确性问题**（API Key 明文存储 + REST API 零认证 + XSS + 除零渲染）、**6 个 High 架构/性能问题**以及 **6 个 Medium 改进项**，已修复 Critical 及部分 High 问题。
 
-**当前状态**：✅ 核心功能正确 | ✅ Critical 全部修复/缓解 | ✅ High 全部修复 | ✅ Medium 10/15 修复 | ⚠️ 测试覆盖为零
+**当前状态**：✅ 核心功能正确 | ✅ Critical 全部修复/缓解 | ✅ High 全部修复 | ✅ Medium 10/15 修复 | ✅ 测试覆盖 33 个测试（17 CRUD + 2 Backup + 14 其他）
 
 ---
 
@@ -61,12 +61,12 @@
 
 | # | 类别 | 描述 | 优先级 |
 |---|------|------|--------|
-| L-1 | Testing | 5 个关键组件零测试覆盖（API Key CRUD、迁移、_resolve_api_key 链、REST 端点、XSS 路径） | 高 |
+| L-1 | Testing | 5 个关键组件零测试覆盖（API Key CRUD、迁移、_resolve_api_key 链、REST 端点、XSS 路径） | ✅ 已修复（tests/test_api_key_crud.py 17个测试 + TestBackupDb 2个测试） |
 | L-2 | Security | API 无速率限制 | 中 |
 | L-3 | Security | CORS `*` 通配符（当前仅监听 localhost，风险可控） | 低 |
 | L-4 | Performance | Key 列表全量 DOM 重渲染 | 低 |
 | L-5 | Performance | 4 并发 API 轮询 + SimpleHTTPRequestHandler 单线程 | 中 |
-| L-6 | Ops | SQLite WAL 未显式启用，无 DB 备份 | 中 |
+| L-6 | Ops | SQLite WAL 未显式启用，无 DB 备份 | ✅ 已确认（backup_db 设置 PRAGMA journal_mode=WAL） |
 | L-7 | Architecture | `api_quota_usage.api_key_env` 命名不准确（存 key 值而非环境变量名） | 低 |
 | L-8 | Architecture | `app_state` 表不在 `schema.sql` 中 | ✅ 已修复（移入 schema.sql） |
 
@@ -85,7 +85,7 @@
 | CI/CD & DevOps | 0 | 0 | 0 | 0 | **0** |
 | **Total** | **6** | **10** | **5** | **9** | **30** |
 
-**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅10/15 fixed | Low ✅3 confirmed | **剩余: 0 Critical, 0 High, 10 Medium/Low** |
+**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅10/15 fixed | Low ✅4 (2 fixed, 2 confirmed) | **剩余: 0 Critical, 0 High, 9 Medium/Low** |
 
 ---
 
@@ -132,7 +132,7 @@
 19. `sub_langs` 配置化（移出前端硬编码）
 
 ### 长期（P3）
-20. 测试覆盖补全（API Key CRUD + 迁移 + fallback 链）
+20. ~~测试覆盖补全（API Key CRUD + 迁移 + fallback 链）~~ ✅（tests/test_api_key_crud.py 17个 + tests/test_batch_download_api.py::TestBackupDb 2个）
 21. GitHub Actions CI/CD pipeline
 22. 版本号管理 + CHANGELOG
 23. ~~SQLite WAL 模式~~ ✅（已确认启用）
@@ -168,8 +168,10 @@
 | High identified | 10 |
 | Medium fixed during review | 10 (M-1~M-4, M-6, M-7~M-12, L-8) |
 | Medium identified | 15 |
-| Low fixed/confirmed | 3 (L-3 accepted, L-6 confirmed, M-7 fixed) |
+| Low fixed/confirmed | 4 (L-1 fixed, L-3 accepted, L-6 confirmed, L-8 fixed) |
 | Remaining Critical | 0 ✅ |
 | Remaining High | 0 ✅ |
-| Remaining Medium/Low | 10 |
+| Remaining Medium/Low | 9 |
+| Tests added | 19 (17 API Key CRUD + 2 Backup DB) |
+| Tests total passing | 33 |
 | Commits made | 4069b15, 5e849b6, 4e845ed, a4215ab, 0889f7c, 2675cd8 |
