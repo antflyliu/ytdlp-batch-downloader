@@ -7,6 +7,61 @@
 
 ---
 
+## 最近更新（2026-04-05）
+
+### 安全修复（Critical/High）
+
+| 问题 | 修复内容 | 文件 |
+|------|----------|------|
+| **C-1 API Key 明文存储** | 缓解措施：备份文件排除 `api_keys` 表 + `.gitignore` 排除 `data/*.db` + README 安全警告 + Bearer token 防护 | `monitor/db.py` |
+| **C-2 REST API 零认证** | 新增 Bearer token 认证，所有 `/api/*` 端点（除 `/api/status`）需携带 `Authorization: Bearer <token>` | `monitor_server.py:234-248` |
+| **C-3 API Key 明文暴露** | REST API 返回掩码 Key（首4+末4字符），如 `AIza••••••••xxxx` | `monitor_server.py:250-254, 637` |
+| **C-4 除零/NaN 渲染** | 前端配额进度条增加默认值 `daily_quota || 10000` | `monitor_web/index.html` |
+| **H-1 前端 Key 暴露** | 编辑表单不预填 Key 值，placeholder 提示"留空保持不变" | `monitor_web/index.html` |
+| **H-2 备份含明文 Key** | `backup_db()` 跳过 `api_keys` 表的 CREATE/INSERT 语句 | `monitor/db.py:649-676` |
+| **H-4 调度器私有访问** | 新增公开方法 `trigger_scan()` 替代 `_scan_account()` 直接访问 | `monitor/scheduler.py:282-287` |
+
+### 架构与性能优化
+
+| 问题 | 修复内容 | 文件 |
+|------|----------|------|
+| **Migration 异常吞噬** | 只捕获 `IntegrityError`，其余异常记录 warning 日志 | `monitor/db.py` |
+| **配额重复写入** | 架构已重构，每次扫描仅一次写入 | `monitor/quota.py` |
+| **Migration 版本追踪** | 新增 `schema_migrations` 表，幂等迁移 | `monitor/schema.sql` |
+| **告警缓存泄漏** | 加日期维度 `f"{key}:{date}:{threshold}"` | `monitor/quota.py` |
+| **配置缓存** | 模块级缓存 + invalidation，避免重复读取 | `monitor/scheduler.py` |
+| **N+1 查询优化** | `/api/quota` 预加载所有 Key 到内存字典 | `monitor_server.py:612-627` |
+
+### 安全增强
+
+| 功能 | 说明 |
+|------|------|
+| **API 速率限制** | 每 IP 每分钟 60 次，返回 429 + `Retry-After` header |
+| **CORS 白名单** | 仅允许 `localhost`/`127.0.0.1`/`[::1]` origin |
+| **Webhook URL 加密** | Fernet 加密存储，`enc:` 前缀格式，迁移 v4 自动加密现有值 |
+| **ThreadingHTTPServer** | 每请求一线程替代单线程，避免阻塞 |
+| **路径遍历防护** | `os.path.realpath` 解析符号链接 |
+| **channel_url 验证** | YouTube URL 正则校验 + `javascript:` 伪协议防护 |
+| **LIKE 通配符转义** | `_escape_like()` 防止 `%`/`_` 通配符注入 |
+
+### 前端 UI 增强
+
+| 功能 | 说明 |
+|------|------|
+| **API Key 卡片** | 结构化 CSS 类（`.ak-card`、`.ak-ring`、`.ak-quota-*`），环形配额图 |
+| **配额进度条** | 颜色编码统计（已用/限额/剩余），accent/warning/error 分级 |
+| **空状态优化** | 独特图标容器、清晰引导文案 |
+| **表单模态框** | 分区布局（身份信息/配额设置），左侧色条标识 |
+| **交互效果** | 卡片悬停边框高亮 + 微妙阴影 |
+
+### 测试覆盖
+
+- **33 个测试全部通过**（pytest 验证）
+- 新增 `tests/test_api_key_crud.py`：17 个测试（CRUD、掩码、转义、FK ON DELETE SET NULL、fallback 链）
+- 新增 `tests/test_batch_download_api.py::TestBackupDb`：2 个测试（备份文件创建、api_keys 排除）
+
+---
+
 ## 目录
 
 - [功能特性](#功能特性)
@@ -151,8 +206,28 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 - 全局配置：`monitor/config.json`（飞书/钉钉/企业微信 Webhook、默认扫描参数、下载目录与 cookies 路径、`enable_aria2` 等）。**勿将含真实密钥的配置提交到公开仓库**；本地可复制示例后自行填写。
 - 数据库：由 `monitor/db.py` 初始化，默认位于 `data/monitor.db`。**包含敏感信息（YouTube API Keys 等），勿将其提交到版本控制或公开仓库**。`data/` 目录已在 `.gitignore` 中排除。
 - **YouTube Data API**：API Key 存储于 SQLite 数据库（`api_keys` 表），通过 Web UI「🔑 API Keys」按钮管理。自动迁移：若存在 `YOUTUBE_Data_API_V3` 等环境变量，首次启动时自动导入为数据库 Key（优先级：账户指定 → 系统默认 → 环境变量）。
+
+  **API Key 管理功能**：
+  - 多 Key 存储：支持添加多个 YouTube Data API v3 Key，每个可独立设置每日配额上限
+  - 配额追踪：per-key 配额统计，每日 0 点自动重置
+  - 三层兜底：账户指定 Key → 系统默认 Key → 环境变量 `YOUTUBE_Data_API_V3`
+  - Key 值只读：创建后不可修改 Key 值（防止配额数据孤岛），如需更换请删除后重新创建
+  - 掩码显示：前端显示 `AIza••••••••xxxx` 格式，完整 Key 值仅存于数据库
+
 > **安全注意**：`data/monitor.db` 包含明文 API Key。备份文件（`data/backup/`）会自动排除 `api_keys` 表，但物理文件访问仍可读取 Key。请妥善保管数据库文件，避免意外泄露。
-- **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义。
+- **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义。前端 Web UI 会自动从 `/api/token` 获取并存储到 `sessionStorage`。
+
+### 安全机制
+
+| 机制 | 说明 |
+|------|------|
+| **Bearer Token** | 所有 API 端点（除 `/api/status`）需认证，防止未授权访问 |
+| **API Key 掩码** | REST API 返回 `AIza••••••••xxxx` 格式，完整 Key 仅存于 DB |
+| **速率限制** | 每 IP 每分钟 60 次请求，超限返回 429 + `Retry-After` |
+| **CORS 白名单** | 仅允许 `localhost`/`127.0.0.1`/`[::1]` origin |
+| **Webhook 加密** | Fernet 对称加密存储，`enc:` 前缀标识已加密值 |
+| **路径遍历防护** | `os.path.realpath` 解析符号链接，防止目录穿越 |
+| **输入验证** | `channel_url` 正则校验，LIKE 通配符转义 |
 
 ### REST API 端点
 
