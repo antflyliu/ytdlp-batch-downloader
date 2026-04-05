@@ -357,6 +357,49 @@ def cmd_list_accounts(json_output: bool = False) -> int:
     return 0
 
 
+def cmd_quota(api_key_env: str | None, json_output: bool = False) -> int:
+    """查询 API Quota 使用情况"""
+    from monitor import quota as _quota
+
+    if api_key_env:
+        usage = _quota.get_usage(api_key_env)
+        budget = _quota.get_budget_limit(api_key_env)
+        percent = int(usage["api_calls"] / budget * 100) if budget > 0 else 0
+        if json_output:
+            print(json.dumps({
+                "ok": True,
+                "api_key_env": api_key_env,
+                "date": usage["date_key"],
+                "api_calls": usage["api_calls"],
+                "budget": budget,
+                "percent": percent,
+                "scans_done": usage["scans_done"],
+                "blocked_scans": usage["blocked_scans"],
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(f"API Key: {api_key_env}  日期: {usage['date_key']}")
+            print(f"  已用: {usage['api_calls']} / {budget} ({percent}%)")
+            print(f"  扫描: {usage['scans_done']} 次  已阻止: {usage['blocked_scans']} 次")
+            if percent >= 90:
+                print("  ⚠  Quota 即将耗尽，请关注！")
+    else:
+        rows = _quota.get_all_usage()
+        if json_output:
+            print(json.dumps({"ok": True, "quotas": rows}, ensure_ascii=False, indent=2))
+        else:
+            if not rows:
+                print("今日无 Quota 记录")
+            else:
+                print(f"{'API Key':<30} {'已用':>8} {'扫描':>6} {'已阻':>6} {'更新时间'}")
+                print("-" * 70)
+                for r in rows:
+                    budget = _quota.get_budget_limit(r["api_key_env"])
+                    pct = int(r["api_calls"] / budget * 100) if budget > 0 else 0
+                    print(f"{r['api_key_env']:<30} {r['api_calls']:>7} {r['scans_done']:>6} "
+                          f"{r['blocked_scans']:>6}  {r.get('updated_at', '—')[:19]}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -409,7 +452,7 @@ def main() -> int:
     p_mon.add_argument("extra", nargs=argparse.REMAINDER, default=[],
                        help="额外参数")
 
-    # stats / events / list
+    # stats / events / list / quota
     p_stats = sub.add_parser("stats", help="显示账户统计")
     p_stats.add_argument("--json", action="store_true")
     p_evs = sub.add_parser("events", help="显示最近扫描事件")
@@ -417,6 +460,9 @@ def main() -> int:
     p_evs.add_argument("--json", action="store_true")
     p_list = sub.add_parser("list", help="列出所有监控账户")
     p_list.add_argument("--json", action="store_true")
+    p_quota = sub.add_parser("quota", help="查询 API Quota 使用情况")
+    p_quota.add_argument("--api-key", dest="api_key_env", help="API Key 环境变量名")
+    p_quota.add_argument("--json", action="store_true")
 
     args = parser.parse_args()
     json_output = getattr(args, "json", False)
@@ -437,6 +483,8 @@ def main() -> int:
             return cmd_events(args.limit, json_output=json_output)
         case "list":
             return cmd_list_accounts(json_output=json_output)
+        case "quota":
+            return cmd_quota(getattr(args, "api_key_env", None), json_output=json_output)
         case _:
             parser.print_help()
             return 0
