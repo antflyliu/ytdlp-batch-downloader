@@ -163,6 +163,17 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v4_webhook_encrypt", today),
         )
 
+    # v5: 添加分页覆盖索引（account_id + published_at 排序优化）
+    if "v5_video_pagination_index" not in applied:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_videos_account_published "
+            "ON monitor_videos(account_id, published_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v5_video_pagination_index", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""

@@ -142,6 +142,20 @@ else:
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 
+import re
+
+_YOUTUBE_URL_RE = re.compile(
+    r"^https://(www\.)?(youtube\.com|youtu\.be)/"
+)
+
+
+def _is_valid_youtube_url(url: str) -> bool:
+    """验证 URL 是否为合法的 YouTube URL（防 javascript: 等伪协议注入）"""
+    if not url:
+        return False
+    return _YOUTUBE_URL_RE.match(url) is not None
+
+
 class MonitorHandler(SimpleHTTPRequestHandler):
     """REST API + 静态文件服务器"""
 
@@ -486,6 +500,18 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_account_add(self, body):
         try:
+            # 基础验证
+            if not body.get("name", "").strip():
+                self._send_json({"error": "账户名称不能为空"}, 400)
+                return
+            channel_url = body.get("channel_url", "").strip()
+            if not channel_url:
+                self._send_json({"error": "频道 URL 不能为空"}, 400)
+                return
+            if not _is_valid_youtube_url(channel_url):
+                self._send_json({"error": "频道 URL 必须为合法的 YouTube URL（以 https://www.youtube.com/ 或 https://youtu.be/ 开头）"}, 400)
+                return
+
             account_id = body.get("id")
             # api_key_id: None=清空, 0=清空, >0=指定Key, absent=_UNSET(不修改)
             api_key_id_val = body.get("api_key_id")
@@ -497,8 +523,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 # 编辑模式 → UPDATE
                 _db.update_account(
                     account_id=int(account_id),
-                    name=body.get("name", ""),
-                    channel_url=body.get("channel_url", ""),
+                    name=body.get("name", "").strip(),
+                    channel_url=channel_url,
                     api_key_env=body.get("api_key_env"),
                     fetch_mode=body.get("fetch_mode"),
                     fetch_limit=int(body["fetch_limit"]) if str(body.get("fetch_limit", "")).isdigit() else None,
@@ -518,8 +544,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             else:
                 # 新增模式 → INSERT
                 account_id = _db.add_account(
-                    name=body.get("name", ""),
-                    channel_url=body.get("channel_url", ""),
+                    name=body.get("name", "").strip(),
+                    channel_url=channel_url,
                     api_key_env=body.get("api_key_env", "YOUTUBE_Data_API_V3"),
                     fetch_mode=body.get("fetch_mode", "playlist"),
                     fetch_limit=int(body.get("fetch_limit", 5)),
@@ -745,10 +771,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             output_path = os.path.join(_PROJECT_ROOT, "videos")
 
         # 路径安全校验：规范化并限制在允许范围内
-        abs_output = os.path.abspath(output_path)
+        # 使用 realpath 解析符号链接，防止 UNC 路径绕过 startswith() 检查
+        abs_output = os.path.realpath(os.path.abspath(output_path))
         abs_root = os.path.abspath(_PROJECT_ROOT)
         # 允许：项目根目录下任何子目录 + 全局配置中明确设置的路径
-        cfg_abs = os.path.abspath(cfg.get("download_output_path", "")) if cfg.get("download_output_path") else ""
+        cfg_abs = os.path.realpath(os.path.abspath(cfg.get("download_output_path", ""))) if cfg.get("download_output_path") else ""
         allowed_roots = [abs_root, cfg_abs] if cfg_abs else [abs_root]
         if not any(abs_output.startswith(r) for r in allowed_roots):
             self._send_json({"error": "输出路径必须在允许范围内"}, 400)

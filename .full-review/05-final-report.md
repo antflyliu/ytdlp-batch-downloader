@@ -49,7 +49,9 @@
 | M-1 | Performance | 每次扫描 3-4 次读取 config.json (2880次/小时) | ✅ 已修复（模块级缓存 + invalidation） |
 | M-2 | Performance | `/api/quota` 端点 N+1 查询 (21次查询/20个Key) | ✅ 已修复（预加载所有 Key 到内存字典） |
 | M-3 | Performance | 循环导入 `quota.py` ↔ `db.py`，PyInstaller 偶发失败风险 | ✅ 已正确（quota.py 延迟导入 db） |
-| M-5 | Security | Webhook URL 明文存储和传输（含 access_token） | ✅ 已修复（Fernet 加密存储 + 迁移 v4 加密现有值） |
+| M-4 | Security | Webhook URL 明文存储和传输（含 access_token） | ✅ 已修复（Fernet 加密存储 + 迁移 v4 加密现有值） |
+| M-5 | Correctness | 下载路径遍历（UNC 路径绕过 startswith 检查） | ✅ 已修复（os.path.realpath 解析符号链接） |
+| M-6 | Security | channel_url 无格式验证（接受任意字符串） | ✅ 已修复（YouTube URL 格式校验 + javascript: 伪协议防护） |
 | M-6 | Security | API Key 在 Quota 告警消息中明文显示 | ✅ 已修复（_mask_key 掩码） |
 | M-8 | Architecture | LIKE 查询未转义通配符（`%`/`_`） | ✅ 已修复（_escape_like() 转义） |
 | M-9 | Correctness | `api_key_id` 引用无存在性校验（删除后悬空引用） | ✅ 已修复（删除返回 affected_accounts，前端 toast 提示） |
@@ -85,7 +87,7 @@
 | CI/CD & DevOps | 0 | 0 | 0 | 0 | **0** |
 | **Total** | **6** | **10** | **5** | **9** | **30** |
 
-**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅11/15 fixed | Low ✅7 (5 fixed, 2 confirmed/declined) | **剩余: 0 Critical, 0 High, 4 Medium/Low** |
+**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅14/15 fixed | Low ✅7 (5 fixed, 2 confirmed/declined) | **剩余: 0 Critical, 0 High, 1 Medium (sub_langs 配置化), 2 Low (L-4 DOM 重渲染 declined, L-2 accepted)** |
 
 ---
 
@@ -139,6 +141,9 @@
 24. ~~API 速率限制~~ ✅（每 IP 每分钟 60 次 + localhost-only CORS）
 25. ~~Webhook URL 加密~~ ✅（Fernet + app_state 存密钥，迁移 v4 加密现有值）
 26. ~~单线程 HTTP Handler~~ ✅（ThreadedHTTPServer 每请求一线程）
+27. ~~视频分页覆盖索引~~ ✅（迁移 v5 添加 idx_videos_account_published）
+28. ~~路径遍历防护~~ ✅（os.path.realpath 解析符号链接）
+29. ~~channel_url 格式验证~~ ✅（YouTube URL 正则校验）
 
 ---
 
@@ -167,12 +172,12 @@
 | Critical mitigated | 1 (C-1 API Key 明文 — 备份排除 + gitignore + README警告 + Bearer token) |
 | High fixed during review | 8 (H-1~H-4 + H-5~H-8 confirmed/fixed) |
 | High identified | 10 |
-| Medium fixed during review | 11 (M-1~M-4, M-5, M-6, M-7~M-12, L-8) |
+| Medium fixed during review | 14 (M-1~M-6, M-8~M-12, L-8, path traversal, channel validation) |
 | Medium identified | 15 |
 | Low fixed/confirmed | 7 (L-1 fixed, L-2 fixed, L-3 fixed, L-5 fixed, L-6 confirmed, L-7 fixed, L-8 fixed) |
 | Remaining Critical | 0 ✅ |
 | Remaining High | 0 ✅ |
-| Remaining Medium/Low | 4 (L-4 declined, L-3 accepted, M-5+API key C-1 mitigations) |
+| Remaining Medium/Low | 3 (L-4 declined, L-2 accepted, sub_langs config) |
 | Tests added | 19 (17 API Key CRUD + 2 Backup DB) |
 | Tests total passing | 33 |
 | Commits made | 4069b15, 5e849b6, 4e845ed, a4215ab, 0889f7c, 2675cd8 + 本次提交 |
