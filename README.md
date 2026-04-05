@@ -149,8 +149,9 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 ### 配置与数据
 
 - 全局配置：`monitor/config.json`（飞书/钉钉/企业微信 Webhook、默认扫描参数、下载目录与 cookies 路径、`enable_aria2` 等）。**勿将含真实密钥的配置提交到公开仓库**；本地可复制示例后自行填写。
-- 数据库：由 `monitor/db.py` 初始化，默认位于项目数据目录（见代码中的路径解析）。
+- 数据库：由 `monitor/db.py` 初始化，默认位于 `data/monitor.db`。**包含敏感信息（YouTube API Keys 等），勿将其提交到版本控制或公开仓库**。`data/` 目录已在 `.gitignore` 中排除。
 - **YouTube Data API**：API Key 存储于 SQLite 数据库（`api_keys` 表），通过 Web UI「🔑 API Keys」按钮管理。自动迁移：若存在 `YOUTUBE_Data_API_V3` 等环境变量，首次启动时自动导入为数据库 Key（优先级：账户指定 → 系统默认 → 环境变量）。
+> **安全注意**：`data/monitor.db` 包含明文 API Key。备份文件（`data/backup/`）会自动排除 `api_keys` 表，但物理文件访问仍可读取 Key。请妥善保管数据库文件，避免意外泄露。
 - **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义。
 
 ### REST API 端点

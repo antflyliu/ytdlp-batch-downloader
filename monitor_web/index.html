@@ -1075,7 +1075,7 @@
         <div class="form-group" style="margin-bottom:0">
           <label class="form-label">API Key 值</label>
           <input class="form-input" id="akValue" placeholder="AIzaSy..." style="font-family:var(--mono);font-size:12px;letter-spacing:0.5px">
-          <div class="form-hint">YouTube Data API v3 的实际 Key 值，添加后安全存储于本地数据库</div>
+          <div class="form-hint" id="akValueHint">YouTube Data API v3 的实际 Key 值，安全存储于本地数据库</div>
         </div>
       </div>
       <!-- Quota Config -->
@@ -1971,6 +1971,9 @@
     document.getElementById('akId').value = '';
     document.getElementById('akName').value = '';
     document.getElementById('akValue').value = '';
+    document.getElementById('akValue').readOnly = false;
+    document.getElementById('akValue').style.opacity = '1';
+    document.getElementById('akValueHint').textContent = 'YouTube Data API v3 的实际 Key 值，安全存储于本地数据库';
     document.getElementById('akQuota').value = '10000';
     document.getElementById('akActive').checked = true;
     openModal('modalApiKeyForm');
@@ -1983,8 +1986,10 @@
     document.getElementById('modalApiKeyFormTitle').textContent = '编辑 API Key';
     document.getElementById('akId').value = k.id;
     document.getElementById('akName').value = k.name;
-    document.getElementById('akValue').value = '';  // 不预填 Key 值，防泄露
-    document.getElementById('akValue').placeholder = '(已设置) 留空则保持不变';
+    document.getElementById('akValue').value = k.key_value;  // 显示掩码值
+    document.getElementById('akValue').readOnly = true;
+    document.getElementById('akValue').style.opacity = '0.5';
+    document.getElementById('akValueHint').textContent = 'Key 值创建后不可更改，如需更换请删除后重新创建';
     document.getElementById('akQuota').value = k.daily_quota;
     document.getElementById('akActive').checked = k.is_active;
     openModal('modalApiKeyForm');
@@ -1992,15 +1997,22 @@
 
   async function saveApiKey() {
     const id = document.getElementById('akId').value;
+    const name = document.getElementById('akName').value.trim();
+    if (!name) { toast('名称不能为空', 'err'); return; }
     const body = {
-      name: document.getElementById('akName').value.trim(),
-      key_value: document.getElementById('akValue').value.trim(),
+      name,
       daily_quota: parseInt(document.getElementById('akQuota').value, 10) || 10000,
       is_active: document.getElementById('akActive').checked,
     };
-    if (!body.name || !body.key_value) {
-      toast('名称和 Key 值不能为空', 'err');
-      return;
+    if (id) {
+      // 编辑模式：Key 值不可更改，不发送 key_value
+      // 后端会忽略空字符串
+      body.key_value = document.getElementById('akValue').value.trim() || undefined;
+    } else {
+      // 新增模式：必须提供 Key 值
+      const keyVal = document.getElementById('akValue').value.trim();
+      if (!keyVal) { toast('Key 值不能为空', 'err'); return; }
+      body.key_value = keyVal;
     }
     let r;
     if (id) {
@@ -2008,14 +2020,11 @@
     } else {
       r = await api('POST', '/api-keys', body);
     }
-    if (r.error) {
-      toast(r.error, 'err');
-    } else {
-      toast('API Key 已保存', 'ok');
-      closeModal('modalApiKeyForm');
-      await loadApiKeysList();
-      await refreshApiKeySelectors();
-    }
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast('API Key 已保存', 'ok');
+    closeModal('modalApiKeyForm');
+    await loadApiKeysList();
+    await refreshApiKeySelectors();
   }
 
   async function deleteApiKey(id) {

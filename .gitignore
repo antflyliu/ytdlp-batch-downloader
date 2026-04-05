@@ -47,5 +47,10 @@ cookies.json
 channel_videos.csv
 proxy_config.json
 
+# SQLite database with API keys
+data/
+monitor/data/
+*.db
+
 # Test scripts
 scripts/test_*.py
