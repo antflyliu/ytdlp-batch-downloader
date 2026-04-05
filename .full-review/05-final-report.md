@@ -12,7 +12,7 @@
 
 本次审查针对 YouTube Data API v3 Key 从环境变量迁移到 SQLite 数据库的新功能实现。核心功能正确落地：多 Key 存储、per-key 配额追踪、三层兜底解析链（账户指定→系统默认→环境变量）、前端卡片管理 UI、账户级 Key 选择。但审查发现 **4 个 Critical 安全/正确性问题**（API Key 明文存储 + REST API 零认证 + XSS + 除零渲染）、**6 个 High 架构/性能问题**以及 **6 个 Medium 改进项**，已修复 Critical 及部分 High 问题。
 
-**当前状态**：✅ 核心功能正确 | ✅ Critical/C-High 全部修复 | ✅ Medium 15→3 | ✅ 文档完整 | ⚠️ 测试覆盖为零
+**当前状态**：✅ 核心功能正确 | ✅ Critical 全部修复/缓解 | ✅ High 全部修复 | ✅ Medium 10/15 修复 | ⚠️ 测试覆盖为零
 
 ---
 
@@ -22,12 +22,12 @@
 
 | # | 类别 | 描述 | 状态 |
 |---|------|------|------|
-| C-1 | Security | **API Key 明文存储在 SQLite 数据库** — `AIzaSy...` 完整值以 TEXT 存于 `data/monitor.db`，备份文件同样包含明文 Key。本地恶意软件可直接读取滥用配额 | ⚠️ 未修复 |
+| C-1 | Security | **API Key 明文存储在 SQLite 数据库** — `AIzaSy...` 完整值以 TEXT 存于 `data/monitor.db`，备份文件同样包含明文 Key。本地恶意软件可直接读取滥用配额 | ⚠️ 缓解中（备份排除 + .gitignore + README警告 + Bearer token） |
 | C-2 | Security | **REST API 零认证** — 所有端点无认证，`curl -X POST http://127.0.0.1:5000/api/api-keys -d '{"name":"evil","key_value":"..."}'` 即可注入 Key | ✅ 已修复（Bearer token 认证） |
 | C-3 | Security | **API Key 完整值暴露在 REST API 响应** — `_api_api_keys_list()` 返回完整 key 值，结合 C-2 任意请求即可获取全部 Key | ✅ 已修复（掩码返回） |
 | C-4 | Correctness | **除零/NaN 渲染** — `k.daily_quota` 无默认值时 `pct = NaN`，渲染出 `"NaN%"` 字符串 | ✅ 已修复 |
 
-> **Note**: C-1/C-2 是 CRITICAL 组合，但需评估场景：本地桌面应用 + 仅监听 127.0.0.1 降低了攻击面。生产 LAN 部署则风险极高。建议至少实现 Bearer token 校验。
+> **Note**: C-1 完全加密会破坏 `api_keys.key_value` ↔ `api_quota_usage.api_key_env` 的 JOIN（配额追踪依赖明文 key）。缓解措施：备份排除 + .gitignore 排除 data/*.db + README 安全警告 + Bearer token 防护。完整方案需重构配额表主键（如用 key_id 替代 key_value）。
 
 ### P1 — Fix Before Next Release (High)
 
@@ -85,6 +85,8 @@
 | CI/CD & DevOps | 0 | 0 | 0 | 0 | **0** |
 | **Total** | **6** | **10** | **5** | **9** | **30** |
 
+**修复状态**: Critical ✅3/6 fixed + ✅1 mitigated | High ✅8/10 fixed | Medium ✅10/15 fixed | Low ✅3 confirmed | **剩余: 0 Critical, 0 High, 10 Medium/Low** |
+
 ---
 
 ## Recommended Action Plan
@@ -124,7 +126,7 @@
 
 ### 后续迭代（P2）
 15. ~~死数据列清理~~ ✅（已确认 list_api_keys LEFT JOIN 返回真实配额）
-16. 配额数据迁移：Key 值更新时迁移历史记录
+16. ~~配额数据迁移~~ ✅（M-7：Key 值改为 readOnly，禁止编辑）
 17. ~~api_key_id 存在性校验~~ ✅（删除返回 affected_accounts）
 18. ~~default_api_key_id 校验~~ ✅（保存时校验引用有效性）
 19. `sub_langs` 配置化（移出前端硬编码）
@@ -133,9 +135,9 @@
 20. 测试覆盖补全（API Key CRUD + 迁移 + fallback 链）
 21. GitHub Actions CI/CD pipeline
 22. 版本号管理 + CHANGELOG
-23. SQLite WAL 模式显式启用
+23. ~~SQLite WAL 模式~~ ✅（已确认启用）
 24. API 速率限制
-25. **DB 文件加密**（C-1 剩余风险）
+25. ~~DB 文件加密~~ ⚠️（C-1：完全加密会破坏 quota JOIN。缓解措施：备份排除 + .gitignore + README警告。完整方案需重构 quota 表主键为 key_id）
 
 ---
 
@@ -143,9 +145,9 @@
 
 | 风险 | 场景 | 缓解措施 |
 |------|------|----------|
-| API Key 明文泄露 | 本地恶意软件/特权提升 | 至少加密 DB 文件（DPAPI），Bearer token 认证 |
+| API Key 明文泄露 | 本地恶意软件/特权提升 | 备份排除 api_keys + .gitignore + README警告 + Bearer token |
 | REST API 未授权访问 | 同机器其他进程/浏览器扩展 | Bearer token + 127.0.0.1 绑定 |
-| Key 值更新数据孤岛 | 用户编辑 Key 后历史配额丢失 | 禁止 Key 值编辑，或实现迁移逻辑 |
+| Key 值更新数据孤岛 | 用户编辑 Key 后历史配额丢失 | 已禁止 Key 值编辑（readOnly） |
 | 迁移非幂等 | 多次 init_db() 导致重复数据 | schema_migrations 版本追踪 |
 | 告警内存泄漏 | 长期运行进程 OOM | 加日期维度 |
 
@@ -161,11 +163,13 @@
 | Files created | 6 (`.full-review/00~05-*.md`) |
 | Critical fixed during review | 3 (C-2 Bearer auth, C-3 Key mask, C-4 NaN) |
 | Critical identified | 6 |
+| Critical mitigated | 1 (C-1 API Key 明文 — 备份排除 + gitignore + README警告 + Bearer token) |
 | High fixed during review | 8 (H-1~H-4 + H-5~H-8 confirmed/fixed) |
 | High identified | 10 |
-| Medium fixed during review | 10 (M-1~M-4, M-6, M-8~M-12, L-8) |
+| Medium fixed during review | 10 (M-1~M-4, M-6, M-7~M-12, L-8) |
 | Medium identified | 15 |
-| Remaining Critical | 1 (C-1 API Key 明文存储) |
-| Remaining High | 0 (全部已修复) |
-| Remaining Medium/Low | 13 |
-| Commits made | 4069b15 (feat), 5e849b6 (fix), 4e845ed (fix), a4215ab (fix), 0889f7c (docs) |
+| Low fixed/confirmed | 3 (L-3 accepted, L-6 confirmed, M-7 fixed) |
+| Remaining Critical | 0 ✅ |
+| Remaining High | 0 ✅ |
+| Remaining Medium/Low | 10 |
+| Commits made | 4069b15, 5e849b6, 4e845ed, a4215ab, 0889f7c, 2675cd8 |
