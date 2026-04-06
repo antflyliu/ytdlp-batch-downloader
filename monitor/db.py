@@ -72,6 +72,27 @@ def _config_default() -> dict:
         "download_output_path": "",
         "default_sub_langs": "zh-Hans,en",
         "default_api_key_id": None,   # 系统默认 API Key（账户未指定时使用）
+        # ── 系统默认动态代理配置 ────────────────────────────────
+        "system_dynamic_proxy_enabled": False,
+        "apply_dynamic_proxy_to_new_accounts": True,
+        "apply_dynamic_proxy_to_existing_accounts": False,
+        "manual_download_route_policy": "balanced",
+        "auto_download_route_policy": "strict",
+        "allow_free_proxy": True,
+        "allow_free_proxy_for_auto_download": False,
+        "allow_free_proxy_with_cookies": False,
+        "manual_direct_fallback": True,
+        "auto_direct_fallback": False,
+        "default_proxy_country_codes": [],
+        "default_proxy_protocol_order": ["http", "https", "socks5"],
+        "default_session_mode": "sticky",
+        "default_sticky_minutes": 10,
+        "candidate_prefetch_count": 5,
+        "candidate_validate_count": 3,
+        "validated_pool_ttl_seconds": 300,
+        "provider_cooldown_seconds": 600,
+        "proxy_probe_timeout_seconds": 8,
+        "mask_proxy_in_logs": True,
     }
 
 
@@ -239,6 +260,76 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v5_video_pagination_index", today),
+        )
+
+    # v7: 动态代理提供方 + 账户 download_proxy_mode + 下载决策日志
+    if "v7_dynamic_proxy" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS dynamic_proxy_providers (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                billing_tier    TEXT    NOT NULL DEFAULT 'free',
+                adapter_type    TEXT    NOT NULL DEFAULT 'public_feed',
+                priority        INTEGER NOT NULL DEFAULT 100,
+                supports_cookies         INTEGER NOT NULL DEFAULT 0,
+                supports_auto_download   INTEGER NOT NULL DEFAULT 1,
+                supports_country_filter INTEGER NOT NULL DEFAULT 0,
+                supports_sticky_session INTEGER NOT NULL DEFAULT 0,
+                risk_level      TEXT    NOT NULL DEFAULT 'medium',
+                notes           TEXT    DEFAULT NULL,
+                config_json     TEXT    NOT NULL DEFAULT '{}',
+                last_health_status TEXT DEFAULT NULL,
+                last_health_checked_at TEXT DEFAULT NULL,
+                last_error_message     TEXT    DEFAULT NULL,
+                cooldown_until  TEXT    DEFAULT NULL,
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dpp_enabled_priority "
+            "ON dynamic_proxy_providers(enabled, priority)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dpp_health "
+            "ON dynamic_proxy_providers(last_health_status, cooldown_until)"
+        )
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "download_proxy_mode" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN download_proxy_mode TEXT NOT NULL DEFAULT 'auto'"
+            )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS download_decision_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id      INTEGER,
+                account_name    TEXT,
+                video_count     INTEGER,
+                is_auto_download INTEGER DEFAULT 0,
+                cookies_present INTEGER DEFAULT 0,
+                resolved_proxy_source TEXT,
+                resolved_provider_name TEXT,
+                resolved_provider_tier TEXT,
+                resolved_country TEXT,
+                resolved_session_mode TEXT,
+                fallback_depth  INTEGER DEFAULT 0,
+                masked_proxy_endpoint TEXT,
+                decision_reason TEXT,
+                warnings        TEXT,
+                created_at      TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ddl_account ON download_decision_logs(account_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ddl_created ON download_decision_logs(created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v7_dynamic_proxy", today),
         )
 
 
@@ -431,6 +522,7 @@ def add_account(
     api_key_id: int | None = None,
     proxy_pool_id: int | None = None,
     proxy_enabled: bool = False,
+    download_proxy_mode: str = "auto",
 ) -> int:
     with get_connection() as conn:
         cur = conn.execute(
@@ -438,13 +530,14 @@ def add_account(
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-                api_key_id, proxy_pool_id, proxy_enabled, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)""",
+                api_key_id, proxy_pool_id, proxy_enabled, download_proxy_mode, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform,
              _encrypt_webhook(webhook_url),
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-             api_key_id, proxy_pool_id, int(proxy_enabled), now_iso(), now_iso()),
+             api_key_id, proxy_pool_id, int(proxy_enabled), download_proxy_mode,
+             now_iso(), now_iso()),
         )
         return cur.lastrowid
 
@@ -467,6 +560,7 @@ def update_account(
     api_key_id=_UNSET,
     proxy_pool_id=_UNSET,
     proxy_enabled=None,
+    download_proxy_mode=_UNSET,
 ) -> None:
     """更新账户字段。
 
@@ -490,6 +584,7 @@ def update_account(
     if api_key_id is not _UNSET: fields.append("api_key_id=?");            values.append(api_key_id)
     if proxy_pool_id is not _UNSET: fields.append("proxy_pool_id=?");      values.append(proxy_pool_id)
     if proxy_enabled is not None: fields.append("proxy_enabled=?");        values.append(int(proxy_enabled))
+    if download_proxy_mode is not _UNSET: fields.append("download_proxy_mode=?"); values.append(download_proxy_mode)
     fields.append("updated_at=?"); values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
@@ -580,6 +675,217 @@ def delete_proxy_pool(pool_id: int) -> None:
             (pool_id,),
         )
         conn.execute("DELETE FROM proxy_pools WHERE id=?", (pool_id,))
+
+
+# ── dynamic_proxy_providers CRUD ─────────────────────────────
+
+def list_dynamic_proxy_providers() -> list[dict]:
+    """列出所有动态代理提供方"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM dynamic_proxy_providers ORDER BY priority ASC, id ASC"
+        ).fetchall()
+        return [_parse_provider_json(dict(r)) for r in rows]
+
+
+def _parse_provider_json(provider: dict) -> dict:
+    """解析 config_json 字段为 dict，并解密敏感字段"""
+    if provider and provider.get("config_json"):
+        try:
+            import json
+            provider = dict(provider)
+            provider["config_json"] = _decrypt_config_secrets(json.loads(provider["config_json"]))
+        except Exception:
+            provider["config_json"] = {}
+    return provider
+
+
+def get_dynamic_proxy_provider(provider_id: int) -> dict | None:
+    """获取单个动态代理提供方"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM dynamic_proxy_providers WHERE id=?", (provider_id,)
+        ).fetchone()
+        return _parse_provider_json(dict(row)) if row else None
+
+
+def add_dynamic_proxy_provider(
+    name: str,
+    billing_tier: str = "free",
+    adapter_type: str = "public_feed",
+    config_json: dict | None = None,
+    enabled: bool = True,
+    priority: int = 100,
+    supports_cookies: bool = False,
+    supports_auto_download: bool = True,
+    supports_country_filter: bool = False,
+    supports_sticky_session: bool = False,
+    risk_level: str = "medium",
+    notes: str | None = None,
+) -> int:
+    """新增动态代理提供方（config_json 敏感字段自动加密）"""
+    import json
+    cfg_encrypted = _encrypt_config_secrets(config_json or {})
+    cfg_str = json.dumps(cfg_encrypted)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO dynamic_proxy_providers
+               (name, enabled, billing_tier, adapter_type, priority,
+                supports_cookies, supports_auto_download, supports_country_filter,
+                supports_sticky_session, risk_level, notes, config_json,
+                created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (name, int(enabled), billing_tier, adapter_type, priority,
+             int(supports_cookies), int(supports_auto_download),
+             int(supports_country_filter), int(supports_sticky_session),
+             risk_level, notes, cfg_str, now_iso(), now_iso()),
+        )
+        return cur.lastrowid
+
+
+def update_dynamic_proxy_provider(
+    provider_id: int,
+    name: str | None = None,
+    enabled: bool | None = None,
+    billing_tier: str | None = None,
+    adapter_type: str | None = None,
+    priority: int | None = None,
+    supports_cookies: bool | None = None,
+    supports_auto_download: bool | None = None,
+    supports_country_filter: bool | None = None,
+    supports_sticky_session: bool | None = None,
+    risk_level: str | None = None,
+    notes: str | None = None,
+    config_json: dict | None = None,
+    last_health_status: str | None = None,
+    last_health_checked_at: str | None = None,
+    last_error_message: str | None = None,
+    cooldown_until: str | None = None,
+) -> None:
+    """更新动态代理提供方"""
+    import json
+    fields, values = [], []
+    if name is not None:          fields.append("name=?");              values.append(name)
+    if enabled is not None:       fields.append("enabled=?");          values.append(int(enabled))
+    if billing_tier is not None:  fields.append("billing_tier=?");     values.append(billing_tier)
+    if adapter_type is not None:  fields.append("adapter_type=?");      values.append(adapter_type)
+    if priority is not None:      fields.append("priority=?");         values.append(priority)
+    if supports_cookies is not None:         fields.append("supports_cookies=?");          values.append(int(supports_cookies))
+    if supports_auto_download is not None:   fields.append("supports_auto_download=?");    values.append(int(supports_auto_download))
+    if supports_country_filter is not None: fields.append("supports_country_filter=?");  values.append(int(supports_country_filter))
+    if supports_sticky_session is not None: fields.append("supports_sticky_session=?");  values.append(int(supports_sticky_session))
+    if risk_level is not None:    fields.append("risk_level=?");       values.append(risk_level)
+    if notes is not None:         fields.append("notes=?");             values.append(notes)
+    if config_json is not None:   fields.append("config_json=?");       values.append(json.dumps(_encrypt_config_secrets(config_json)))
+    if last_health_status is not None:      fields.append("last_health_status=?");     values.append(last_health_status)
+    if last_health_checked_at is not None:  fields.append("last_health_checked_at=?");  values.append(last_health_checked_at)
+    if last_error_message is not None:      fields.append("last_error_message=?");     values.append(last_error_message)
+    if cooldown_until is not None: fields.append("cooldown_until=?");    values.append(cooldown_until)
+    if not fields:
+        return
+    fields.append("updated_at=?"); values.append(now_iso())
+    values.append(provider_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE dynamic_proxy_providers SET {','.join(fields)} WHERE id=?",
+            values,
+        )
+
+
+def delete_dynamic_proxy_provider(provider_id: int) -> None:
+    """删除动态代理提供方"""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM dynamic_proxy_providers WHERE id=?", (provider_id,))
+
+
+def get_enabled_providers(billing_tier: str | None = None) -> list[dict]:
+    """获取已启用的动态代理提供方（按优先级排序）"""
+    with get_connection() as conn:
+        if billing_tier is None:
+            rows = conn.execute(
+                "SELECT * FROM dynamic_proxy_providers WHERE enabled=1 ORDER BY priority ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM dynamic_proxy_providers WHERE enabled=1 AND billing_tier=? ORDER BY priority ASC",
+                (billing_tier,),
+            ).fetchall()
+        return [_parse_provider_json(dict(r)) for r in rows]
+
+
+# ── download_decision_logs CRUD ─────────────────────────────
+
+def log_download_decision(
+    account_id: int | None,
+    account_name: str | None,
+    video_count: int,
+    is_auto_download: bool,
+    cookies_present: bool,
+    resolved_proxy_source: str,
+    resolved_provider_name: str | None,
+    resolved_provider_tier: str | None,
+    resolved_country: str | None = None,
+    resolved_session_mode: str | None = None,
+    fallback_depth: int = 0,
+    masked_proxy_endpoint: str | None = None,
+    decision_reason: str = "",
+    warnings: str | None = None,
+) -> None:
+    """记录一次下载的路由决策"""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO download_decision_logs
+               (account_id, account_name, video_count, is_auto_download,
+                cookies_present, resolved_proxy_source, resolved_provider_name,
+                resolved_provider_tier, resolved_country, resolved_session_mode,
+                fallback_depth, masked_proxy_endpoint, decision_reason, warnings, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (account_id, account_name, video_count, int(is_auto_download),
+             int(cookies_present), resolved_proxy_source, resolved_provider_name,
+             resolved_provider_tier, resolved_country, resolved_session_mode,
+             fallback_depth, masked_proxy_endpoint, decision_reason, warnings,
+             now_iso()),
+        )
+
+
+def get_download_decision_logs(account_id: int | None = None, limit: int = 100) -> list[dict]:
+    """获取下载决策日志"""
+    with get_connection() as conn:
+        if account_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM download_decision_logs WHERE account_id=? ORDER BY created_at DESC LIMIT ?",
+                (account_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM download_decision_logs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── 工具函数 ─────────────────────────────────────────────────
+
+def mask_proxy_url(url: str | None) -> str | None:
+    """掩码代理 URL，返回安全可日志输出的格式。"""
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        # 掩码 user:pass@host:port 部分
+        masked_netloc = f"***:****@***:****"
+        masked = urlunparse((
+            parsed.scheme,
+            masked_netloc,
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        ))
+        return masked
+    except Exception:
+        return "***:****@***:****"
 
 
 def get_account_proxy(account: dict) -> str | None:
@@ -978,6 +1284,74 @@ def _decrypt_webhook(encrypted: str | None) -> str | None:
         return f.decrypt(encrypted[4:].encode("utf-8")).decode("utf-8")
     except Exception:
         return encrypted  # 解密失败时返回原始值（可能已损坏）
+
+
+# ── config_json 敏感字段加密 ─────────────────────────────────
+
+# 已知敏感字段名列表（匹配测试期望）
+_SECRET_FIELD_NAMES = frozenset(["password", "auth_secret", "api_key", "secret", "token"])
+
+
+def _encrypt_config_value(value: str) -> str:
+    """Fernet 加密单个字符串值，返回 'enc:<base64>' 格式。"""
+    if not value:
+        return value
+    if value.startswith("enc:"):
+        return value
+    key = _get_webhook_enc_key()
+    from cryptography.fernet import Fernet
+    return "enc:" + Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_config_value(value: str) -> str:
+    """Fernet 解密单个字符串值，非加密值或解密失败原样返回。"""
+    if not value:
+        return value
+    if not value.startswith("enc:"):
+        return value
+    try:
+        key = _get_webhook_enc_key()
+        from cryptography.fernet import Fernet
+        return Fernet(key).decrypt(value[4:].encode("utf-8")).decode("utf-8")
+    except Exception:
+        return value
+
+
+def _encrypt_config_secrets(cfg: dict) -> dict:
+    """递归加密 config_json 中的敏感字符串字段（不修改非字符串值）。"""
+    if not isinstance(cfg, dict):
+        return cfg
+    result = {}
+    for k, v in cfg.items():
+        if isinstance(v, str) and k.lower() in _SECRET_FIELD_NAMES:
+            result[k] = _encrypt_config_value(v)
+        elif isinstance(v, dict):
+            result[k] = _encrypt_config_secrets(v)
+        elif isinstance(v, list):
+            result[k] = [
+                _encrypt_config_value(item) if isinstance(item, str) and k.lower() in _SECRET_FIELD_NAMES else item
+                for item in v
+            ]
+        else:
+            result[k] = v
+    return result
+
+
+def _decrypt_config_secrets(cfg: dict) -> dict:
+    """递归解密 config_json 中的敏感字符串字段。"""
+    if not isinstance(cfg, dict):
+        return cfg
+    result = {}
+    for k, v in cfg.items():
+        if isinstance(v, str) and (v.startswith("enc:") or k.lower() in _SECRET_FIELD_NAMES):
+            result[k] = _decrypt_config_value(v)
+        elif isinstance(v, dict):
+            result[k] = _decrypt_config_secrets(v)
+        elif isinstance(v, list):
+            result[k] = [_decrypt_config_value(item) if isinstance(item, str) else item for item in v]
+        else:
+            result[k] = v
+    return result
 
 
 # 确保 app_state 表存在（懒创建）
