@@ -1,54 +1,34 @@
 """
 monitor.quota — YouTube API Quota 追踪模块
 按 API Key + 日期追踪 API 调用次数，支持预算上限和报警
+
+内部使用 SQLAlchemy Core（通过 monitor.database 统一引擎）。
 """
+import json
 import logging
-import os
-import sys
-import sqlite3
+import urllib.request
 from datetime import datetime
-from typing import Literal
 
-# ── 路径（与 db.py 保持一致）────────────────────────────────────
-if getattr(sys, "frozen", False):
-    _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")
-    _EXE_DIR = os.path.dirname(sys.executable)
-else:
-    _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = _PKG_DIR
+from sqlalchemy import select
 
-_DATA_DIR = os.path.join(_EXE_DIR, "data")
-os.makedirs(_DATA_DIR, exist_ok=True)
+from monitor.database import (
+    get_connection,
+    create_all_tables,
+    make_upsert,
+    t_api_quota_usage,
+)
 
-_DB_PATH = os.path.join(_DATA_DIR, "monitor.db")
 _log = logging.getLogger("monitor.quota")
 
-# ── 数据库 schema ───────────────────────────────────────────────
-def _ensure_schema():
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
-    try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS api_quota_usage (
-                api_key_value  TEXT NOT NULL,
-                date_key       TEXT NOT NULL,
-                api_calls      INTEGER DEFAULT 0,
-                scans_done     INTEGER DEFAULT 0,
-                blocked_scans  INTEGER DEFAULT 0,
-                updated_at     TEXT NOT NULL,
-                PRIMARY KEY (api_key_value, date_key)
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_quota_date
-            ON api_quota_usage(date_key)
-        """)
-        conn.commit()
-    except Exception as e:
-        _log.warning(f"_ensure_schema 失败: {e}")
-    finally:
-        conn.close()
 
-_ensure_schema()
+# ── 数据库 schema ───────────────────────────────────────────────
+
+def _ensure_schema():
+    """确保 api_quota_usage 表存在。
+
+    由 create_all_tables() 处理全部表创建，此函数仅作为向后兼容入口。
+    """
+    create_all_tables()
 
 
 # ── 工具 ───────────────────────────────────────────────────────
@@ -62,14 +42,17 @@ def _today() -> str:
 def get_usage(api_key_value: str, date_key: str | None = None) -> dict:
     """获取某 API Key 某日的 quota 使用情况"""
     date_key = date_key or _today()
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    try:
+    aqu = t_api_quota_usage
+    with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM api_quota_usage WHERE api_key_value=? AND date_key=?",
-            (api_key_value, date_key),
-        ).fetchone()
-        return dict(row) if row else {
+            select(aqu).where(
+                (aqu.c.api_key_value == api_key_value)
+                & (aqu.c.date_key == date_key)
+            )
+        ).mappings().fetchone()
+        if row:
+            return dict(row)
+        return {
             "api_key_value": api_key_value,
             "date_key": date_key,
             "api_calls": 0,
@@ -77,71 +60,109 @@ def get_usage(api_key_value: str, date_key: str | None = None) -> dict:
             "blocked_scans": 0,
             "updated_at": None,
         }
-    finally:
-        conn.close()
 
 
 def get_all_usage(date_key: str | None = None) -> list[dict]:
     """获取所有 API Key 今日的使用情况"""
     date_key = date_key or _today()
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    try:
+    aqu = t_api_quota_usage
+    with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM api_quota_usage WHERE date_key=? ORDER BY api_calls DESC",
-            (date_key,),
-        ).fetchall()
+            select(aqu)
+            .where(aqu.c.date_key == date_key)
+            .order_by(aqu.c.api_calls.desc())
+        ).mappings().all()
         return [dict(r) for r in rows]
-    finally:
-        conn.close()
 
 
 def incr(api_key_value: str, calls: int = 1, scans: int = 0) -> None:
     """增加 API 调用计数（当日）"""
     today = _today()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+    stmt = make_upsert(
+        t_api_quota_usage,
+        index_elements=["api_key_value", "date_key"],
+        update_columns=["api_calls", "scans_done", "updated_at"],
+    )
     try:
-        conn.execute("""
-            INSERT INTO api_quota_usage
-                (api_key_value, date_key, api_calls, scans_done, blocked_scans, updated_at)
-            VALUES (?, ?, ?, ?, 0, ?)
-            ON CONFLICT(api_key_value, date_key) DO UPDATE SET
-                api_calls = api_calls + excluded.api_calls,
-                scans_done = scans_done + excluded.scans_done,
-                updated_at = excluded.updated_at
-        """, (api_key_value, today, calls, scans, now))
-        conn.commit()
+        with get_connection() as conn:
+            # 先检查是否存在
+            aqu = t_api_quota_usage
+            row = conn.execute(
+                select(aqu.c.api_calls, aqu.c.scans_done).where(
+                    (aqu.c.api_key_value == api_key_value)
+                    & (aqu.c.date_key == today)
+                )
+            ).fetchone()
+            if row:
+                existing_calls, existing_scans = row
+                conn.execute(
+                    aqu.update()
+                    .where(
+                        (aqu.c.api_key_value == api_key_value)
+                        & (aqu.c.date_key == today)
+                    )
+                    .values(
+                        api_calls=existing_calls + calls,
+                        scans_done=existing_scans + scans,
+                        updated_at=now,
+                    )
+                )
+            else:
+                conn.execute(
+                    aqu.insert().values(
+                        api_key_value=api_key_value,
+                        date_key=today,
+                        api_calls=calls,
+                        scans_done=scans,
+                        blocked_scans=0,
+                        updated_at=now,
+                    )
+                )
     except Exception as e:
-        _log.warning(f"incr 失败: {e}")
-    finally:
-        conn.close()
+        _log.warning("incr 失败: %s", e)
 
 
 def incr_blocked(api_key_value: str) -> None:
     """增加被阻止的扫描次数"""
     today = _today()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+    aqu = t_api_quota_usage
     try:
-        conn.execute("""
-            INSERT INTO api_quota_usage
-                (api_key_value, date_key, api_calls, scans_done, blocked_scans, updated_at)
-            VALUES (?, ?, 0, 0, 1, ?)
-            ON CONFLICT(api_key_value, date_key) DO UPDATE SET
-                blocked_scans = blocked_scans + 1,
-                updated_at = excluded.updated_at
-        """, (api_key_value, today, now))
-        conn.commit()
+        with get_connection() as conn:
+            row = conn.execute(
+                select(aqu.c.blocked_scans).where(
+                    (aqu.c.api_key_value == api_key_value)
+                    & (aqu.c.date_key == today)
+                )
+            ).fetchone()
+            if row:
+                conn.execute(
+                    aqu.update()
+                    .where(
+                        (aqu.c.api_key_value == api_key_value)
+                        & (aqu.c.date_key == today)
+                    )
+                    .values(blocked_scans=row[0] + 1, updated_at=now)
+                )
+            else:
+                conn.execute(
+                    aqu.insert().values(
+                        api_key_value=api_key_value,
+                        date_key=today,
+                        api_calls=0,
+                        scans_done=0,
+                        blocked_scans=1,
+                        updated_at=now,
+                    )
+                )
     except Exception as e:
-        _log.warning(f"incr_blocked 失败: {e}")
-    finally:
-        conn.close()
+        _log.warning("incr_blocked 失败: %s", e)
 
 
 def check_budget(api_key_value: str, budget: int) -> tuple[bool, dict]:
-    """
-    检查是否允许扫描
+    """检查是否允许扫描
+
     :return: (allowed, usage_info)
              allowed=False 表示已达上限
     """
@@ -156,15 +177,14 @@ def get_budget_limit(api_key: str) -> int:
     """
     try:
         import monitor.db as _db
-        # 先查 api_keys 表（per-key 配额）
+
         ak = _db.get_api_key_by_value(api_key)
         if ak:
             return ak.get("daily_quota", 8000)
-        # 兜底：全局配置
         cfg = _db.load_config()
         return cfg.get("quota_budget_per_day", 8000)
     except Exception:
-        return 8000  # 默认 8000
+        return 8000
 
 
 def _mask_key(key: str) -> str:
@@ -174,11 +194,15 @@ def _mask_key(key: str) -> str:
     return key[:4] + "••••••••" + key[-4:]
 
 
-def send_alert(api_key_value: str, usage: dict, budget: int, webhook_url: str | None) -> None:
+def send_alert(
+    api_key_value: str,
+    usage: dict,
+    budget: int,
+    webhook_url: str | None,
+) -> None:
     """发送 quota 耗尽报警"""
     if not webhook_url:
         return
-    import json
     percent = int(usage["api_calls"] / budget * 100) if budget > 0 else 100
     msg = {
         "msg_type": "text",
@@ -191,10 +215,9 @@ def send_alert(api_key_value: str, usage: dict, budget: int, webhook_url: str | 
                 f"已阻止: {usage['blocked_scans']} 次\n"
                 f"时间: {usage.get('updated_at', 'N/A')}"
             )
-        }
+        },
     }
     try:
-        import urllib.request
         req = urllib.request.Request(
             webhook_url,
             data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
@@ -202,6 +225,6 @@ def send_alert(api_key_value: str, usage: dict, budget: int, webhook_url: str | 
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            _log.info(f"quota 报警已发送: {resp.status}")
+            _log.info("quota 报警已发送: %s", resp.status)
     except Exception as e:
-        _log.warning(f"发送 quota 报警失败: {e}")
+        _log.warning("发送 quota 报警失败: %s", e)
