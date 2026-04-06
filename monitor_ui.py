@@ -1018,7 +1018,7 @@ def _shutdown_existing_web_ui(port: int) -> bool:
         )
         with urllib.request.urlopen(req, timeout=2):
             pass
-        # 等待端口释放（最多 5s，间隔 0.3s）
+        # 等待端口释放（最多约 5s），给旧服务更充足的关闭时间，避免误判失败
         for _ in range(17):
             time.sleep(0.3)
             try:
