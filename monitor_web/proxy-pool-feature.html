@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IP 代理池功能演示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* =============================================
+   BASE — 适配所有视口，clamp 全程缩放
+   ============================================= */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Space Grotesk', sans-serif;
+    background: #0c1016;
+    color: #e2e8f0;
+    overflow-x: hidden;
+}
+
+/* 嵌入式演示：降低舞台感，提升产品内预览稳定性 */
+html.embedded-demo,
+html.embedded-demo body {
+    background: #0e131b;
+}
+html.embedded-demo .grid-bg {
+    opacity: 0.45;
+    background-size: 26px 26px;
+}
+html.embedded-demo .glow-circle {
+    filter: blur(56px);
+    opacity: 0.55;
+}
+html.embedded-demo .keyboard-hint {
+    display: none;
+}
+html.embedded-demo .nav-dots {
+    right: 10px;
+    gap: 8px;
+}
+html.embedded-demo .slide-content {
+    padding: clamp(1rem, 2.6vw, 2rem);
+    gap: clamp(0.7rem, 1.8vw, 1.2rem);
+}
+html.embedded-demo .card {
+    border-radius: 14px;
+    box-shadow: 0 0 24px rgba(45,212,191,0.05), 0 4px 18px rgba(0,0,0,0.28);
+}
+html.embedded-demo .divider {
+    width: clamp(44px, 8vw, 72px);
+    opacity: 0.85;
+}
+html.embedded-demo h1 {
+    font-size: clamp(1.8rem, 4.2vw, 3.2rem);
+}
+html.embedded-demo h2 {
+    font-size: clamp(1.25rem, 2.6vw, 2rem);
+}
+html.embedded-demo .subtitle {
+    font-size: clamp(0.84rem, 1.45vw, 1.08rem);
+    max-width: 60ch;
+}
+html.embedded-demo .feature-list {
+    gap: clamp(0.38rem, 1vh, 0.72rem);
+}
+html.embedded-demo .feature-list li,
+html.embedded-demo .arch-cell-desc,
+html.embedded-demo .sec-item p,
+html.embedded-demo .col-item p,
+html.embedded-demo .check-item {
+    font-size: clamp(0.72rem, 1.18vw, 0.94rem);
+}
+html.embedded-demo .slide-num {
+    bottom: 10px;
+    right: 14px;
+    color: #334155;
+}
+html.embedded-demo .proxy-flow-node,
+html.embedded-demo .flow-node,
+html.embedded-demo .arch-cell,
+html.embedded-demo .col-item,
+html.embedded-demo .sec-item {
+    padding: clamp(0.7rem, 1.6vw, 1rem);
+}
+html.embedded-demo .chip {
+    padding: 3px 8px;
+}
+html.embedded-demo .progress-bar {
+    height: 3px;
+}
+
+/* ── 幻灯片骨架 ── */
+.slide {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.slide-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    max-height: 100%;
+    padding: var(--sp);
+    gap: var(--gap);
+    position: relative;
+}
+
+/* ── 响应式间距 ── */
+:root {
+    --sp: clamp(2rem, 5vw, 5rem);
+    --gap: clamp(1rem, 3vw, 2.5rem);
+    --title: clamp(2rem, 5.5vw, 4.5rem);
+    --h2: clamp(1.4rem, 3vw, 2.4rem);
+    --h3: clamp(1rem, 2vw, 1.5rem);
+    --body: clamp(0.75rem, 1.5vw, 1.05rem);
+    --small: clamp(0.6rem, 1vw, 0.8rem);
+    --mono: 'JetBrains Mono', monospace;
+
+    /* 品牌色 */
+    --bg: #0a0d12;
+    --surface: #111827;
+    --teal: #2dd4bf;
+    --teal-dim: rgba(45,212,191,0.12);
+    --teal-border: rgba(45,212,191,0.3);
+    --indigo: #6366f1;
+    --indigo-dim: rgba(99,102,241,0.15);
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --card: #161b27;
+}
+
+/* ── 背景网格 ── */
+.grid-bg {
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(45,212,191,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(45,212,191,0.04) 1px, transparent 1px);
+    background-size: clamp(30px, 5vw, 60px) clamp(30px, 5vw, 60px);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── 标题排版 ── */
+h1 {
+    font-size: var(--title);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-align: center;
+}
+
+h2 {
+    font-size: var(--h2);
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    letter-spacing: -0.01em;
+}
+
+.subtitle {
+    font-size: var(--h3);
+    color: var(--muted);
+    text-align: center;
+    font-weight: 400;
+}
+
+/* ── 色块标题 ── */
+.teal-text { color: var(--teal); }
+.indigo-text { color: var(--indigo); }
+.muted-text { color: var(--muted); }
+
+/* ── 装饰圆 ── */
+.glow-circle {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── 卡片 ── */
+.card {
+    background: var(--card);
+    border: 1px solid var(--teal-border);
+    border-radius: 16px;
+    padding: clamp(1rem, 2.5vw, 2rem);
+    max-width: min(90vw, 860px);
+    width: 100%;
+    position: relative;
+    z-index: 1;
+}
+
+.card-teal-glow {
+    box-shadow: 0 0 40px rgba(45,212,191,0.08), 0 4px 24px rgba(0,0,0,0.4);
+}
+
+/* ── 代码块 ── */
+.code-block {
+    font-family: var(--mono);
+    font-size: var(--small);
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(45,212,191,0.15);
+    border-radius: 10px;
+    padding: clamp(0.6rem, 1.5vw, 1.2rem);
+    color: #94a3b8;
+    line-height: 1.7;
+    width: 100%;
+    max-width: min(85vw, 700px);
+    overflow-x: auto;
+    position: relative;
+    z-index: 1;
+}
+
+.code-block .kw { color: #f472b6; }
+.code-block .str { color: var(--teal); }
+.code-block .cm { color: #475569; font-style: italic; }
+.code-block .fn { color: #a78bfa; }
+.code-block .nb { color: #fbbf24; }
+
+/* ── 标签芯片 ── */
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: var(--small);
+    font-weight: 500;
+    border: 1px solid;
+}
+
+.chip-teal {
+    background: var(--teal-dim);
+    border-color: var(--teal-border);
+    color: var(--teal);
+}
+
+.chip-indigo {
+    background: var(--indigo-dim);
+    border-color: rgba(99,102,241,0.3);
+    color: var(--indigo);
+}
+
+/* ── 指示点 ── */
+.proxy-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.proxy-dot.on  { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+.proxy-dot.off { background: #334155; }
+
+/* ── 开关 ── */
+.toggle-demo {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: var(--body);
+}
+.toggle-demo-track {
+    width: 44px; height: 24px;
+    background: #1e293b;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    transition: all 0.25s ease;
+    position: relative;
+}
+.toggle-demo-thumb {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #64748b;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toggle-demo.on .toggle-demo-track {
+    background: rgba(45,212,191,0.2);
+    border-color: var(--teal-border);
+}
+.toggle-demo.on .toggle-demo-thumb {
+    left: 23px;
+    background: var(--teal);
+    box-shadow: 0 0 10px var(--teal);
+}
+
+/* ── 列表 ── */
+.feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.5rem, 1.5vh, 1rem);
+}
+
+.feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+    font-size: var(--body);
+    line-height: 1.5;
+}
+
+.feature-list .icon {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+}
+
+/* ── 进度条 ── */
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(45,212,191,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.progress-fill {
+    height: 100%;
+    background: var(--teal);
+    border-radius: 2px;
+    width: 0;
+    transition: width 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ── 流程箭头 ── */
+.flow-row {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.flow-node {
+    background: var(--card);
+    border: 1px solid var(--teal-border);
+    border-radius: 12px;
+    padding: clamp(0.5rem, 1.5vw, 1rem) clamp(0.8rem, 2vw, 1.5rem);
+    font-size: var(--small);
+    font-weight: 500;
+    text-align: center;
+    min-width: 100px;
+}
+
+.flow-arrow {
+    color: var(--teal);
+    font-size: clamp(1rem, 2vw, 1.5rem);
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+/* ── 幻灯片编号 ── */
+.slide-num {
+    position: absolute;
+    bottom: clamp(0.8rem, 2vw, 1.5rem);
+    right: clamp(1rem, 3vw, 2.5rem);
+    font-size: var(--small);
+    color: #334155;
+    font-family: var(--mono);
+    letter-spacing: 0.1em;
+    z-index: 10;
+}
+
+/* ── 导航点 ── */
+.nav-dots {
+    position: fixed;
+    right: clamp(0.8rem, 2vw, 1.5rem);
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+}
+
+.nav-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #334155;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.nav-dot.active {
+    background: var(--teal);
+    box-shadow: 0 0 8px var(--teal);
+    transform: scale(1.4);
+}
+
+/* ── 键盘提示 ── */
+.keyboard-hint {
+    position: fixed;
+    bottom: clamp(0.8rem, 2vw, 1.5rem);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: var(--small);
+    color: #334155;
+    font-family: var(--mono);
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    z-index: 100;
+}
+
+.key {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+}
+
+/* ── 动画 ── */
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+}
+
+@keyframes draw-line {
+    from { stroke-dashoffset: 300; }
+    to   { stroke-dashoffset: 0; }
+}
+
+.anim-in {
+    opacity: 0;
+    animation: fadeUp 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.delay-1 { animation-delay: 0.15s; }
+.delay-2 { animation-delay: 0.3s; }
+.delay-3 { animation-delay: 0.45s; }
+.delay-4 { animation-delay: 0.6s; }
+.delay-5 { animation-delay: 0.75s; }
+
+/* ── 分隔线 ── */
+.divider {
+    width: clamp(60px, 10vw, 120px);
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--teal), transparent);
+    border-radius: 1px;
+    margin: clamp(0.5rem, 1.5vh, 1rem) auto;
+}
+
+/* ── 3列网格 ── */
+.col3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(0.6rem, 1.5vw, 1.2rem);
+    width: 100%;
+    max-width: min(90vw, 860px);
+}
+
+.col-item {
+    background: rgba(22,27,39,0.8);
+    border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 14px;
+    padding: clamp(0.8rem, 2vw, 1.4rem);
+    text-align: center;
+}
+
+.col-item-icon {
+    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    margin-bottom: clamp(0.3rem, 1vh, 0.6rem);
+}
+
+.col-item h3 {
+    font-size: var(--body);
+    font-weight: 600;
+    margin-bottom: clamp(0.2rem, 0.8vh, 0.5rem);
+}
+
+.col-item p {
+    font-size: var(--small);
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+/* ── 安全徽章 ── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: var(--small);
+    font-weight: 600;
+    font-family: var(--mono);
+}
+
+/* ── 短屏适配 ── */
+@media (max-height: 700px) {
+    :root { --sp: clamp(1rem, 3vw, 2.5rem); --gap: clamp(0.5rem, 2vh, 1.5rem); }
+    .keyboard-hint { display: none; }
+}
+
+@media (max-height: 580px) {
+    .nav-dots { display: none; }
+}
+
+@media (max-width: 600px) {
+    .col3 { grid-template-columns: 1fr; }
+    .flow-row { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+}
+
+/* ── 减少动画 ── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+    html { scroll-behavior: auto; }
+}
+
+/* =============================================
+   幻灯片内容
+   ============================================= */
+
+/* 幻灯片 1 — 标题 */
+#slide-1 .glow-circle-1 {
+    width: 500px; height: 500px;
+    background: rgba(45,212,191,0.07);
+    top: -100px; right: -150px;
+}
+
+#slide-1 .glow-circle-2 {
+    width: 300px; height: 300px;
+    background: rgba(99,102,241,0.06);
+    bottom: -50px; left: -80px;
+}
+
+#slide-1 h1 span {
+    display: block;
+    background: linear-gradient(135deg, #2dd4bf 0%, #6366f1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.tag-row {
+    display: flex;
+    gap: clamp(0.4rem, 1vw, 0.8rem);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* 幻灯片 2 — 问题 */
+#slide-2 .glow-circle-1 {
+    width: 400px; height: 400px;
+    background: rgba(239,68,68,0.08);
+    top: -80px; left: -100px;
+}
+
+.threat-visual {
+    display: flex;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 2rem);
+    font-family: var(--mono);
+    font-size: clamp(0.7rem, 1.5vw, 0.95rem);
+    color: #94a3b8;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 12px;
+    padding: clamp(0.8rem, 2vw, 1.4rem);
+    max-width: min(85vw, 640px);
+    width: 100%;
+}
+
+.threat-visual .ip { color: #f87171; font-weight: 600; }
+.threat-visual .arrow { color: #f59e0b; font-size: 1.2em; }
+.threat-visual .yt { color: #f87171; }
+.threat-visual .blocked { color: #ef4444; font-weight: 700; letter-spacing: 0.1em; }
+
+/* 幻灯片 3 — 方案 */
+#slide-3 .glow-circle-1 {
+    width: 350px; height: 350px;
+    background: rgba(45,212,191,0.08);
+    bottom: -80px; right: -80px;
+}
+
+.proxy-flow {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.4rem, 1.5vw, 1.2rem);
+    font-size: var(--body);
+    width: 100%;
+    max-width: min(90vw, 820px);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.proxy-flow-node {
+    background: var(--card);
+    border: 1px solid var(--teal-border);
+    border-radius: 12px;
+    padding: clamp(0.6rem, 1.5vw, 1rem) clamp(0.8rem, 2vw, 1.4rem);
+    text-align: center;
+    min-width: clamp(90px, 15vw, 140px);
+    flex: 1;
+}
+
+.proxy-flow-node .label {
+    font-size: var(--small);
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.proxy-flow-node .value {
+    font-size: var(--body);
+    font-weight: 600;
+    color: var(--teal);
+}
+
+.proxy-flow-node.highlight {
+    border-color: var(--teal);
+    box-shadow: 0 0 20px rgba(45,212,191,0.15);
+}
+
+.proxy-flow-node.highlight .value { color: var(--teal); }
+
+.proxy-flow-arrow {
+    color: var(--teal);
+    opacity: 0.5;
+    font-size: clamp(1.2rem, 2vw, 1.8rem);
+    flex-shrink: 0;
+}
+
+/* 幻灯片 4 — UI */
+.ui-preview {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.5rem, 1.5vh, 1rem);
+    width: 100%;
+    max-width: min(88vw, 780px);
+}
+
+.ui-row {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.6rem, 1.5vw, 1rem);
+    background: var(--card);
+    border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 12px;
+    padding: clamp(0.5rem, 1.5vw, 1rem) clamp(0.8rem, 2vw, 1.4rem);
+}
+
+.ui-row-label {
+    font-size: var(--small);
+    color: var(--teal);
+    font-family: var(--mono);
+    min-width: clamp(60px, 10vw, 90px);
+    flex-shrink: 0;
+}
+
+.ui-row-content {
+    flex: 1;
+    font-size: var(--small);
+    color: var(--muted);
+}
+
+.ui-row-content strong { color: var(--text); font-weight: 500; }
+
+/* 幻灯片 5 — 架构 */
+.arch-diagram {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(0.6rem, 1.5vw, 1.2rem);
+    width: 100%;
+    max-width: min(90vw, 860px);
+}
+
+.arch-cell {
+    background: rgba(22,27,39,0.6);
+    border: 1px solid rgba(45,212,191,0.15);
+    border-radius: 12px;
+    padding: clamp(0.8rem, 2vw, 1.4rem);
+    text-align: center;
+}
+
+.arch-cell-tier {
+    font-size: var(--small);
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.arch-cell-name {
+    font-size: var(--body);
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+
+.arch-cell-desc {
+    font-size: var(--small);
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.arch-cell.primary {
+    border-color: var(--teal-border);
+    background: rgba(45,212,191,0.04);
+}
+
+.arch-cell.primary .arch-cell-tier { color: var(--teal); }
+
+/* 幻灯片 6 — 安全 */
+.sec-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(0.6rem, 1.5vw, 1rem);
+    width: 100%;
+    max-width: min(88vw, 760px);
+}
+
+.sec-item {
+    background: rgba(22,27,39,0.6);
+    border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 14px;
+    padding: clamp(0.8rem, 2vw, 1.4rem);
+}
+
+.sec-item-icon {
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    margin-bottom: clamp(0.4rem, 1vh, 0.8rem);
+}
+
+.sec-item h3 {
+    font-size: var(--body);
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.sec-item p {
+    font-size: var(--small);
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.sec-item code {
+    font-family: var(--mono);
+    background: rgba(0,0,0,0.3);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--teal);
+}
+
+/* =============================================
+   SVG 图标
+   ============================================= */
+.icon-svg {
+    width: 18px; height: 18px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+}
+
+.icon-svg.lg {
+    width: 22px; height: 22px;
+}
+
+.icon-svg.xl {
+    width: 28px; height: 28px;
+}
+
+/* =============================================
+   加载进度条（顶部）
+   ============================================= */
+#progress-bar {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--teal), var(--indigo));
+    width: 0%;
+    transition: width 0.4s ease;
+    z-index: 200;
+}
+
+/* =============================================
+   最后一张 — CTA
+   ============================================= */
+#slide-6 h1 {
+    font-size: clamp(1.8rem, 4.5vw, 3.8rem);
+}
+
+.check-row {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.4rem, 1.2vh, 0.8rem);
+    text-align: left;
+}
+
+.check-item {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+    font-size: var(--body);
+}
+
+.check-icon {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(45,212,191,0.15);
+    border: 1px solid var(--teal-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.check-icon svg {
+    width: 12px; height: 12px;
+    stroke: var(--teal);
+    stroke-width: 2.5;
+    fill: none;
+}
+
+</style>
+</head>
+<body>
+
+<!-- 加载进度 -->
+<div id="progress-bar"></div>
+
+<!-- 背景网格 -->
+<div class="grid-bg" aria-hidden="true"></div>
+
+<!-- 导航点 -->
+<nav class="nav-dots" aria-label="幻灯片导航">
+    <div class="nav-dot active" data-slide="1" tabindex="0" role="button" aria-label="幻灯片 1"></div>
+    <div class="nav-dot" data-slide="2" tabindex="0" role="button" aria-label="幻灯片 2"></div>
+    <div class="nav-dot" data-slide="3" tabindex="0" role="button" aria-label="幻灯片 3"></div>
+    <div class="nav-dot" data-slide="4" tabindex="0" role="button" aria-label="幻灯片 4"></div>
+    <div class="nav-dot" data-slide="5" tabindex="0" role="button" aria-label="幻灯片 5"></div>
+    <div class="nav-dot" data-slide="6" tabindex="0" role="button" aria-label="幻灯片 6"></div>
+</nav>
+
+<!-- 键盘提示 -->
+<div class="keyboard-hint" aria-hidden="true">
+    <span class="key">↑↓</span> 翻页
+    <span class="key">Home</span> 首页
+</div>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 1 — 标题
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-1" aria-label="标题">
+    <div class="glow-circle glow-circle-1" aria-hidden="true"></div>
+    <div class="glow-circle glow-circle-2" aria-hidden="true"></div>
+    <div class="slide-content">
+        <div class="tag-row anim-in">
+            <span class="chip chip-teal">
+                <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                in-product guide
+            </span>
+            <span class="chip chip-indigo">Proxy Workspace</span>
+            <span class="chip" style="background:rgba(22,27,39,0.8);border-color:#334155;color:#64748b;">6 slides</span>
+        </div>
+        <h1 class="anim-in delay-1">
+            <span>IP 代理池</span>
+            下载出口管理
+        </h1>
+        <div class="divider anim-in delay-2"></div>
+        <p class="subtitle anim-in delay-3">
+            用节点工作台统一管理下载出口，并把它绑定到账户的自动与批量下载链路中
+        </p>
+    </div>
+    <div class="slide-num">01 / 06</div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 2 — 问题
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-2" aria-label="问题背景">
+    <div class="glow-circle glow-circle-1" aria-hidden="true"></div>
+    <div class="slide-content">
+        <h2 class="anim-in">
+            <span class="teal-text">为什么要做</span> 代理出口隔离
+        </h2>
+        <div class="divider anim-in delay-1"></div>
+        <div class="threat-visual anim-in delay-2">
+            <span class="ip">127.0.0.1</span>
+            <span class="arrow">→</span>
+            <span class="yt">YouTube</span>
+            <span class="arrow">→</span>
+            <span class="blocked">HTTP 429</span>
+        </div>
+        <div class="card card-teal-glow anim-in delay-3" style="max-width: min(88vw, 680px);">
+            <ul class="feature-list">
+                <li>
+                    <span class="icon">
+                        <svg class="icon-svg" style="color:#ef4444" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    </span>
+                    <span>同一 IP 短时间下载过多视频，会触发 429 Too Many Requests</span>
+                </li>
+                <li>
+                    <span class="icon">
+                        <svg class="icon-svg" style="color:#f59e0b" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </span>
+                    <span>监控任务持续拉起下载，失败往往出现在无人值守时段</span>
+                </li>
+                <li>
+                    <span class="icon">
+                        <svg class="icon-svg" style="color:#6366f1" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    </span>
+                    <span>失败告警会直接打断通知链路，增加人工排查成本</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="slide-num">02 / 06</div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 3 — 方案
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-3" aria-label="解决方案">
+    <div class="glow-circle glow-circle-1" aria-hidden="true"></div>
+    <div class="slide-content">
+        <h2 class="anim-in">
+            <span class="teal-text">方案</span> — 代理节点池
+        </h2>
+        <div class="divider anim-in delay-1"></div>
+        <div class="proxy-flow anim-in delay-2">
+            <div class="proxy-flow-node">
+                <div class="label">下载器</div>
+                <div class="value">yt-dlp</div>
+            </div>
+            <span class="proxy-flow-arrow">→</span>
+            <div class="proxy-flow-node highlight">
+                <div class="label">代理池</div>
+                <div class="value">IP Pool</div>
+            </div>
+            <span class="proxy-flow-arrow">→</span>
+            <div class="proxy-flow-node">
+                <div class="label">目标</div>
+                <div class="value">YouTube</div>
+            </div>
+        </div>
+        <div class="col3 anim-in delay-3">
+            <div class="col-item">
+                <div class="col-item-icon">
+                    <svg style="width:32px;height:32px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                </div>
+                <h3>多协议支持</h3>
+                <p>HTTP / HTTPS / SOCKS5 / SOCKS4，带用户密码认证</p>
+            </div>
+            <div class="col-item">
+                <div class="col-item-icon">
+                    <svg style="width:32px;height:32px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <h3>按账户绑定</h3>
+                <p>每个监控账户独立选择代理，精细化控制下载路由</p>
+            </div>
+            <div class="col-item">
+                <div class="col-item-icon">
+                    <svg style="width:32px;height:32px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </div>
+                <h3>全覆盖</h3>
+                <p>自动下载 + 手动批量下载，所有场景均走代理通道</p>
+            </div>
+        </div>
+    </div>
+    <div class="slide-num">03 / 06</div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 4 — 数据流
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-4" aria-label="数据流">
+    <div class="slide-content">
+        <h2 class="anim-in">
+            <span class="teal-text">数据流</span> — 代理如何传递
+        </h2>
+        <div class="divider anim-in delay-1"></div>
+
+        <div class="arch-diagram anim-in delay-2">
+            <div class="arch-cell primary">
+                <div class="arch-cell-tier">DB</div>
+                <div class="arch-cell-name">proxy_pools 表</div>
+                <div class="arch-cell-desc">存储代理节点 URL（加密）<br>独立启用/禁用</div>
+            </div>
+            <div class="arch-cell">
+                <div class="arch-cell-tier">DB</div>
+                <div class="arch-cell-name">monitor_accounts</div>
+                <div class="arch-cell-desc">proxy_pool_id + proxy_enabled<br>关联账户与代理</div>
+            </div>
+            <div class="arch-cell primary">
+                <div class="arch-cell-tier">API</div>
+                <div class="arch-cell-name">resolve</div>
+                <div class="arch-cell-desc">get_account_proxy()<br>返回生效的 proxy_url</div>
+            </div>
+        </div>
+
+        <div class="flow-row anim-in delay-3" style="max-width: min(90vw, 860px);">
+            <div class="flow-node">
+                <div style="font-size:var(--small);color:var(--muted)">扫描触发</div>
+                <div style="font-size:var(--body);font-weight:600;margin-top:4px">scheduler</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-node" style="border-color: var(--teal);">
+                <div style="font-size:var(--small);color:var(--teal)">查账户代理</div>
+                <div style="font-size:var(--body);font-weight:600;margin-top:4px">get_account_proxy()</div>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-node">
+                <div style="font-size:var(--small);color:var(--muted)">下载视频</div>
+                <div style="font-size:var(--body);font-weight:600;margin-top:4px">batch_download(proxy=)</div>
+            </div>
+        </div>
+    </div>
+    <div class="slide-num">04 / 06</div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 5 — 安全
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-5" aria-label="安全特性">
+    <div class="slide-content">
+        <h2 class="anim-in">
+            <span class="teal-text">安全</span> — 全链路隐私保护
+        </h2>
+        <div class="divider anim-in delay-1"></div>
+        <div class="sec-grid anim-in delay-2">
+            <div class="sec-item">
+                <div class="sec-item-icon">
+                    <svg style="width:28px;height:28px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                </div>
+                <h3>凭证掩码</h3>
+                <p>REST API 返回 <code>http://***@host:port</code>，前端永不展示明文密码</p>
+            </div>
+            <div class="sec-item">
+                <div class="sec-item-icon">
+                    <svg style="width:28px;height:28px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                </div>
+                <h3>URL 格式验证</h3>
+                <p>后端校验协议 + 主机名，拒绝 <code>htp:/...</code> 等畸形输入</p>
+            </div>
+            <div class="sec-item">
+                <div class="sec-item-icon">
+                    <svg style="width:28px;height:28px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                </div>
+                <h3>日志脱敏</h3>
+                <p>仅记录 <code>scheme://hostname:port</code>，不含任何认证信息</p>
+            </div>
+            <div class="sec-item">
+                <div class="sec-item-icon">
+                    <svg style="width:28px;height:28px;color:var(--teal)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </div>
+                <h3>删除级联</h3>
+                <p>删除代理池时自动清空关联账户引用，防止孤立指针</p>
+            </div>
+        </div>
+    </div>
+    <div class="slide-num">05 / 06</div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     幻灯片 6 — 总结
+═══════════════════════════════════════ -->
+<section class="slide" id="slide-6" aria-label="总结">
+    <div class="slide-content">
+        <h2 class="anim-in">
+            <span class="teal-text">代理节点</span> 已就绪，开始使用
+        </h2>
+        <div class="divider anim-in delay-1"></div>
+        <div class="card card-teal-glow anim-in delay-2" style="max-width: min(88vw, 560px);">
+            <div class="check-row">
+                <div class="check-item">
+                    <div class="check-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 13"/></svg>
+                    </div>
+                    <span>创建代理节点，并在工作台里维护启用状态</span>
+                </div>
+                <div class="check-item">
+                    <div class="check-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 13"/></svg>
+                    </div>
+                    <span>在账户设置中开启代理通道，并绑定到下载链路</span>
+                </div>
+                <div class="check-item">
+                    <div class="check-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 13"/></svg>
+                    </div>
+                    <span>自动下载与批量下载共用同一套出口配置</span>
+                </div>
+                <div class="check-item">
+                    <div class="check-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 13"/></svg>
+                    </div>
+                    <span>地址掩码、格式校验与级联清理默认生效</span>
+                </div>
+                <div class="check-item">
+                    <div class="check-icon">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 13"/></svg>
+                    </div>
+                    <span>Web UI + Tkinter UI，双端一致体验</span>
+                </div>
+            </div>
+        </div>
+        <div class="tag-row anim-in delay-3" style="margin-top: var(--gap);">
+            <span class="chip chip-teal">
+                <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                自动下载 + 手动批量下载，全场景覆盖
+            </span>
+            <span class="chip chip-indigo">凭证掩码 · 级联清理</span>
+        </div>
+    </div>
+    <div class="slide-num">06 / 06</div>
+</section>
+
+<script>
+/* =============================================
+   幻灯片控制器
+   ============================================= */
+const slides = document.querySelectorAll('.slide');
+const dots = document.querySelectorAll('.nav-dot');
+const progressBar = document.getElementById('progress-bar');
+const TOTAL = slides.length;
+let current = 0;
+let isScrolling = false;
+
+function goTo(index) {
+    index = Math.max(0, Math.min(TOTAL - 1, index));
+    slides[index].scrollIntoView({ behavior: 'smooth' });
+}
+
+function updateUI() {
+    dots.forEach((d, i) => d.classList.toggle('active', i === current));
+    progressBar.style.width = ((current + 1) / TOTAL * 100) + '%';
+    // 触发可见幻灯片的动画
+    slides.forEach((s, i) => {
+        const items = s.querySelectorAll('.anim-in');
+        if (i === current) {
+            items.forEach(el => {
+                el.style.animationPlayState = 'running';
+            });
+        }
+    });
+}
+
+function onScroll() {
+    const scrollY = window.scrollY;
+    const wh = window.innerHeight;
+    const idx = Math.round(scrollY / wh);
+    if (idx !== current && idx >= 0 && idx < TOTAL) {
+        current = idx;
+        updateUI();
+    }
+}
+
+let scrollTimeout;
+window.addEventListener('scroll', () => {
+    if (!isScrolling) {
+        isScrolling = true;
+        requestAnimationFrame(() => {
+            onScroll();
+            isScrolling = false;
+        });
+    }
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(onScroll, 60);
+}, { passive: true });
+
+// 键盘导航
+document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault();
+        goTo(current + 1);
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        goTo(current - 1);
+    } else if (e.key === 'Home') {
+        e.preventDefault();
+        goTo(0);
+    } else if (e.key === 'End') {
+        e.preventDefault();
+        goTo(TOTAL - 1);
+    }
+});
+
+// 触摸滑动
+let touchStartY = 0;
+document.addEventListener('touchstart', e => {
+    touchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+    const diff = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(diff) > 50) {
+        if (diff > 0) goTo(current + 1);
+        else goTo(current - 1);
+    }
+});
+
+// 导航点点击
+dots.forEach(dot => {
+    dot.addEventListener('click', () => goTo(parseInt(dot.dataset.slide) - 1));
+    dot.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') goTo(parseInt(dot.dataset.slide) - 1);
+    });
+});
+
+// Intersection Observer for animation replay
+const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.querySelectorAll('.anim-in').forEach(el => {
+                el.style.animation = 'none';
+                el.offsetHeight; // reflow
+                el.style.animation = '';
+            });
+        }
+    });
+}, { threshold: 0.5 });
+
+slides.forEach(s => observer.observe(s));
+
+// 初始化
+if (window.self !== window.top) {
+    document.documentElement.classList.add('embedded-demo');
+}
+updateUI();
+</script>
+</body>
+</html>
