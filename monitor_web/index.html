@@ -2801,8 +2801,8 @@
     document.getElementById('accNotify').checked = acc.notify_enabled;
     document.getElementById('accProxyEnabled').checked = !!acc.proxy_enabled;
     // refreshProxyPoolSelectors() 必须先执行完毕，才知道 options 里有没有 acc.proxy_pool_id
-    await refreshProxyPoolSelectors();
-    document.getElementById('accProxyPoolSelect').value = acc.proxy_pool_id || '';
+    const savedProxyId = acc.proxy_pool_id || '';
+    await refreshProxyPoolSelectors(savedProxyId);
     selectPlatform(acc.notify_platform);
     await toggleProxySection();
     openModal('modalAccount');
@@ -2824,7 +2824,6 @@
     } else {
       sel.style.opacity = '';
       sel.style.cursor = '';
-      refreshProxyPoolSelectors();
     }
   }
 
@@ -2832,7 +2831,7 @@
     // 用于前端展示，实际值由 option.value 获取
   }
 
-  async function refreshProxyPoolSelectors() {
+  async function refreshProxyPoolSelectors(selectedId) {
     const sel = document.getElementById('accProxyPoolSelect');
     const pools = await api('GET', '/proxy-pools');
     const opts = ['<option value="">— 选择代理池 —</option>'];
@@ -2843,6 +2842,9 @@
       });
     }
     sel.innerHTML = opts.join('');
+    if (selectedId !== undefined) {
+      sel.value = selectedId;
+    }
   }
 
   async function saveAccount() {
