@@ -2750,7 +2750,7 @@
   }
 
   // ── 账户操作 ────────────────────────────────────────────────────
-  function openAddAccount() {
+  async function openAddAccount() {
     document.getElementById('modalAccountTitle').textContent = '添加监控账户';
     document.getElementById('accId').value = '';
     document.getElementById('accName').value = '';
@@ -2772,9 +2772,9 @@
     document.getElementById('accProxyPoolSelect').disabled = true;
     document.getElementById('accProxyPoolSelect').style.opacity = '0.4';
     selectPlatform('feishu');
-    refreshApiKeySelectors();
-    refreshProxyPoolSelectors();
-    toggleProxySection();
+    await refreshApiKeySelectors();
+    await refreshProxyPoolSelectors();
+    await toggleProxySection();
     openModal('modalAccount');
   }
 
@@ -2800,10 +2800,11 @@
     document.getElementById('accEnabled').checked = acc.enabled;
     document.getElementById('accNotify').checked = acc.notify_enabled;
     document.getElementById('accProxyEnabled').checked = !!acc.proxy_enabled;
+    // refreshProxyPoolSelectors() 必须先执行完毕，才知道 options 里有没有 acc.proxy_pool_id
+    await refreshProxyPoolSelectors();
     document.getElementById('accProxyPoolSelect').value = acc.proxy_pool_id || '';
     selectPlatform(acc.notify_platform);
-    refreshProxyPoolSelectors();
-    toggleProxySection();
+    await toggleProxySection();
     openModal('modalAccount');
   }
 
@@ -2812,7 +2813,7 @@
     document.getElementById('accApiKeyId').value = sel.value;
   }
 
-  function toggleProxySection() {
+  async function toggleProxySection() {
     const enabled = document.getElementById('accProxyEnabled').checked;
     const sel = document.getElementById('accProxyPoolSelect');
     sel.disabled = !enabled;
