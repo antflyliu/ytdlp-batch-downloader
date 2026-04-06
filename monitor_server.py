@@ -261,6 +261,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if path == "/api/status":
             self._api_status()
             return
+        # 首页静态文件跳过认证
+        if path == "/" or path == "/index.html":
+            super().do_GET()
+            return
         # 其余所有 /api/* 均需认证和限流
         if not self._require_auth():
             return
@@ -297,6 +301,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_account_videos(acc_id)
         else:
             super().do_GET()
+
+    def do_HEAD(self):
+        path = self._path_only()
+        if path == "/" or path == "/index.html":
+            super().do_HEAD()
+            return
+        if not self._require_auth():
+            return
+        if not self._check_rate_limit():
+            return
+        self.send_error(404, "未知 API")
 
     def do_POST(self):
         if self.command == "OPTIONS":
@@ -476,9 +491,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not ak:
                 self._send_json({"error": f"指定的默认 API Key (id={default_key_id}) 不存在"}, 400)
                 return
-        path = _db.get_config_path()
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _db.save_config(cfg)
         _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
@@ -892,7 +905,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
         if path == "/" or path == "":
             path = "/index.html"
-        return str(_STATIC_DIR / path.lstrip("/"))
+        from urllib.parse import urlparse, unquote
+        rel = unquote(urlparse(path).path).lstrip("/")
+        candidate = (_STATIC_DIR / rel).resolve()
+        static_root = _STATIC_DIR.resolve()
+        if candidate != static_root and static_root not in candidate.parents:
+            return str(static_root / "index.html")
+        return str(candidate)
 
 
 def serve(port: int = 5000):

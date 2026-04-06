@@ -2,7 +2,6 @@
 monitor.scheduler — APScheduler 后台调度器
 在独立线程中运行，负责按配置间隔扫描各账户
 """
-import json
 import os
 import sys
 import threading
@@ -55,13 +54,10 @@ def _ensure_global_webhooks() -> None:
     if _GLOBAL_WEBHOOKS_LOADED:
         return
     try:
-        config_path = _db.get_config_path()
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            _GLOBAL_WEBHOOKS["feishu"]    = cfg.get("global_feishu_url") or None
-            _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url") or None
-            _GLOBAL_WEBHOOKS["wecom"]   = cfg.get("global_wecom_url") or None
+        cfg = _get_config()
+        _GLOBAL_WEBHOOKS["feishu"] = cfg.get("global_feishu_url") or None
+        _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url") or None
+        _GLOBAL_WEBHOOKS["wecom"] = cfg.get("global_wecom_url") or None
     except Exception:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True

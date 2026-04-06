@@ -31,6 +31,32 @@ _SCHEMA_PATH = os.path.join(_PKG_DIR, "schema.sql")
 # config.json: 优先用户可写位置(exe_dir)，回退到只读资源(_PKG_DIR)
 _CONFIG_PATH = os.path.join(_EXE_DIR, "config.json")
 
+_GLOBAL_WEBHOOK_KEYS = (
+    "global_feishu_url",
+    "global_dingtalk_url",
+    "global_wecom_url",
+)
+
+
+def _write_config(path: str, cfg: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def _encrypt_config_webhooks(cfg: dict) -> dict:
+    cfg = {**_config_default(), **cfg}
+    for key in _GLOBAL_WEBHOOK_KEYS:
+        cfg[key] = _encrypt_webhook(cfg.get(key)) or ""
+    return cfg
+
+
+def _decrypt_config_webhooks(cfg: dict) -> dict:
+    cfg = {**_config_default(), **cfg}
+    for key in _GLOBAL_WEBHOOK_KEYS:
+        cfg[key] = _decrypt_webhook(cfg.get(key)) or ""
+    return cfg
+
 
 def _config_default() -> dict:
     """默认的全局配置"""
@@ -60,16 +86,31 @@ def get_config_path() -> str:
 
 def load_config() -> dict:
     """加载全局配置（支持 PyInstaller exe 和源码两种模式）"""
-    # 优先读用户可写位置
+    source_path = None
+    raw_cfg = None
     if os.path.exists(_CONFIG_PATH):
+        source_path = _CONFIG_PATH
         with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    # 回退：读打包资源（PyInstaller exe 模式下为 _MEIPASS/monitor/config.json）
-    pkg_cfg = os.path.join(_PKG_DIR, "config.json")
-    if os.path.exists(pkg_cfg):
-        with open(pkg_cfg, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return _config_default()
+            raw_cfg = json.load(f)
+    else:
+        pkg_cfg = os.path.join(_PKG_DIR, "config.json")
+        if os.path.exists(pkg_cfg):
+            source_path = pkg_cfg
+            with open(pkg_cfg, "r", encoding="utf-8") as f:
+                raw_cfg = json.load(f)
+    if raw_cfg is None:
+        return _config_default()
+
+    raw_cfg = {**_config_default(), **raw_cfg}
+    encrypted_cfg = _encrypt_config_webhooks(raw_cfg)
+    if source_path and encrypted_cfg != raw_cfg:
+        _write_config(source_path, encrypted_cfg)
+    return _decrypt_config_webhooks(raw_cfg)
+
+
+def save_config(cfg: dict) -> None:
+    """保存全局配置，Webhook URL 落盘时加密。"""
+    _write_config(_CONFIG_PATH, _encrypt_config_webhooks(cfg))
 
 
 def init_db() -> None:
@@ -788,14 +829,11 @@ def _encrypt_webhook(url: str | None) -> str | None:
         return None
     if url.startswith("enc:"):
         return url  # 已加密，跳过
-    try:
-        from cryptography.fernet import Fernet
-        key = _get_webhook_enc_key()
-        f = Fernet(key)
-        encrypted = f.encrypt(url.encode("utf-8"))
-        return "enc:" + encrypted.decode("utf-8")
-    except Exception:
-        return url  # 加密失败时降级为明文
+    from cryptography.fernet import Fernet
+    key = _get_webhook_enc_key()
+    f = Fernet(key)
+    encrypted = f.encrypt(url.encode("utf-8"))
+    return "enc:" + encrypted.decode("utf-8")
 
 
 def _decrypt_webhook(encrypted: str | None) -> str | None:

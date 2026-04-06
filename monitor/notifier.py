@@ -569,7 +569,18 @@ def _send_webhook(
         return False, str(e)
 
 
-# ── 统一通知入口 ───────────────────────────────────────────────────────────
+def _redact_webhook_url(webhook_url: str) -> str:
+    """仅保留平台与主机信息，避免 access_token 落库。"""
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(webhook_url)
+    except Exception:
+        return "[redacted webhook]"
+    if not parsed.scheme or not parsed.netloc:
+        return "[redacted webhook]"
+    return f"{parsed.scheme}://{parsed.netloc}/[redacted]"
+
 
 def _build_scan_confirm_payload(
     platform: Platform,
@@ -699,9 +710,10 @@ def notify(
         _log.info(f"无新视频，跳过 Webhook 推送: {account_name}")
         return
 
+    redacted_webhook = _redact_webhook_url(webhook_url)
     _log.info(
         f"准备发送 {platform} 通知: {account_name} ({len(videos)} 个新视频) "
-        f"mode={feishu_message_mode} webhook={webhook_url[:60]}..."
+        f"mode={feishu_message_mode} webhook={redacted_webhook}"
     )
     payload = build_notify_payload(
         platform, account_name, channel_url, videos,
@@ -733,12 +745,13 @@ def _log_result(
     """记录通知结果到日志表"""
     http_status = 200 if success else None
     resp_text = response[:500]
+    redacted_webhook = _redact_webhook_url(webhook_url)
     with _db.get_connection() as conn:
         conn.execute(
             """INSERT INTO monitor_notify_logs
                (event_id, account_id, account_name, video_count, platform, webhook_url,
                 http_status, response_text, sent_at)
                VALUES (?,?,?,?,?,?,?,?,?)""",
-            (event_id, account_id, account_name, video_count, platform, webhook_url,
+            (event_id, account_id, account_name, video_count, platform, redacted_webhook,
              http_status, resp_text, now_str),
         )

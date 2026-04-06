@@ -69,10 +69,7 @@ def _load_config() -> dict:
 
 
 def _save_config(cfg: dict) -> None:
-    path = _db.get_config_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    _db.save_config(cfg)
 
 
 # ── 添加/编辑账户弹窗 ──────────────────────────────────────────────────────

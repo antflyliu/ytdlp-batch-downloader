@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import ExitStack
 from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -243,6 +244,165 @@ class TestBackupDb(unittest.TestCase):
             acc_count = bk.execute("SELECT COUNT(*) FROM monitor_accounts").fetchone()[0]
             self.assertEqual(acc_count, 1)
             bk.close()
+
+
+class _WebhookConfigTestCase(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._db_path = os.path.join(self._tmpdir, "monitor.db")
+        self._data_dir = os.path.join(self._tmpdir, "data")
+        self._config_path = os.path.join(self._tmpdir, "config.json")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _ctx(self):
+        import monitor.db as _db
+        stack = ExitStack()
+        stack.enter_context(patch.object(_db, "_DB_PATH", self._db_path))
+        stack.enter_context(patch.object(_db, "_DATA_DIR", self._data_dir))
+        stack.enter_context(patch.object(_db, "_CONFIG_PATH", self._config_path))
+        stack.enter_context(patch.object(_db, "_PKG_DIR", self._tmpdir))
+        return stack
+
+    def _read_raw_config(self):
+        with open(self._config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+class TestGlobalWebhookConfigEncryption(_WebhookConfigTestCase):
+    def test_save_config_encrypts_global_webhooks(self):
+        import monitor.db as _db
+
+        plaintext = "https://open.feishu.cn/open-apis/bot/v2/hook/secret-token"
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["global_feishu_url"] = plaintext
+
+            _db.save_config(cfg)
+
+            raw_cfg = self._read_raw_config()
+            self.assertNotEqual(raw_cfg["global_feishu_url"], plaintext)
+            self.assertTrue(raw_cfg["global_feishu_url"].startswith("enc:"))
+
+            loaded_cfg = _db.load_config()
+            self.assertEqual(loaded_cfg["global_feishu_url"], plaintext)
+
+    def test_load_config_migrates_plaintext_global_webhooks(self):
+        import monitor.db as _db
+
+        plaintext = "https://open.feishu.cn/open-apis/bot/v2/hook/plaintext-token"
+        with self._ctx():
+            _db.init_db()
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    **_db._config_default(),
+                    "global_feishu_url": plaintext,
+                }, f, ensure_ascii=False, indent=2)
+
+            loaded_cfg = _db.load_config()
+
+            self.assertEqual(loaded_cfg["global_feishu_url"], plaintext)
+            raw_cfg = self._read_raw_config()
+            self.assertNotEqual(raw_cfg["global_feishu_url"], plaintext)
+            self.assertTrue(raw_cfg["global_feishu_url"].startswith("enc:"))
+
+
+class TestSchedulerGlobalWebhookLoading(_WebhookConfigTestCase):
+    def test_ensure_global_webhooks_uses_decrypted_values(self):
+        import monitor.db as _db
+        from monitor import scheduler
+
+        plaintext = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=secret-key"
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["global_wecom_url"] = plaintext
+            _db.save_config(cfg)
+
+            scheduler._GLOBAL_WEBHOOKS = {}
+            scheduler._GLOBAL_WEBHOOKS_LOADED = False
+            scheduler._invalidate_config_cache()
+
+            scheduler._ensure_global_webhooks()
+
+            self.assertEqual(scheduler._GLOBAL_WEBHOOKS["wecom"], plaintext)
+            raw_cfg = self._read_raw_config()
+            self.assertTrue(raw_cfg["global_wecom_url"].startswith("enc:"))
+
+
+class TestNotifyLogWebhookRedaction(_WebhookConfigTestCase):
+    def test_log_result_does_not_store_raw_webhook(self):
+        import monitor.db as _db
+        from monitor import notifier
+
+        plaintext = "https://open.feishu.cn/open-apis/bot/v2/hook/super-secret-token"
+        with self._ctx():
+            _db.init_db()
+            account_id = _db.add_account(
+                name="TestAccount",
+                channel_url="https://www.youtube.com/@test",
+                api_key_env="YOUTUBE_Data_API_V3",
+            )
+            with _db.get_connection() as conn:
+                cur = conn.execute(
+                    """INSERT INTO monitor_events
+                       (account_id, account_name, scan_started_at, status, total_videos, new_videos)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (account_id, "TestAccount", _db.now_iso(), "success", 1, 1),
+                )
+                event_id = cur.lastrowid
+
+            notifier._log_result(
+                platform="feishu",
+                account_name="TestAccount",
+                video_count=1,
+                success=True,
+                response="{\"code\":0}",
+                event_id=event_id,
+                account_id=account_id,
+                now_str=_db.now_iso(),
+                webhook_url=plaintext,
+            )
+
+            with _db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT webhook_url FROM monitor_notify_logs WHERE event_id=?",
+                    (event_id,),
+                ).fetchone()
+
+            self.assertIsNotNone(row)
+            self.assertNotEqual(row[0], plaintext)
+            self.assertNotIn("super-secret-token", row[0])
+
+    def test_notify_log_does_not_expose_webhook_token(self):
+        from monitor import notifier
+
+        plaintext = "https://open.feishu.cn/open-apis/bot/v2/hook/super-secret-token"
+        videos = [{"video_id": 1, "title": "Video 1", "url": "https://youtu.be/test"}]
+
+        with patch.object(notifier._log, "info") as mock_info, \
+             patch.object(notifier, "_send_webhook", return_value=(True, '{"code":0}')), \
+             patch.object(notifier, "_log_result"), \
+             patch.object(notifier._db, "mark_notify_sent"):
+            notifier.notify(
+                event_id=1,
+                account_id=1,
+                account_name="TestAccount",
+                channel_url="https://www.youtube.com/@test",
+                videos=videos,
+                platform="feishu",
+                webhook_url=plaintext,
+                duration_ms=123,
+            )
+
+        joined_messages = "\n".join(
+            str(call.args[0]) for call in mock_info.call_args_list if call.args
+        )
+        self.assertNotIn("super-secret-token", joined_messages)
+        self.assertIn("https://open.feishu.cn/[redacted]", joined_messages)
 
 
 if __name__ == "__main__":
