@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 import apscheduler.schedulers.background
 import apscheduler.triggers.interval
 
+import json
+
 import logging_config
 import monitor.db as _db
 import monitor.detector as _detector
@@ -20,6 +22,8 @@ import monitor.notifier as _notifier
 import monitor.quota as _quota
 from concurrent.futures import ThreadPoolExecutor
 from Youtube_Downloader import batch_download, build_aria2_opts
+from sqlalchemy import select
+from monitor.database import t_monitor_videos
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -415,11 +419,11 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         # 显式参数（立即扫描）或全局开关（定时扫描）均可触发
         effective_auto_dl = auto_download or _auto_download_on_scan
         if effective_auto_dl and inserted > 0:
+            mv = t_monitor_videos
             with _db.get_connection() as conn:
                 rows = conn.execute(
-                    "SELECT id, url FROM monitor_videos WHERE event_id = ?",
-                    (event_id,),
-                ).fetchall()
+                    select(mv.c.id, mv.c.url).where(mv.c.event_id == event_id)
+                ).mappings().all()
             new_video_records = [dict(r) for r in rows]
 
             threading.Thread(

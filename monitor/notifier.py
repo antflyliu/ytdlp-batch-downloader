@@ -10,6 +10,7 @@ import requests
 
 import logging_config
 import monitor.db as _db
+from monitor.database import t_monitor_notify_logs
 
 _log = logging_config.get_logger("monitor.notifier")
 
@@ -748,10 +749,15 @@ def _log_result(
     redacted_webhook = _redact_webhook_url(webhook_url)
     with _db.get_connection() as conn:
         conn.execute(
-            """INSERT INTO monitor_notify_logs
-               (event_id, account_id, account_name, video_count, platform, webhook_url,
-                http_status, response_text, sent_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (event_id, account_id, account_name, video_count, platform, redacted_webhook,
-             http_status, resp_text, now_str),
+            t_monitor_notify_logs.insert().values(
+                event_id=event_id,
+                account_id=account_id,
+                account_name=account_name,
+                video_count=video_count,
+                platform=platform,
+                webhook_url=redacted_webhook,
+                http_status=http_status,
+                response_text=resp_text,
+                sent_at=now_str,
+            )
         )
