@@ -410,18 +410,24 @@
   }
   #modalProxyPools .modal-body {
     padding: 16px 24px 20px;
+    background:
+      radial-gradient(circle at top right, rgba(45,212,191,0.04), transparent 30%),
+      linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
   }
 
   /* ── 代理池演示入口 ──────────────────────────────── */
   #ppDemoSection {
-    background: var(--proxy-tint);
-    border: 1px solid var(--proxy-border);
-    border-radius: 12px;
+    background:
+      linear-gradient(135deg, rgba(45,212,191,0.08), rgba(45,212,191,0.02)),
+      rgba(9,14,20,0.92);
+    border: 1px solid rgba(45,212,191,0.18);
+    border-radius: 14px;
     padding: 16px 20px;
     margin-bottom: 16px;
     display: flex;
     align-items: center;
     gap: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
   }
   #ppDemoIcon {
     width: 44px; height: 44px;
@@ -651,11 +657,24 @@
 
   /* ── 账户表单代理区域 ────────────────────────────────────── */
   .proxy-section {
-    background: var(--proxy-tint);
-    border: 1px solid var(--proxy-border);
-    border-radius: var(--r-md);
-    padding: 14px 16px;
+    background:
+      linear-gradient(180deg, rgba(45,212,191,0.08), rgba(45,212,191,0.03)),
+      rgba(9,14,20,0.9);
+    border: 1px solid rgba(45,212,191,0.18);
+    border-radius: 14px;
+    padding: 16px 16px 14px;
     margin: 4px 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+    position: relative;
+    overflow: hidden;
+  }
+  .proxy-section::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(45,212,191,0.35), transparent);
+    pointer-events: none;
   }
   .proxy-section .form-label {
     color: var(--proxy-text);
@@ -664,6 +683,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .proxy-section .form-label::before {
     content: '';
@@ -689,14 +710,16 @@
   }
   .proxy-toggle-title {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--text);
     margin-bottom: 2px;
+    letter-spacing: -0.01em;
   }
   .proxy-toggle-sub {
     font-size: 11px;
-    color: rgba(45,212,191,0.62);
-    line-height: 1.45;
+    color: rgba(45,212,191,0.72);
+    line-height: 1.5;
+    max-width: 42ch;
   }
   .proxy-toggle-label {
     display: flex;
@@ -743,12 +766,38 @@
     box-shadow: 0 0 6px var(--proxy-dot-on);
   }
   .proxy-select-wrap {
-    margin-top: 4px;
+    margin-top: 8px;
   }
   .proxy-select-wrap select {
     width: 100%;
+    border-color: rgba(45,212,191,0.22);
+    background: rgba(8,12,18,0.78);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
   }
   .proxy-select-wrap select option[disabled] { color: var(--text-dim); }
+  .proxy-mode-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(45,212,191,0.08);
+    border: 1px solid rgba(45,212,191,0.14);
+    color: rgba(45,212,191,0.82);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .proxy-mode-kicker::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--proxy-text);
+    box-shadow: 0 0 8px rgba(45,212,191,0.42);
+  }
 
   /* ── 代理池工作台层级 ───────────────────────────── */
   .pp-workspace-head {
@@ -1688,6 +1737,89 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
+
+  /* ── Dynamic proxy settings ────────────────────────────────── */
+  .settings-section {
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 16px 0;
+    position: relative;
+  }
+  .settings-section:last-child { border-bottom: none; }
+  .section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--proxy-text, #2dd4bf);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(45,212,191,0.9), rgba(45,212,191,0.12));
+  }
+  .settings-subsection {
+    margin-top: 12px;
+    padding: 14px 14px 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .subsection-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    flex: 1;
+    padding-right: 12px;
+  }
+  .setting-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 2px;
+  }
+  .settings-details {
+    margin-top: 12px;
+  }
+  .settings-details summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    padding: 4px 0;
+    user-select: none;
+  }
+  .settings-details[open] summary {
+    color: rgba(255,255,255,0.6);
+  }
+  .form-help-text {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 4px;
+  }
+
+  /* ── Routing info toast ────────────────────────────────────── */
+  .toast.warning { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.4); }
+
 </style>
 </head>
 <body>
@@ -1715,7 +1847,7 @@
           <line x1="2" y1="12" x2="22" y2="12"/>
           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
         </svg>
-        代理池
+        固定代理
       </button>
     </div>
   </header>
@@ -1911,10 +2043,10 @@
       </div>
       <hr class="form-sep">
       <div class="proxy-section">
-        <div class="form-label">下载代理 · Proxy</div>
+        <div class="form-label">下载网络策略</div>
         <div class="proxy-toggle-row">
           <div class="proxy-toggle-copy">
-            <div class="proxy-toggle-title">启用代理通道</div>
+            <div class="proxy-toggle-title">启用账户固定代理</div>
             <div class="proxy-toggle-sub">新视频自动下载与手动批量下载都会使用所选节点</div>
           </div>
           <label class="toggle-switch">
@@ -1922,6 +2054,24 @@
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>
         </div>
+
+        <div class="proxy-mode-kicker">routing policy</div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">
+            下载模式
+            <span class="form-hint" style="margin-top:2px">决定何时使用固定代理、何时回退动态代理</span>
+          </label>
+          <select id="accDownloadProxyMode" class="form-input" onchange="onAccountProxyModeChange()">
+            <option value="auto">自动（推荐）</option>
+            <option value="account_only">仅账户固定代理</option>
+            <option value="system_only">仅系统动态代理</option>
+            <option value="direct_only">始终直连</option>
+          </select>
+          <div class="form-help-text" id="accProxyModeHelp">
+            优先使用账户固定代理，不可用时回退到系统动态代理
+          </div>
+        </div>
+
         <div class="proxy-select-wrap">
           <select class="form-input" id="accProxyPoolSelect" onchange="updateProxyLabel()" disabled>
             <option value="">— 先开启代理，再选择节点 —</option>
@@ -1937,11 +2087,11 @@
   </div>
 </div>
 
-<!-- 模态: IP 代理池管理 -->
+<!-- 模态: 固定代理管理 -->
 <div class="modal-overlay" id="modalProxyPools">
   <div class="modal" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
     <div class="modal-header">
-      <div class="modal-title">代理池管理</div>
+      <div class="modal-title">固定代理管理</div>
       <button class="modal-close" onclick="closeModal('modalProxyPools')">✕</button>
     </div>
     <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column">
@@ -1955,7 +2105,7 @@
         </div>
         <div id="ppDemoText">
           <div class="pp-state-chip">快速了解</div>
-          <h4 style="margin-top:6px">代理池工作原理</h4>
+          <h4 style="margin-top:6px">固定代理工作原理</h4>
           <p>节点绑定 → 路由覆盖自动/批量下载 → 防 429 限流</p>
         </div>
         <button id="ppDemoBtn" onclick="openProxyDemo()">
@@ -1968,7 +2118,7 @@
       <div id="ppTableView">
         <div class="pp-workspace-head">
           <div class="pp-workspace-copy">
-            <div class="pp-workspace-title">代理节点工作台</div>
+            <div class="pp-workspace-title">固定代理节点工作台</div>
             <div class="pp-workspace-desc">
               在这里维护所有下载节点。已掩码展示地址，仅保留主机信息；启用后的节点可被账户直接绑定。
             </div>
@@ -2013,8 +2163,8 @@
             </div>
             <div class="proxy-empty-copy">
               <div class="proxy-empty-kicker">workspace empty</div>
-              <div class="proxy-empty-title">代理节点工作台还没有接入任何出口</div>
-              <div class="proxy-empty-desc">先创建一个节点，再把它绑定到账户的下载代理里。配置完成后，自动下载和批量下载都会复用这条出口链路。</div>
+              <div class="proxy-empty-title">固定代理节点工作台还没有接入任何出口</div>
+              <div class="proxy-empty-desc">先创建一个节点，再把它绑定到账户的下载网络策略里。配置完成后，自动下载和批量下载都会复用这条出口链路。</div>
             </div>
           </div>
           <div class="proxy-empty-steps">
@@ -2029,7 +2179,7 @@
               <div class="proxy-step-num">2</div>
               <div class="proxy-step-body">
                 <div class="proxy-step-title">绑定到账户</div>
-                <div class="proxy-step-sub">在账户设置里开启「启用代理通道」并选择节点</div>
+                <div class="proxy-step-sub">在账户设置里配置下载网络策略并选择节点</div>
               </div>
             </div>
           </div>
@@ -2048,7 +2198,7 @@
         <div id="ppDemoToolbar">
           <span>
             <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            代理池功能预览
+            固定代理功能预览
           </span>
           <div style="display:flex;align-items:center;gap:8px">
             <span class="pp-demo-note">
@@ -2058,18 +2208,18 @@
             <button id="ppDemoClose" onclick="closeProxyDemo()">返回节点管理</button>
           </div>
         </div>
-        <iframe id="ppDemoFrame" src="proxy-pool-feature.html" frameborder="0" allowfullscreen title="代理池功能演示"></iframe>
+        <iframe id="ppDemoFrame" src="proxy-pool-feature.html" frameborder="0" allowfullscreen title="固定代理功能演示"></iframe>
       </div>
 
     </div>
   </div>
 </div>
 
-<!-- 模态: 添加/编辑代理池 -->
+<!-- 模态: 添加/编辑固定代理 -->
 <div class="modal-overlay" id="modalProxyPoolForm">
   <div class="modal" style="max-width:480px" id="modalProxyPoolFormInner">
     <div class="modal-header">
-      <div class="modal-title" id="modalProxyPoolFormTitle">添加代理节点</div>
+      <div class="modal-title" id="modalProxyPoolFormTitle">添加固定代理节点</div>
       <button class="modal-close" onclick="closeModal('modalProxyPoolForm')">✕</button>
     </div>
     <div class="modal-body">
@@ -2385,6 +2535,159 @@
           <label class="form-label">📝 字幕语言（批量下载时）</label>
           <input class="form-input" id="cfgSubLangs" placeholder="zh-Hans,en">
           <div class="form-hint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
+        </div>
+
+        <!-- ===== 系统默认动态代理 ===== -->
+        <div class="settings-section">
+          <h3 class="section-title">系统默认动态代理</h3>
+
+          <!-- 开关: 启用系统默认动态代理 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              启用系统默认动态代理
+              <span class="setting-desc">当账户固定代理不可用时，系统自动尝试动态代理线路。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_system_dynamic_proxy_enabled" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 开关: 新账户默认继承 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              新账户默认继承系统动态代理
+              <span class="setting-desc">新建账户时，如果没有绑定固定代理，将自动按系统策略选择。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_apply_dynamic_proxy_to_new_accounts" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 开关: 历史账户启用回退 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              对现有账户统一启用系统回退
+              <span class="setting-desc" style="color:#f59e0b">⚠️ 开启后将改变现有账户行为，请确认。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_apply_dynamic_proxy_to_existing_accounts" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 风险控制区块 -->
+          <div class="settings-subsection">
+            <h4 class="subsection-title">风险控制</h4>
+
+            <!-- 免费代理参与手动下载 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                允许免费代理参与手动下载
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 免费代理参与自动下载 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                允许免费代理参与自动下载
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_for_auto_download" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- Cookie下载禁止免费代理 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                带 Cookie 下载禁止免费代理
+                <span class="setting-desc">安全策略：Cookie 下载默认不使用免费公共代理。</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_with_cookies" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 手动下载允许直连兜底 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                手动下载允许直连兜底
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_manual_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 自动下载允许直连兜底 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                自动下载允许直连兜底
+                <span class="setting-desc" style="color:#f59e0b">⚠️ 自动下载默认不允许直连，请确认。</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_auto_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 高级设置区块 -->
+          <details class="settings-details">
+            <summary>高级设置</summary>
+
+            <!-- 协议优先级 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                协议优先级
+                <span class="setting-desc">按顺序尝试代理协议</span>
+              </label>
+              <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="width:200px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+                <option value="http,https,socks5">HTTP → HTTPS → SOCKS5</option>
+                <option value="https,http,socks5">HTTPS → HTTP → SOCKS5</option>
+                <option value="socks5,https,http">SOCKS5 → HTTPS → HTTP</option>
+              </select>
+            </div>
+
+            <!-- 会话模式 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                默认会话模式
+              </label>
+              <select id="cfg_default_session_mode" onchange="onDynamicProxySettingChange()" style="width:200px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+                <option value="sticky">粘性会话（推荐）</option>
+                <option value="rotating">轮换会话</option>
+              </select>
+            </div>
+
+            <!-- 粘性会话时长 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                粘性会话时长（分钟）
+              </label>
+              <input type="number" id="cfg_default_sticky_minutes" value="10" min="1" max="60"
+                     style="width:80px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none" onchange="onDynamicProxySettingChange()">
+            </div>
+
+            <!-- 掩码代理日志 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                日志中掩码代理地址
+                <span class="setting-desc">隐藏代理出口的具体 IP 和端口</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_mask_proxy_in_logs" checked onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -2771,6 +3074,9 @@
     document.getElementById('accProxyPoolSelect').value = '';
     document.getElementById('accProxyPoolSelect').disabled = true;
     document.getElementById('accProxyPoolSelect').style.opacity = '0.4';
+    // Set default download proxy mode
+    document.getElementById('accDownloadProxyMode').value = 'auto';
+    onAccountProxyModeChange();
     selectPlatform('feishu');
     await refreshApiKeySelectors();
     await refreshProxyPoolSelectors();
@@ -2800,6 +3106,10 @@
     document.getElementById('accEnabled').checked = acc.enabled;
     document.getElementById('accNotify').checked = acc.notify_enabled;
     document.getElementById('accProxyEnabled').checked = !!acc.proxy_enabled;
+    // Set download proxy mode
+    const proxyMode = acc.download_proxy_mode || 'auto';
+    document.getElementById('accDownloadProxyMode').value = proxyMode;
+    onAccountProxyModeChange();
     // refreshProxyPoolSelectors() 必须先执行完毕，才知道 options 里有没有 acc.proxy_pool_id
     const savedProxyId = acc.proxy_pool_id || '';
     await refreshProxyPoolSelectors(savedProxyId);
@@ -2831,10 +3141,47 @@
     // 用于前端展示，实际值由 option.value 获取
   }
 
+  // Proxy mode descriptions
+  const PROXY_MODE_HELP = {
+    'auto': '优先使用账户固定代理，不可用时回退到系统动态代理',
+    'account_only': '只使用账户绑定的固定代理，不做系统回退',
+    'system_only': '忽略账户固定代理，始终使用系统动态代理',
+    'direct_only': '本账户下载不使用任何代理',
+  };
+
+  function onAccountProxyModeChange() {
+    const mode = document.getElementById('accDownloadProxyMode').value;
+    const helpText = document.getElementById('accProxyModeHelp');
+    const proxyToggle = document.getElementById('accProxyEnabled');
+    const proxySelect = document.getElementById('accProxyPoolSelect');
+
+    if (helpText) {
+      helpText.textContent = PROXY_MODE_HELP[mode] || '';
+    }
+
+    // Show/hide static proxy controls based on mode
+    if (proxyToggle && proxySelect) {
+      if (mode === 'direct_only' || mode === 'system_only') {
+        proxyToggle.checked = false;
+        proxySelect.disabled = true;
+        proxySelect.value = '';
+        proxySelect.style.opacity = '0.4';
+        proxySelect.style.cursor = 'not-allowed';
+      } else {
+        proxySelect.style.opacity = '';
+        proxySelect.style.cursor = '';
+      }
+    }
+  }
+
+  function onDynamicProxySettingChange() {
+    // No-op: config modal saves on explicit button click, no need to track dirty state
+  }
+
   async function refreshProxyPoolSelectors(selectedId) {
     const sel = document.getElementById('accProxyPoolSelect');
     const pools = await api('GET', '/proxy-pools');
-    const opts = ['<option value="">— 选择代理池 —</option>'];
+    const opts = ['<option value="">— 选择固定代理 —</option>'];
     if (pools && pools.length > 0) {
       pools.forEach(p => {
         const enabled = p.enabled ? '' : ' [禁用]';
@@ -2871,6 +3218,7 @@
       notify_enabled: document.getElementById('accNotify').checked,
       proxy_pool_id: proxy_pool_id,
       proxy_enabled: document.getElementById('accProxyEnabled').checked,
+      download_proxy_mode: document.getElementById('accDownloadProxyMode').value,
     };
     if (!body.name || !body.channel_url) {
       toast('名称和频道 URL 不能为空', 'err');
@@ -3059,6 +3407,28 @@
     }
 
     toast(r.queued + ' 个视频已开始下载', 'ok');
+
+    // 显示路由信息
+    const routing = r.routing;
+    if (routing) {
+      const sourceLabels = {
+        'account_static': '账户固定代理',
+        'system_paid': '系统付费动态代理',
+        'system_free': '系统免费动态代理',
+        'direct': '直连',
+        'failed': '路由失败',
+      };
+      const source = sourceLabels[routing.source] || routing.source || '未知';
+      let routingMsg = '本次线路: ' + source;
+      if (routing.provider) routingMsg += ' | ' + routing.provider;
+      if (routing.warnings && routing.warnings.length > 0) {
+        routingMsg += ' | ⚠️ ' + routing.warnings.join(', ');
+      }
+      setTimeout(() => {
+        toast(routingMsg, routing.source === 'direct' || routing.source === 'failed' ? 'warning' : 'info');
+      }, 500);
+    }
+
     _vdShowDlBar(r.task_id, r.queued);
     await vdLoad();
   }
@@ -3178,6 +3548,26 @@
     document.getElementById('cfgSubLangs').value = cfg.default_sub_langs || 'zh-Hans,en';
     await refreshApiKeySelectors();
     document.getElementById('cfgDefaultApiKey').value = cfg.default_api_key_id || '';
+
+    // 系统默认动态代理配置
+    document.getElementById('cfg_system_dynamic_proxy_enabled').checked = !!cfg.system_dynamic_proxy_enabled;
+    document.getElementById('cfg_apply_dynamic_proxy_to_new_accounts').checked = cfg.apply_dynamic_proxy_to_new_accounts !== false;
+    document.getElementById('cfg_apply_dynamic_proxy_to_existing_accounts').checked = !!cfg.apply_dynamic_proxy_to_existing_accounts;
+    document.getElementById('cfg_allow_free_proxy').checked = cfg.allow_free_proxy !== false;
+    document.getElementById('cfg_allow_free_proxy_for_auto_download').checked = !!cfg.allow_free_proxy_for_auto_download;
+    document.getElementById('cfg_allow_free_proxy_with_cookies').checked = !!cfg.allow_free_proxy_with_cookies;
+    document.getElementById('cfg_manual_direct_fallback').checked = cfg.manual_direct_fallback !== false;
+    document.getElementById('cfg_auto_direct_fallback').checked = !!cfg.auto_direct_fallback;
+    const protoOrder = cfg.default_proxy_protocol_order;
+    if (Array.isArray(protoOrder)) {
+      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder.join(',');
+    } else {
+      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder || 'http,https,socks5';
+    }
+    document.getElementById('cfg_default_session_mode').value = cfg.default_session_mode || 'sticky';
+    document.getElementById('cfg_default_sticky_minutes').value = cfg.default_sticky_minutes || 10;
+    document.getElementById('cfg_mask_proxy_in_logs').checked = cfg.mask_proxy_in_logs !== false;
+
     openModal('modalConfig');
   }
 
@@ -3192,6 +3582,20 @@
       enable_aria2: document.getElementById('cfgEnableAria2').checked,
       default_sub_langs: document.getElementById('cfgSubLangs').value.trim() || 'zh-Hans,en',
       default_api_key_id: document.getElementById('cfgDefaultApiKey').value || null,
+
+      // 系统默认动态代理配置
+      system_dynamic_proxy_enabled: document.getElementById('cfg_system_dynamic_proxy_enabled').checked,
+      apply_dynamic_proxy_to_new_accounts: document.getElementById('cfg_apply_dynamic_proxy_to_new_accounts').checked,
+      apply_dynamic_proxy_to_existing_accounts: document.getElementById('cfg_apply_dynamic_proxy_to_existing_accounts').checked,
+      allow_free_proxy: document.getElementById('cfg_allow_free_proxy').checked,
+      allow_free_proxy_for_auto_download: document.getElementById('cfg_allow_free_proxy_for_auto_download').checked,
+      allow_free_proxy_with_cookies: document.getElementById('cfg_allow_free_proxy_with_cookies').checked,
+      manual_direct_fallback: document.getElementById('cfg_manual_direct_fallback').checked,
+      auto_direct_fallback: document.getElementById('cfg_auto_direct_fallback').checked,
+      default_proxy_protocol_order: document.getElementById('cfg_default_proxy_protocol_order').value.split(','),
+      default_session_mode: document.getElementById('cfg_default_session_mode').value,
+      default_sticky_minutes: parseInt(document.getElementById('cfg_default_sticky_minutes').value) || 10,
+      mask_proxy_in_logs: document.getElementById('cfg_mask_proxy_in_logs').checked,
     };
     const r = await api('POST', '/config', body);
     if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
@@ -3493,7 +3897,7 @@
   async function openEditProxyPool(id) {
     const pools = await api('GET', '/proxy-pools');
     const pool = pools && pools.find(p => p.id === id);
-    if (!pool) return toast('代理池不存在', 'err');
+    if (!pool) return toast('固定代理不存在', 'err');
     document.getElementById('modalProxyPoolFormTitle').textContent = '编辑代理节点';
     document.getElementById('ppId').value = pool.id;
     document.getElementById('ppName').value = pool.name;
@@ -3519,7 +3923,7 @@
       r = await api('POST', '/proxy-pools', body);
     }
     if (r.error) { toast(r.error || '保存失败', 'err'); return; }
-    toast(id ? '代理池已更新' : '代理池已添加', 'ok');
+    toast(id ? '固定代理已更新' : '固定代理已添加', 'ok');
     closeModal('modalProxyPoolForm');
     await loadProxyPoolTable();
     await refreshProxyPoolSelectors();
@@ -3531,7 +3935,7 @@
     if (!pool) return;
     const r = await api('POST', `/proxy-pools/${id}/update`, { enabled });
     if (r.error) { toast(r.error, 'err'); return; }
-    toast(enabled ? '代理池已启用' : '代理池已禁用', 'ok');
+    toast(enabled ? '固定代理已启用' : '固定代理已禁用', 'ok');
     await loadProxyPoolTable();
     await refreshProxyPoolSelectors();
   }
@@ -3539,8 +3943,8 @@
   async function deleteProxyPool(id) {
     const pools = await api('GET', '/proxy-pools');
     const pool = pools && pools.find(p => p.id === id);
-    if (!pool) return toast('代理池不存在', 'err');
-    if (!confirm(`确定删除代理池「${pool.name}」？\n\n关联的账户将停止使用此代理。`)) return;
+    if (!pool) return toast('固定代理不存在', 'err');
+    if (!confirm(`确定删除固定代理「${pool.name}」？\n\n关联的账户将停止使用此代理。`)) return;
     const r = await api('DELETE', `/proxy-pools/${id}`);
     if (r.error) { toast(r.error, 'err'); return; }
     if (r.affected_accounts && r.affected_accounts.length > 0) {

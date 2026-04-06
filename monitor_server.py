@@ -36,6 +36,7 @@ import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
 from Youtube_Downloader import batch_download, build_aria2_opts
+from monitor.dynamic_provider_resolver import resolve_for_manual_download, log_download_decision
 
 _log = logging_config.get_logger("monitor_server")
 
@@ -314,6 +315,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_api_keys_list()
         elif path == "/api/proxy-pools":
             self._api_proxy_pools_list()
+        elif path == "/api/dynamic-providers":
+            self._api_dynamic_providers_list()
+        elif path == "/api/routing-preview":
+            self._api_routing_preview()
         elif path.startswith("/api/api-keys/"):
             parts = path.split("/")
             action = parts[-1]
@@ -390,6 +395,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_cache_clear()
         elif path == "/api/proxy-pools":
             self._api_proxy_pool_add(body)
+        elif path == "/api/dynamic-providers":
+            self._api_dynamic_provider_add(body)
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/update"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_update(int(pid), body)
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/health-check"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_health_check(int(pid))
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/cooldown/clear"):
+            pid = path.split("/")[-3]
+            if pid.isdigit():
+                self._api_dynamic_provider_cooldown_clear(int(pid))
         elif path == "/api/system/shutdown":
             self._api_system_shutdown()
         elif path.startswith("/api/proxy-pools/") and path.endswith("/update"):
@@ -428,6 +447,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pid = path.split("/")[-1]
             if pid.isdigit():
                 self._api_proxy_pool_delete(int(pid))
+        elif path.startswith("/api/dynamic-providers/"):
+            pid = path.split("/")[-1]
+            if pid.isdigit():
+                self._api_dynamic_provider_delete(int(pid))
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -472,6 +495,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "feishu_scan_template_id": a.get("feishu_scan_template_id") or "",
             "proxy_pool_id": a.get("proxy_pool_id"),
             "proxy_enabled": bool(a.get("proxy_enabled", 0)),
+            "download_proxy_mode": a.get("download_proxy_mode", "auto"),
         } for a in accounts]
         self._send_json(result)
 
@@ -527,9 +551,22 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                enable_aria2, default_sub_langs, default_api_key_id
         """
         cfg = _db.load_config()
-        for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
-                    "quota_budget_per_day", "download_cookies_file", "download_output_path",
-                    "enable_aria2", "default_sub_langs", "default_api_key_id"]:
+        for key in [
+            "global_feishu_url", "global_dingtalk_url", "global_wecom_url",
+            "quota_budget_per_day", "download_cookies_file", "download_output_path",
+            "enable_aria2", "default_sub_langs", "default_api_key_id",
+            # 系统默认动态代理配置
+            "system_dynamic_proxy_enabled", "apply_dynamic_proxy_to_new_accounts",
+            "apply_dynamic_proxy_to_existing_accounts", "manual_download_route_policy",
+            "auto_download_route_policy", "allow_free_proxy",
+            "allow_free_proxy_for_auto_download", "allow_free_proxy_with_cookies",
+            "manual_direct_fallback", "auto_direct_fallback",
+            "default_proxy_country_codes", "default_proxy_protocol_order",
+            "default_session_mode", "default_sticky_minutes",
+            "candidate_prefetch_count", "candidate_validate_count",
+            "validated_pool_ttl_seconds", "provider_cooldown_seconds",
+            "proxy_probe_timeout_seconds", "mask_proxy_in_logs",
+        ]:
             if key in body:
                 cfg[key] = body[key]
         # 校验 default_api_key_id 引用有效性
@@ -606,6 +643,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     api_key_id=api_key_id_param,
                     proxy_pool_id=proxy_pool_id_param,
                     proxy_enabled=bool(body.get("proxy_enabled")) if "proxy_enabled" in body else None,
+                    download_proxy_mode=body.get("download_proxy_mode", "auto"),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -628,6 +666,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     api_key_id=api_key_id_param,
                     proxy_pool_id=proxy_pool_id_param,
                     proxy_enabled=bool(body.get("proxy_enabled", False)),
+                    download_proxy_mode=body.get("download_proxy_mode", "auto"),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -825,6 +864,213 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             _log.error("代理池删除异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
+    # ── Dynamic Proxy Provider API ──────────────────────────────
+
+    def _api_dynamic_providers_list(self):
+        """GET /api/dynamic-providers — 列出所有动态代理提供方"""
+        providers = _db.list_dynamic_proxy_providers()
+        result = []
+        for p in providers:
+            cfg = p.get("config_json", {})
+            # Mask sensitive fields in preview
+            preview = dict(cfg)
+            if "password" in preview:
+                preview["password"] = "***"
+            result.append({
+                "id": p["id"],
+                "name": p["name"],
+                "enabled": bool(p["enabled"]),
+                "billing_tier": p.get("billing_tier", "free"),
+                "adapter_type": p.get("adapter_type", "public_feed"),
+                "priority": p.get("priority", 100),
+                "supports_cookies": bool(p.get("supports_cookies")),
+                "supports_auto_download": bool(p.get("supports_auto_download")),
+                "supports_country_filter": bool(p.get("supports_country_filter")),
+                "supports_sticky_session": bool(p.get("supports_sticky_session")),
+                "risk_level": p.get("risk_level", "medium"),
+                "notes": p.get("notes") or "",
+                "last_health_status": p.get("last_health_status") or "",
+                "last_health_checked_at": p.get("last_health_checked_at") or "",
+                "last_error_message": p.get("last_error_message") or "",
+                "is_in_cooldown": bool(p.get("cooldown_until")),
+                "created_at": p.get("created_at"),
+                "updated_at": p.get("updated_at"),
+            })
+        self._send_json(result)
+
+    def _api_dynamic_provider_add(self, body: dict):
+        """POST /api/dynamic-providers — 新增动态代理提供方"""
+        try:
+            name = body.get("name", "").strip()
+            if not name:
+                self._send_json({"error": "名称不能为空"}, 400)
+                return
+            provider_id = _db.add_dynamic_proxy_provider(
+                name=name,
+                billing_tier=body.get("billing_tier", "free"),
+                adapter_type=body.get("adapter_type", "public_feed"),
+                config_json=body.get("config_json") or {},
+                enabled=bool(body.get("enabled", True)),
+                priority=int(body.get("priority", 100)),
+                supports_cookies=bool(body.get("supports_cookies", False)),
+                supports_auto_download=bool(body.get("supports_auto_download", True)),
+                supports_country_filter=bool(body.get("supports_country_filter", False)),
+                supports_sticky_session=bool(body.get("supports_sticky_session", False)),
+                risk_level=body.get("risk_level", "medium"),
+                notes=body.get("notes") or None,
+            )
+            self._send_json({"ok": True, "id": provider_id})
+        except Exception:
+            _log.error("动态代理提供方新增异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_update(self, provider_id: int, body: dict):
+        """POST /api/dynamic-providers/{id}/update — 更新动态代理提供方"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            update_kwargs = {}
+            if "name" in body: update_kwargs["name"] = body["name"].strip()
+            if "enabled" in body: update_kwargs["enabled"] = bool(body["enabled"])
+            if "billing_tier" in body: update_kwargs["billing_tier"] = body["billing_tier"]
+            if "adapter_type" in body: update_kwargs["adapter_type"] = body["adapter_type"]
+            if "priority" in body: update_kwargs["priority"] = int(body["priority"])
+            if "supports_cookies" in body: update_kwargs["supports_cookies"] = bool(body["supports_cookies"])
+            if "supports_auto_download" in body: update_kwargs["supports_auto_download"] = bool(body["supports_auto_download"])
+            if "supports_country_filter" in body: update_kwargs["supports_country_filter"] = bool(body["supports_country_filter"])
+            if "supports_sticky_session" in body: update_kwargs["supports_sticky_session"] = bool(body["supports_sticky_session"])
+            if "risk_level" in body: update_kwargs["risk_level"] = body["risk_level"]
+            if "notes" in body: update_kwargs["notes"] = body["notes"] or None
+            if "config_json" in body: update_kwargs["config_json"] = body["config_json"]
+            _db.update_dynamic_proxy_provider(provider_id, **update_kwargs)
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("动态代理提供方更新异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_delete(self, provider_id: int):
+        """DELETE /api/dynamic-providers/{id} — 删除动态代理提供方"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            _db.delete_dynamic_proxy_provider(provider_id)
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("动态代理提供方删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_health_check(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/health-check — 触发健康检查（v1: 占位）"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            # v1: 不实现实际 HTTP 健康检查，直接标记为 healthy
+            _db.update_dynamic_proxy_provider(
+                provider_id,
+                last_health_status="healthy",
+                last_health_checked_at=_db.now_iso(),
+                last_error_message=None,
+                cooldown_until=None,
+            )
+            self._send_json({"ok": True, "status": "healthy"})
+        except Exception:
+            _log.error("动态代理健康检查异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_cooldown_clear(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/cooldown/clear — 清除冷却"""
+        try:
+            _db.update_dynamic_proxy_provider(
+                provider_id,
+                cooldown_until=None,
+                last_health_status="healthy",
+                last_health_checked_at=_db.now_iso(),
+            )
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("清除代理提供方冷却异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_routing_preview(self):
+        """
+        GET /api/routing-preview — 预览下载路由决策（不触发实际下载）
+
+        Query params:
+            account_id   (int)   必填，账户 ID
+            auto         (0|1)   可选，默认 0（0=手动下载, 1=自动下载）
+            cookies      (0|1)   可选，默认 0（0=无cookie, 1=有cookie）
+            direct       (0|1)   可选，默认 0（0=正常路由, 1=强制直连）
+
+        Returns the ProxyRouteResult fields so the caller can preview
+        what proxy will be used before triggering a download.
+        """
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+
+        try:
+            account_id = int(params.get("account_id", ["0"])[0])
+        except (ValueError, TypeError):
+            self._send_json({"error": "account_id 必填且必须为整数"}, 400)
+            return
+
+        is_auto_download = params.get("auto", ["0"])[0] in ("1", "true")
+        cookies_present = params.get("cookies", ["0"])[0] in ("1", "true")
+        user_forced_direct = params.get("direct", ["0"])[0] in ("1", "true")
+
+        account = _db.get_account(account_id)
+        if not account:
+            self._send_json({"error": "账户不存在"}, 404)
+            return
+
+        from monitor.dynamic_provider_resolver import resolve_for_manual_download, resolve_for_auto_download
+        if is_auto_download:
+            route = resolve_for_auto_download(account_id)
+        else:
+            route = resolve_for_manual_download(account_id, cookies_present)
+
+        if user_forced_direct:
+            from monitor.proxy_router import ProxyRouteResult
+            route = ProxyRouteResult(
+                resolved_mode="direct",
+                proxy=None,
+                proxy_pool=None,
+                provider_name=None,
+                provider_tier=None,
+                resolved_proxy_source="direct",
+                reason="用户显式指定直连",
+                warnings=[],
+                fallback_depth=0,
+                masked_proxy_endpoint=None,
+                session_mode=None,
+                cookies_file_present=cookies_present,
+            )
+
+        self._send_json({
+            "account_id": account_id,
+            "account_name": account.get("name", ""),
+            "download_proxy_mode": account.get("download_proxy_mode", "auto"),
+            "is_auto_download": is_auto_download,
+            "cookies_present": cookies_present,
+            "user_forced_direct": user_forced_direct,
+            "routing": {
+                "resolved_mode": route.resolved_mode,
+                "resolved_proxy_source": route.resolved_proxy_source,
+                "provider_name": route.provider_name,
+                "provider_tier": route.provider_tier,
+                "masked_proxy_endpoint": route.masked_proxy_endpoint,
+                "session_mode": route.session_mode,
+                "fallback_depth": route.fallback_depth,
+                "reason": route.reason,
+                "warnings": route.warnings,
+            },
+        })
+
     def _api_account_videos(self, acc_id: str):
         """GET /api/accounts/{id}/videos — 分页查询账户视频"""
         try:
@@ -922,32 +1168,101 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "视频记录中无有效 URL"}, 400)
             return
 
-        # 解析账户代理（仅记录 host，不记录完整 URL 含认证信息）
+        # ── 统一代理解析（替换旧的 proxy = _db.get_account_proxy()）───
         account = _db.get_account(int(acc_id))
-        proxy = _db.get_account_proxy(account) if account else None
-        if proxy:
-            try:
-                from urllib.parse import urlparse
-                parsed = urlparse(proxy)
-                proxy_repr = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
-            except Exception:
-                proxy_repr = "[已启用]"
-            _log.info(f"批量下载将使用代理: acc_id={acc_id} → {proxy_repr}")
+        if not account:
+            self._send_json({"error": "账户不存在"}, 404)
+            return
+
+        # user_forced_direct: 允许请求体传 direct=true 强制直连
+        user_forced_direct = bool(body.get("direct", False))
+
+        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
+        if cookies_file and not os.path.isfile(cookies_file):
+            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
+            cookies_file = None
+        cookies_present = bool(cookies_file)
+
+        # Resolve proxy using unified routing
+        route = resolve_for_manual_download(int(acc_id), cookies_present)
+
+        # Override with user_forced_direct if specified
+        if user_forced_direct:
+            from monitor.proxy_router import ProxyRouteResult
+            route = ProxyRouteResult(
+                resolved_mode="direct",
+                proxy=None,
+                proxy_pool=None,
+                provider_name=None,
+                provider_tier=None,
+                resolved_proxy_source="direct",
+                reason="用户显式指定直连",
+                warnings=[],
+                fallback_depth=0,
+                masked_proxy_endpoint=None,
+                session_mode=None,
+                cookies_file_present=cookies_present,
+            )
+
+        # Log the decision
+        log_download_decision(
+            route_result=route,
+            account_id=int(acc_id),
+            account_name=account.get("name", ""),
+            video_count=len(urls),
+            is_auto_download=False,
+        )
+
+        _log.info(
+            f"[Manual Download] account={acc_id} route={route.resolved_proxy_source} "
+            f"provider={route.provider_name or 'N/A'} reason={route.reason} "
+            f"proxy={route.masked_proxy_endpoint or 'direct'}"
+        )
+
+        # Handle routing failure
+        if route.resolved_mode == "failed":
+            self._send_json({
+                "ok": False,
+                "error": route.reason,
+                "routing": {
+                    "source": route.resolved_proxy_source,
+                    "provider": route.provider_name,
+                    "masked_endpoint": route.masked_proxy_endpoint,
+                    "reason": route.reason,
+                    "warnings": route.warnings,
+                    "session_mode": route.session_mode,
+                },
+            }, 400)
+            return
+
+        # Determine what to pass to batch_download
+        resolved_proxy: str | None = None
+        resolved_proxy_pool: list[str] | None = None
+        if route.resolved_proxy_source == "direct":
+            resolved_proxy = None
+        elif route.resolved_proxy_source == "account_static":
+            resolved_proxy = route.proxy
+        elif route.resolved_proxy_source in ("system_paid", "system_free"):
+            # proxy_pool takes priority over proxy for dynamic providers
+            if route.proxy_pool:
+                resolved_proxy_pool = route.proxy_pool
+            else:
+                resolved_proxy = route.proxy
 
         task_id = _task_mgr.create_task(video_records, abs_output)
-        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={abs_output}{' [proxy]' if proxy else ''}")
+        _log.info(
+            f"创建下载任务: task_id={task_id} 视频数={len(urls)} "
+            f"输出={abs_output} 路由={route.resolved_proxy_source}"
+            f"{' [proxy]' if resolved_proxy else ''}"
+            f"{' [proxy_pool]' if resolved_proxy_pool else ''}"
+        )
 
         _db.update_videos_download_status(video_ids, "downloading")
 
         sub_langs = body.get("sub_langs")   # Web UI 显式传入，未传则不下载字幕
         no_subs = body.get("no_subs", True)  # 默认不下载字幕（避免 WhisperX 拖慢）
-        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
-        # cookies_file 存在性校验（不存在时 yt-dlp 静默跳过，但给出提示）
-        if cookies_file and not os.path.isfile(cookies_file):
-            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
-            cookies_file = None
         enable_aria2 = bool(cfg.get("enable_aria2", False))
-        extra_ydl_opts = build_aria2_opts() if enable_aria2 else None
+        extra_ydl_opts = build_aria2_opts(resolved_proxy) if enable_aria2 else None
 
         def _bg_download():
             try:
@@ -959,7 +1274,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     urls,
                     abs_output,
                     'best',
-                    proxy=proxy,
+                    proxy=resolved_proxy,
+                    proxy_pool=resolved_proxy_pool,
                     progress_callback=progress_cb,
                     sub_langs=sub_langs if not no_subs else None,
                     no_subs=no_subs,
@@ -1007,7 +1323,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "ok": True,
             "task_id": task_id,
             "queued": len(urls),
+            "total": len(urls),
             "message": f"{len(urls)} 个视频已开始下载",
+            "routing": {
+                "source": route.resolved_proxy_source,
+                "provider": route.provider_name,
+                "provider_tier": route.provider_tier,
+                "masked_endpoint": route.masked_proxy_endpoint,
+                "reason": route.reason,
+                "warnings": route.warnings,
+                "session_mode": route.session_mode,
+            },
         })
 
     def _api_download_task_status(self, task_id: str):
