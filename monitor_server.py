@@ -142,8 +142,6 @@ else:
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 
-import re
-
 _YOUTUBE_URL_RE = re.compile(
     r"^https://(www\.)?(youtube\.com|youtu\.be)/"
 )
@@ -253,17 +251,38 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return key_value[:4] + "••••••"
         return key_value[:4] + "••••••••" + key_value[-4:]
 
+    def _mask_proxy_url(self, url: str) -> str:
+        """返回代理 URL 的掩码版本（隐藏认证信息）"""
+        if not url:
+            return url
+        # 处理 user:pass@host:port 格式
+        try:
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(url)
+            if parsed.username:
+                netloc = f"***@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+        except Exception:
+            pass
+        # 回退：包含 @ 则说明有认证信息，掩码
+        if '@' in url:
+            scheme, rest = url.split('://', 1)
+            return f"{scheme}://***@{rest.split('@', 1)[1]}"
+        return url
+
     # ── HTTP 方法 ────────────────────────────────────────────
 
     def do_GET(self):
         path = self._path_only()
+        # 非 API 路径视为静态资源，匿名访问；路径安全由 translate_path() + resolve 边界保证
+        if not path.startswith("/api/"):
+            super().do_GET()
+            return
         # /api/status 是健康检查，跳过认证和限流
         if path == "/api/status":
             self._api_status()
-            return
-        # 首页静态文件跳过认证
-        if path == "/" or path == "/index.html":
-            super().do_GET()
             return
         # 其余所有 /api/* 均需认证和限流
         if not self._require_auth():
@@ -286,6 +305,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_quota()
         elif path == "/api/api-keys":
             self._api_api_keys_list()
+        elif path == "/api/proxy-pools":
+            self._api_proxy_pools_list()
         elif path.startswith("/api/api-keys/"):
             parts = path.split("/")
             action = parts[-1]
@@ -304,7 +325,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         path = self._path_only()
-        if path == "/" or path == "/index.html":
+        # 非 API 路径视为静态资源，匿名访问
+        if not path.startswith("/api/"):
             super().do_HEAD()
             return
         if not self._require_auth():
@@ -359,6 +381,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_cache_refresh(body)
         elif path == "/api/cache/clear":
             self._api_cache_clear()
+        elif path == "/api/proxy-pools":
+            self._api_proxy_pool_add(body)
+        elif path == "/api/system/shutdown":
+            self._api_system_shutdown()
+        elif path.startswith("/api/proxy-pools/") and path.endswith("/update"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_proxy_pool_update(int(pid), body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -387,6 +417,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/cache/"):
             handle = path.split("/api/cache/", 1)[-1]
             self._api_cache_delete(handle)
+        elif path.startswith("/api/proxy-pools/"):
+            pid = path.split("/")[-1]
+            if pid.isdigit():
+                self._api_proxy_pool_delete(int(pid))
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -406,6 +440,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         next_runs = _scheduler.get_next_run_times() if is_running else []
         self._send_json({"running": is_running, "next_runs": next_runs})
 
+    def _api_system_shutdown(self):
+        """POST /api/system/shutdown — 安全关闭当前 Web UI 进程（需 Bearer token）"""
+        self._send_json({"ok": True, "message": "server shutting down"})
+        threading.Thread(target=self.server.shutdown, daemon=True, name="monitor-server-shutdown").start()
+
     def _api_accounts(self):
         accounts = _db.list_accounts()
         result = [{
@@ -413,7 +452,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "name": a["name"],
             "channel_url": a["channel_url"],
             "api_key_env": a["api_key_env"],
-            "api_key_id": a.get("api_key_id"),   # 新增
+            "api_key_id": a.get("api_key_id"),
             "fetch_mode": a["fetch_mode"],
             "fetch_limit": a["fetch_limit"],
             "scan_interval": a["scan_interval"],
@@ -424,6 +463,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "feishu_message_mode": a.get("feishu_message_mode", "card_json"),
             "feishu_template_id": a.get("feishu_template_id") or "",
             "feishu_scan_template_id": a.get("feishu_scan_template_id") or "",
+            "proxy_pool_id": a.get("proxy_pool_id"),
+            "proxy_enabled": bool(a.get("proxy_enabled", 0)),
         } for a in accounts]
         self._send_json(result)
 
@@ -532,6 +573,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if api_key_id_val is not None:
                 api_key_id_param = int(api_key_id_val) if api_key_id_val else None
 
+            # proxy_pool_id: None=清空, 0=清空, >0=指定池, absent=_UNSET(不修改)
+            proxy_pool_id_val = body.get("proxy_pool_id")
+            proxy_pool_id_param = None
+            if proxy_pool_id_val is not None:
+                proxy_pool_id_param = int(proxy_pool_id_val) if proxy_pool_id_val else None
+
             if account_id:
                 # 编辑模式 → UPDATE
                 _db.update_account(
@@ -550,6 +597,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
                     api_key_id=api_key_id_param,
+                    proxy_pool_id=proxy_pool_id_param,
+                    proxy_enabled=bool(body.get("proxy_enabled")) if "proxy_enabled" in body else None,
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -570,6 +619,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
                     api_key_id=api_key_id_param,
+                    proxy_pool_id=proxy_pool_id_param,
+                    proxy_enabled=bool(body.get("proxy_enabled", False)),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -709,6 +760,64 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             _log.error("API Key 删除异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
+    # ── 代理池 CRUD ──────────────────────────────────────────
+
+    def _api_proxy_pools_list(self):
+        """GET /api/proxy-pools — 列出所有代理池（URL 已掩码，不含认证信息）"""
+        pools = _db.list_proxy_pools()
+        result = [{
+            "id": p["id"],
+            "name": p["name"],
+            "proxy_url": self._mask_proxy_url(p["proxy_url"]),
+            "enabled": bool(p["enabled"]),
+            "created_at": p["created_at"],
+        } for p in pools]
+        self._send_json(result)
+
+    def _api_proxy_pool_add(self, body):
+        """POST /api/proxy-pools — 新增代理池"""
+        try:
+            name = body.get("name", "").strip()
+            proxy_url = body.get("proxy_url", "").strip()
+            if not name or not proxy_url:
+                self._send_json({"error": "名称和代理地址均不能为空"}, 400)
+                return
+            pool_id = _db.add_proxy_pool(name, proxy_url)
+            self._send_json({"ok": True, "id": pool_id})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("代理池操作异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_proxy_pool_update(self, pool_id: int, body):
+        """PUT /api/proxy-pools/{id}/update — 更新代理池"""
+        try:
+            name = body.get("name", "").strip() or None
+            proxy_url = body.get("proxy_url", "").strip() or None
+            enabled = bool(body.get("enabled")) if "enabled" in body else None
+            if proxy_url is not None and not proxy_url:
+                self._send_json({"error": "代理地址不能为空"}, 400)
+                return
+            _db.update_proxy_pool(pool_id, name=name, proxy_url=proxy_url, enabled=enabled)
+            self._send_json({"ok": True})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("代理池更新异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_proxy_pool_delete(self, pool_id: int):
+        """DELETE /api/proxy-pools/{id} — 删除代理池"""
+        try:
+            accounts = [a for a in _db.list_accounts() if a.get("proxy_pool_id") == pool_id]
+            affected = [{"id": a["id"], "name": a["name"]} for a in accounts]
+            _db.delete_proxy_pool(pool_id)
+            self._send_json({"ok": True, "affected_accounts": affected})
+        except Exception:
+            _log.error("代理池删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
     def _api_account_videos(self, acc_id: str):
         """GET /api/accounts/{id}/videos — 分页查询账户视频"""
         try:
@@ -806,8 +915,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "视频记录中无有效 URL"}, 400)
             return
 
+        # 解析账户代理（仅记录 host，不记录完整 URL 含认证信息）
+        account = _db.get_account(int(acc_id))
+        proxy = _db.get_account_proxy(account) if account else None
+        if proxy:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(proxy)
+                proxy_repr = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
+            except Exception:
+                proxy_repr = "[已启用]"
+            _log.info(f"批量下载将使用代理: acc_id={acc_id} → {proxy_repr}")
+
         task_id = _task_mgr.create_task(video_records, abs_output)
-        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={abs_output}")
+        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={abs_output}{' [proxy]' if proxy else ''}")
 
         _db.update_videos_download_status(video_ids, "downloading")
 
@@ -831,6 +952,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     urls,
                     abs_output,
                     'best',
+                    proxy=proxy,
                     progress_callback=progress_cb,
                     sub_langs=sub_langs if not no_subs else None,
                     no_subs=no_subs,

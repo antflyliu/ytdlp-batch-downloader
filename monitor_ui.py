@@ -250,6 +250,65 @@ class AccountDialog(tk.Toplevel):
             cb.grid(row=17 if key == "enabled" else 18, column=0, columnspan=2,
                     sticky=tk.W, pady=(8, 0))
 
+        # 分隔
+        sep3 = tk.Frame(frame, bg=c["border"], height=1)
+        sep3.grid(row=19, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+
+        # 下载代理设置
+        tk.Label(frame, text="下载代理设置", bg=c["bg"], fg=c["accent"],
+                 font=("Segoe UI", 9, "bold")).grid(
+                     row=20, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+
+        self._vars["proxy_enabled"] = tk.BooleanVar(
+            value=bool(self.account.get("proxy_enabled", 0)) if self.account else False)
+
+        def _toggle_proxy_section(*args):
+            show = self._vars["proxy_enabled"].get()
+            if hasattr(self, "_proxy_pool_row"):
+                if show:
+                    self._proxy_pool_row.grid()
+                else:
+                    self._proxy_pool_row.grid_remove()
+
+        proxy_cb = tk.Checkbutton(frame, text="启用代理下载（防止下载时 IP 被限流）",
+                                  variable=self._vars["proxy_enabled"],
+                                  bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
+                                  activebackground=c["bg"], font=("Segoe UI", 9))
+        proxy_cb.grid(row=21, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        self._vars["proxy_enabled"].trace_add("write", _toggle_proxy_section)
+
+        # 代理池选择
+        self._vars["proxy_pool_id"] = tk.IntVar(
+            value=self.account.get("proxy_pool_id") or 0 if self.account else 0)
+
+        self._proxy_pool_row = tk.Frame(frame, bg=c["bg"])
+        tk.Label(self._proxy_pool_row, text="选择代理池", bg=c["bg"], fg=c["text_secondary"],
+                 font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(4, 0))
+
+        # 动态加载代理池列表
+        pools = _db.list_proxy_pools()
+        pool_choices = ["（不使用）"] + [f"{p['id']}: {p['name']}" for p in pools]
+        pool_id_val = self.account.get("proxy_pool_id") or 0 if self.account else 0
+        pool_display = (
+            f"{pool_id_val}: {next((p['name'] for p in pools if p['id'] == pool_id_val), '（不使用）')}"
+            if pool_id_val and pools else "（不使用）"
+        )
+        if pool_display not in pool_choices:
+            pool_display = "（不使用）"
+        self._vars["_proxy_pool_display"] = tk.StringVar(value=pool_display)
+
+        proxy_combo = ttk.Combobox(self._proxy_pool_row,
+                                   textvariable=self._vars["_proxy_pool_display"],
+                                   font=("Segoe UI", 9),
+                                   values=pool_choices,
+                                   state="readonly", width=24)
+        proxy_combo.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
+
+        # 初始状态
+        if not self._vars["proxy_enabled"].get():
+            self._proxy_pool_row.grid_remove()
+        self._proxy_pool_row.grid(row=22, column=0, columnspan=2, sticky=tk.W)
+
         # 按钮
         btn_frame = tk.Frame(self, bg=c["bg"])
         btn_frame.pack(fill=tk.X, padx=24, pady=8)
@@ -270,6 +329,19 @@ class AccountDialog(tk.Toplevel):
                 return
             mode_display = self._vars["feishu_message_mode"].get()
             mode_raw = self._feishu_mode_labels.get(mode_display, "card_json")
+
+            # 解析代理池 ID（从下拉显示文本提取）
+            proxy_pool_id_val = 0
+            if self._vars["proxy_enabled"].get():
+                pool_display = self._vars["_proxy_pool_display"].get()
+                if pool_display and pool_display != "（不使用）":
+                    parts = pool_display.split(": ", 1)
+                    if len(parts) == 2:
+                        try:
+                            proxy_pool_id_val = int(parts[0])
+                        except ValueError:
+                            proxy_pool_id_val = 0
+
             self.result = {
                 "name": name,
                 "channel_url": channel_url,
@@ -284,6 +356,8 @@ class AccountDialog(tk.Toplevel):
                 "feishu_message_mode": mode_raw,
                 "feishu_template_id": self._vars["feishu_template_id"].get().strip() or None,
                 "feishu_scan_template_id": self._vars["feishu_scan_template_id"].get().strip() or None,
+                "proxy_pool_id": proxy_pool_id_val if proxy_pool_id_val else None,
+                "proxy_enabled": self._vars["proxy_enabled"].get(),
             }
             self.destroy()
 
@@ -401,6 +475,105 @@ class GlobalConfigDialog(tk.Toplevel):
         save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=c["accent"]))
 
 
+# ── IP 代理池管理弹窗 ──────────────────────────────────────────
+
+class ProxyPoolDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        c = _COLORS
+        self.configure(bg=c["bg"])
+        self.title("IP 代理池管理")
+        self.geometry("560x360")
+        self.grab_set()
+
+        frame = tk.Frame(self, bg=c["bg"])
+        frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=16)
+
+        # 列表
+        self._tree = ttk.Treeview(frame, columns=("name", "proxy", "enabled"), show="headings", height=10)
+        self._tree.heading("name", text="名称")
+        self._tree.heading("proxy", text="代理地址")
+        self._tree.heading("enabled", text="状态")
+        self._tree.column("name", width=120)
+        self._tree.column("proxy", width=300)
+        self._tree.column("enabled", width=80)
+        self._tree.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
+
+        # 按钮行
+        btn_frame = tk.Frame(frame, bg=c["bg"])
+        btn_frame.pack(fill=tk.X)
+
+        def refresh_list():
+            for i in self._tree.get_children():
+                self._tree.delete(i)
+            for p in _db.list_proxy_pools():
+                self._tree.insert("", "end", iid=str(p["id"]), values=(
+                    p["name"], p["proxy_url"], "启用" if p["enabled"] else "禁用"
+                ))
+
+        def add_pool():
+            dlg = tk.Toplevel(self)
+            dlg.title("添加代理池")
+            dlg.geometry("420x160")
+            dlg.configure(bg=c["bg"])
+            dlg.grab_set()
+            vars_ = {
+                "name": tk.StringVar(),
+                "proxy": tk.StringVar(),
+            }
+            tk.Label(dlg, text="名称", bg=c["bg"], fg=c["text"]).grid(row=0, column=0, sticky=tk.W, padx=16, pady=(16, 4))
+            tk.Entry(dlg, textvariable=vars_["name"], width=36).grid(row=0, column=1, padx=8, pady=(16, 4))
+            tk.Label(dlg, text="代理地址", bg=c["bg"], fg=c["text"]).grid(row=1, column=0, sticky=tk.W, padx=16, pady=4)
+            tk.Entry(dlg, textvariable=vars_["proxy"], width=36).grid(row=1, column=1, padx=8, pady=4)
+
+            def save_pool():
+                name = vars_["name"].get().strip()
+                proxy = vars_["proxy"].get().strip()
+                if not name or not proxy:
+                    messagebox.showwarning("提示", "名称和代理地址不能为空")
+                    return
+                _db.add_proxy_pool(name, proxy)
+                refresh_list()
+                dlg.destroy()
+
+            tk.Button(dlg, text="保存", command=save_pool).grid(row=2, column=1, sticky=tk.E, padx=8, pady=16)
+
+        def toggle_selected():
+            sel = self._tree.selection()
+            if not sel:
+                return
+            pid = int(sel[0])
+            pool = _db.get_proxy_pool(pid)
+            if not pool:
+                return
+            _db.update_proxy_pool(pid, enabled=not bool(pool["enabled"]))
+            refresh_list()
+
+        def delete_selected():
+            sel = self._tree.selection()
+            if not sel:
+                return
+            pid = int(sel[0])
+            pool = _db.get_proxy_pool(pid)
+            if not pool:
+                return
+            if messagebox.askyesno("确认删除", f"确定删除代理池 '{pool['name']}' 吗？"):
+                _db.delete_proxy_pool(pid)
+                refresh_list()
+
+        for text, cmd in [
+            ("+ 添加代理", add_pool),
+            ("启用/禁用", toggle_selected),
+            ("删除", delete_selected),
+        ]:
+            tk.Button(btn_frame, text=text, command=cmd).pack(side=tk.LEFT, padx=(0, 8))
+
+        refresh_list()
+
+
 # ── 监控管理页面主类 ──────────────────────────────────────────────────────
 
 class MonitorPage:
@@ -448,6 +621,7 @@ class MonitorPage:
 
         for btn_text, cmd, color in [
             ("⚙ 全局设置", self._open_global_config, c["surface2"]),
+            ("🌐 代理池", self._open_proxy_pools, c["surface2"]),
             ("+ 添加账户", self._add_account, c["accent"]),
         ]:
             b = tk.Label(btn_frame, text=btn_text, bg=color, fg=c["text"] if color != c["accent"] else "#ffffff",
@@ -730,6 +904,8 @@ class MonitorPage:
                     feishu_message_mode=dialog.result.get("feishu_message_mode", "card_json"),
                     feishu_template_id=dialog.result.get("feishu_template_id"),
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
+                    proxy_pool_id=dialog.result.get("proxy_pool_id"),
+                    proxy_enabled=dialog.result.get("proxy_enabled", False),
                 )
                 self._append_log(f"账户添加成功: {dialog.result['name']} (id={account_id})")
                 if _scheduler.is_running():
@@ -758,6 +934,8 @@ class MonitorPage:
                     feishu_message_mode=dialog.result.get("feishu_message_mode"),
                     feishu_template_id=dialog.result.get("feishu_template_id"),
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
+                    proxy_pool_id=dialog.result.get("proxy_pool_id"),
+                    proxy_enabled=dialog.result.get("proxy_enabled"),
                 )
                 self._append_log(f"账户已更新: {dialog.result['name']} (id={acc['id']})")
                 if _scheduler.is_running():
@@ -808,6 +986,9 @@ class MonitorPage:
     def _open_global_config(self):
         GlobalConfigDialog(self.parent)
 
+    def _open_proxy_pools(self):
+        ProxyPoolDialog(self.parent)
+
     def _append_log(self, msg: str):
         line = f"[{_now_str()}] {msg}"
         self._log_lines.append(line)
@@ -825,9 +1006,33 @@ class MonitorPage:
             self.parent.after_cancel(self._job)
 
 
+def _shutdown_existing_web_ui(port: int) -> bool:
+    """尝试通过受保护的 shutdown API 关闭已运行的 Web UI。"""
+    try:
+        import urllib.request
+        token = _db.get_api_token()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/system/shutdown",
+            method="POST",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=2):
+            pass
+        # 等待端口释放（最多 5s，间隔 0.3s）
+        for _ in range(17):
+            time.sleep(0.3)
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=0.5)
+            except Exception:
+                return True
+        return False
+    except Exception:
+        return False
+
+
 # ── 独立窗口入口 ──────────────────────────────────────────────────────────
 
-def run_standalone():
+def run_standalone(force_restart: bool = False):
     """启动 Web UI（代替 Tkinter 弹框）"""
     import time
     port = 18999
@@ -839,6 +1044,13 @@ def run_standalone():
     except Exception:
         already_running = False
 
+    if already_running and force_restart:
+        print(f"\n♻️  检测到 Web UI 已在运行，正在强制重启: http://127.0.0.1:{port}")
+        if not _shutdown_existing_web_ui(port):
+            print("❌ 强制重启失败：无法关闭旧 Web UI 进程")
+            return
+        already_running = False
+
     if not already_running:
         import threading
         import http.server as _http
@@ -848,6 +1060,9 @@ def run_standalone():
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         time.sleep(0.8)
+    else:
+        print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
+        print("   如需加载最新代码，请执行: python monitor_ui.py --force-restart")
 
     import webbrowser
     webbrowser.open(f"http://127.0.0.1:{port}")
@@ -861,4 +1076,8 @@ def run_standalone():
 
 
 if __name__ == "__main__":
-    run_standalone()
+    import argparse
+    parser = argparse.ArgumentParser(description="Launch Monitor Web UI")
+    parser.add_argument("--force-restart", action="store_true", help="关闭旧的 Web UI 进程并重启")
+    args = parser.parse_args()
+    run_standalone(force_restart=args.force_restart)
