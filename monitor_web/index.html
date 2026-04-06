@@ -1395,9 +1395,9 @@
           <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">📊 每日 API Quota 上限（默认）</label>
+          <label class="form-label">📊 每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
-          <div class="form-hint">超过上限后自动停止扫描并发送报警。账户级 Key 的配额可在 Key 管理中单独设置。</div>
+          <div class="form-hint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。</div>
         </div>
         <div class="form-group">
           <label class="form-label">🔑 默认 API Key</label>
