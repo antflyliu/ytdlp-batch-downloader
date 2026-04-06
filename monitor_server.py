@@ -145,13 +145,20 @@ _INDEX_HTML = _STATIC_DIR / "index.html"
 _YOUTUBE_URL_RE = re.compile(
     r"^https://(www\.)?(youtube\.com|youtu\.be)/"
 )
+_YOUTUBE_HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{3,100}$")
+_YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{20,40}$")
 
 
 def _is_valid_youtube_url(url: str) -> bool:
-    """验证 URL 是否为合法的 YouTube URL（防 javascript: 等伪协议注入）"""
+    """验证频道输入是否合法：支持 @handle、UC 频道 ID 或完整 YouTube URL（防 javascript: 等伪协议注入）"""
     if not url:
         return False
-    return _YOUTUBE_URL_RE.match(url) is not None
+    value = url.strip()
+    return (
+        _YOUTUBE_URL_RE.match(value) is not None
+        or _YOUTUBE_HANDLE_RE.match(value) is not None
+        or _YOUTUBE_CHANNEL_ID_RE.match(value) is not None
+    )
 
 
 class MonitorHandler(SimpleHTTPRequestHandler):
@@ -563,7 +570,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "频道 URL 不能为空"}, 400)
                 return
             if not _is_valid_youtube_url(channel_url):
-                self._send_json({"error": "频道 URL 必须为合法的 YouTube URL（以 https://www.youtube.com/ 或 https://youtu.be/ 开头）"}, 400)
+                self._send_json({"error": "频道 URL 必须为合法的 YouTube URL、@handle 或 UC 频道 ID"}, 400)
                 return
 
             account_id = body.get("id")

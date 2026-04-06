@@ -1,5 +1,5 @@
 """tests/test_monitor_server_static_auth.py — monitor_server 静态资源鉴权边界回归测试"""
-import os
+import json
 import sys
 import threading
 import unittest
@@ -7,6 +7,7 @@ from http.client import HTTPConnection
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from http.server import HTTPServer
+from unittest import mock
 
 _ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(_ROOT))
@@ -37,13 +38,13 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         if hasattr(monitor_server.MonitorHandler, "_api_token"):
             delattr(monitor_server.MonitorHandler, "_api_token")
 
-    def _request(self, method: str, path: str, headers: dict | None = None):
+    def _request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
-        conn.request(method, path, headers=headers or {})
+        conn.request(method, path, body=body, headers=headers or {})
         resp = conn.getresponse()
-        body = resp.read()
+        body_bytes = resp.read()
         conn.close()
-        return resp.status, body, dict(resp.getheaders())
+        return resp.status, body_bytes, dict(resp.getheaders())
 
     def test_get_embedded_presentation_is_anonymous(self):
         status, body, headers = self._request("GET", "/proxy-pool-feature.html")
@@ -72,6 +73,56 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         status, body, headers = self._request("POST", "/api/system/shutdown")
         self.assertEqual(status, 401)
         self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
+
+    def test_account_api_accepts_handle_channel_url(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
+            mock_db.add_account.return_value = 123
+            mock_scheduler.is_running.return_value = False
+            body = json.dumps({
+                "name": "Handle Account",
+                "channel_url": "@GoogleDevelopers",
+                "api_key_env": "YOUTUBE_Data_API_V3",
+            }).encode("utf-8")
+            status, resp_body, headers = self._request(
+                "POST",
+                "/api/accounts",
+                body=body,
+                headers={
+                    "Authorization": "Bearer test-token",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
+        self.assertIn(b'"ok": true', resp_body)
+        mock_db.add_account.assert_called_once()
+        self.assertEqual(mock_db.add_account.call_args.kwargs["channel_url"], "@GoogleDevelopers")
+
+    def test_account_api_accepts_uc_channel_id(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
+            mock_db.add_account.return_value = 124
+            mock_scheduler.is_running.return_value = False
+            body = json.dumps({
+                "name": "UC Account",
+                "channel_url": "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+                "api_key_env": "YOUTUBE_Data_API_V3",
+            }).encode("utf-8")
+            status, resp_body, headers = self._request(
+                "POST",
+                "/api/accounts",
+                body=body,
+                headers={
+                    "Authorization": "Bearer test-token",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
+        self.assertIn(b'"ok": true', resp_body)
+        mock_db.add_account.assert_called_once()
+        self.assertEqual(mock_db.add_account.call_args.kwargs["channel_url"], "UC_x5XG1OV2P6uZZ5FSM9Ttw")
 
 
 if __name__ == "__main__":
