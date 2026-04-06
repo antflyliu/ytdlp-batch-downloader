@@ -204,6 +204,32 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v4_webhook_encrypt", today),
         )
 
+    if "v6_proxy_pool" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS proxy_pools (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                proxy_url   TEXT    NOT NULL,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL,
+                updated_at  TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_proxy_pools_enabled ON proxy_pools(enabled)"
+        )
+        # 为 monitor_accounts 添加 proxy_pool_id 和 proxy_enabled 列
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "proxy_pool_id" not in cols:
+            conn.execute("ALTER TABLE monitor_accounts ADD COLUMN proxy_pool_id INTEGER DEFAULT NULL")
+        if "proxy_enabled" not in cols:
+            conn.execute("ALTER TABLE monitor_accounts ADD COLUMN proxy_enabled INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v6_proxy_pool", today),
+        )
+
     # v5: 添加分页覆盖索引（account_id + published_at 排序优化）
     if "v5_video_pagination_index" not in applied:
         conn.execute(
@@ -403,6 +429,8 @@ def add_account(
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
     api_key_id: int | None = None,
+    proxy_pool_id: int | None = None,
+    proxy_enabled: bool = False,
 ) -> int:
     with get_connection() as conn:
         cur = conn.execute(
@@ -410,13 +438,13 @@ def add_account(
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-                api_key_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+                api_key_id, proxy_pool_id, proxy_enabled, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform,
              _encrypt_webhook(webhook_url),
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-             api_key_id, now_iso(), now_iso()),
+             api_key_id, proxy_pool_id, int(proxy_enabled), now_iso(), now_iso()),
         )
         return cur.lastrowid
 
@@ -437,10 +465,12 @@ def update_account(
     feishu_template_id=_UNSET,
     feishu_scan_template_id=_UNSET,
     api_key_id=_UNSET,
+    proxy_pool_id=_UNSET,
+    proxy_enabled=None,
 ) -> None:
     """更新账户字段。
 
-    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id），
+    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id / proxy_pool_id），
     使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
     """
     fields, values = [], []
@@ -458,6 +488,8 @@ def update_account(
     if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
     if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
     if api_key_id is not _UNSET: fields.append("api_key_id=?");            values.append(api_key_id)
+    if proxy_pool_id is not _UNSET: fields.append("proxy_pool_id=?");      values.append(proxy_pool_id)
+    if proxy_enabled is not None: fields.append("proxy_enabled=?");        values.append(int(proxy_enabled))
     fields.append("updated_at=?"); values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
@@ -467,6 +499,103 @@ def update_account(
 def delete_account(account_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM monitor_accounts WHERE id=?", (account_id,))
+
+
+# ── proxy_pools CRUD ───────────────────────────────────────
+
+def list_proxy_pools() -> list[dict]:
+    """列出所有代理池（含启用状态）"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM proxy_pools ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_proxy_pool(pool_id: int) -> dict | None:
+    """获取单个代理池"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proxy_pools WHERE id=?", (pool_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def _validate_proxy_url(url: str) -> str:
+    """
+    验证代理 URL 格式。
+    支持：http://, https://, socks5://, socks4://
+    返回规范化后的 URL，失败抛出 ValueError。
+    """
+    from urllib.parse import urlparse
+    if not url:
+        raise ValueError("代理地址不能为空")
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https", "socks5", "socks4", "socks"):
+        raise ValueError(f"不支持的协议: {scheme}，支持 http/https/socks5")
+    if not parsed.hostname:
+        raise ValueError("代理地址缺少主机名")
+    return url.strip()
+
+
+def add_proxy_pool(name: str, proxy_url: str) -> int:
+    """新增代理池（URL 格式已验证）"""
+    proxy_url = _validate_proxy_url(proxy_url)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO proxy_pools (name, proxy_url, enabled, created_at, updated_at)
+               VALUES (?, ?, 1, ?, ?)""",
+            (name, proxy_url, now_iso(), now_iso()),
+        )
+        return cur.lastrowid
+
+
+def update_proxy_pool(
+    pool_id: int,
+    name: str | None = None,
+    proxy_url: str | None = None,
+    enabled: bool | None = None,
+) -> None:
+    """更新代理池字段（URL 格式已验证）"""
+    if proxy_url is not None:
+        proxy_url = _validate_proxy_url(proxy_url)
+    fields, values = [], []
+    if name is not None:       fields.append("name=?");      values.append(name)
+    if proxy_url is not None:  fields.append("proxy_url=?"); values.append(proxy_url)
+    if enabled is not None:    fields.append("enabled=?");   values.append(int(enabled))
+    if not fields:
+        return  # 无实际变更，只更新 updated_at 无意义
+    fields.append("updated_at=?"); values.append(now_iso())
+    values.append(pool_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE proxy_pools SET {','.join(fields)} WHERE id=?", values)
+
+
+def delete_proxy_pool(pool_id: int) -> None:
+    """删除代理池（关联账户的 proxy_pool_id 会被清空，proxy_enabled 置为 0）"""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE monitor_accounts SET proxy_pool_id=NULL, proxy_enabled=0 WHERE proxy_pool_id=?",
+            (pool_id,),
+        )
+        conn.execute("DELETE FROM proxy_pools WHERE id=?", (pool_id,))
+
+
+def get_account_proxy(account: dict) -> str | None:
+    """
+    获取账户启用的代理 URL。
+    仅当 account['proxy_enabled'] == 1 且 proxy_pool_id 存在且代理池 enabled==1 时返回。
+    """
+    if not account.get("proxy_enabled"):
+        return None
+    pool_id = account.get("proxy_pool_id")
+    if not pool_id:
+        return None
+    pool = get_proxy_pool(pool_id)
+    if pool and pool.get("enabled"):
+        return pool.get("proxy_url")
+    return None
 
 
 # ── monitor_events CRUD ───────────────────────────────────

@@ -186,12 +186,16 @@ _auto_dl_pool = ThreadPoolExecutor(max_workers=2)
 _auto_download_on_scan: bool = False
 
 
-def _auto_download_videos(video_records: list[dict]) -> None:
+def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -> None:
     """
     后台线程池执行：并发下载新视频（max_workers=2，每视频 2 分片）
     避免触发 YouTube 429 限流。
 
     字幕：始终不下载字幕（no_subs=True），不触发 WhisperX，专注快速下载视频。
+
+    Args:
+        video_records: 要下载的视频记录列表
+        proxy: 代理 URL（如 http://user:pass@host:port），无代理时传 None
     """
     if not video_records:
         return
@@ -221,6 +225,7 @@ def _auto_download_videos(video_records: list[dict]) -> None:
             f"自动下载批次 {i // BATCH_SIZE + 1}: "
             f"{len(chunk)} 个视频 (第 {i + 1}~{i + len(chunk)} 个，共 {len(urls)} 个)"
             f"{' [aria2]' if enable_aria2 else ''}"
+            f"{' [proxy]' if proxy else ''}"
         )
 
         def _dl_batch(batch_urls, batch_ids):
@@ -230,6 +235,7 @@ def _auto_download_videos(video_records: list[dict]) -> None:
                     batch_urls,
                     output_path,
                     "best",
+                    proxy=proxy,
                     cookies_file=cookies_file,
                     concurrent_fragments=2,
                     no_subs=True,  # 自动下载不下载字幕，避免触发 WhisperX CPU 推理
@@ -414,6 +420,18 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         # ── 新增：自动下载新视频 ───────────────────────────────
         # 显式参数（立即扫描）或全局开关（定时扫描）均可触发
         effective_auto_dl = auto_download or _auto_download_on_scan
+        # 解析代理（账户启用时从 proxy_pool 中获取）
+        proxy = _db.get_account_proxy(account)
+        if proxy:
+            # 仅记录已使用代理，不记录完整 URL（含认证信息）
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(proxy)
+                proxy_repr = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
+            except Exception:
+                proxy_repr = "[已启用]"
+            _log.info(f"自动下载将使用代理: {account['name']} → {proxy_repr}")
+
         if effective_auto_dl and inserted > 0:
             with _db.get_connection() as conn:
                 rows = conn.execute(
@@ -424,11 +442,11 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
 
             threading.Thread(
                 target=_auto_download_videos,
-                args=(new_video_records,),
+                args=(new_video_records, proxy),
                 daemon=True,
                 name=f"auto-dl-{event_id}",
             ).start()
-            _log.info(f"自动下载已触发: {inserted} 个新视频")
+            _log.info(f"自动下载已触发: {inserted} 个新视频{(' [proxy]' if proxy else '')}")
 
         # ── 5. Quota 预警检查 ────────────────────────────────
         _check_quota_alert(account, api_key, budget)

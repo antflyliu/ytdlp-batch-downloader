@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
 
+-- ── IP 代理池表 ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS proxy_pools (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,          -- 显示名称，如"代理池-1"
+    proxy_url   TEXT    NOT NULL,          -- 代理地址，如 http://user:pass@host:port
+    enabled     INTEGER NOT NULL DEFAULT 1, -- 0=禁用 1=启用
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_proxy_pools_enabled ON proxy_pools(enabled);
+
 -- ── 监控账户配置表 ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS monitor_accounts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +40,8 @@ CREATE TABLE IF NOT EXISTS monitor_accounts (
     channel_url     TEXT    NOT NULL,          -- @C-HitShow / UCxxxx / https://...
     api_key_id      INTEGER DEFAULT NULL,       -- 关联 api_keys.id（优先级高于 api_key_env）
     api_key_env     TEXT    NOT NULL,           -- 兼容旧数据：环境变量名，如 "YOUTUBE_Data_API_V3"
+    proxy_pool_id   INTEGER DEFAULT NULL,       -- 关联 proxy_pools.id（启用时使用）
+    proxy_enabled   INTEGER NOT NULL DEFAULT 0, -- 0=不使用代理 1=使用代理
     fetch_mode      TEXT    NOT NULL DEFAULT 'playlist',  -- 'search' | 'playlist'
     fetch_limit     INTEGER NOT NULL DEFAULT 5, -- 每次扫描获取的视频条数
     scan_interval   INTEGER NOT NULL DEFAULT 5, -- 扫描间隔（分钟）
@@ -40,7 +54,8 @@ CREATE TABLE IF NOT EXISTS monitor_accounts (
     feishu_scan_template_id TEXT DEFAULT NULL,  -- 扫描确认模板ID（template模式用）
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL,
-    FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE SET NULL
+    FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE SET NULL,
+    FOREIGN KEY (proxy_pool_id) REFERENCES proxy_pools(id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_channel_url ON monitor_accounts(channel_url);
