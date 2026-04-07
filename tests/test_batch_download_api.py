@@ -405,5 +405,154 @@ class TestNotifyLogWebhookRedaction(_WebhookConfigTestCase):
         self.assertIn("https://open.feishu.cn/[redacted]", joined_messages)
 
 
+class TestDynamicProxyConfigPersistence(_WebhookConfigTestCase):
+    """Verify dynamic proxy config fields are saved and loaded correctly."""
+
+    def test_save_config_persists_dynamic_proxy_flags(self):
+        import monitor.db as _db
+
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            # Set non-default values for dynamic proxy fields
+            cfg["system_dynamic_proxy_enabled"] = True
+            cfg["allow_free_proxy"] = False
+            cfg["allow_free_proxy_for_auto_download"] = True
+            cfg["allow_free_proxy_with_cookies"] = True
+            cfg["manual_direct_fallback"] = False
+            cfg["auto_direct_fallback"] = True
+            cfg["default_proxy_protocol_order"] = ["socks5", "http"]
+            cfg["default_session_mode"] = "rotate"
+            cfg["default_sticky_minutes"] = 30
+
+            _db.save_config(cfg)
+            loaded = _db.load_config()
+
+            self.assertTrue(loaded["system_dynamic_proxy_enabled"])
+            self.assertFalse(loaded["allow_free_proxy"])
+            self.assertTrue(loaded["allow_free_proxy_for_auto_download"])
+            self.assertTrue(loaded["allow_free_proxy_with_cookies"])
+            self.assertFalse(loaded["manual_direct_fallback"])
+            self.assertTrue(loaded["auto_direct_fallback"])
+            self.assertEqual(loaded["default_proxy_protocol_order"], ["socks5", "http"])
+            self.assertEqual(loaded["default_session_mode"], "rotate")
+            self.assertEqual(loaded["default_sticky_minutes"], 30)
+
+    def test_config_preserves_apply_dynamic_proxy_switches(self):
+        import monitor.db as _db
+
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["apply_dynamic_proxy_to_new_accounts"] = False
+            cfg["apply_dynamic_proxy_to_existing_accounts"] = True
+
+            _db.save_config(cfg)
+            loaded = _db.load_config()
+
+            self.assertFalse(loaded["apply_dynamic_proxy_to_new_accounts"])
+            self.assertTrue(loaded["apply_dynamic_proxy_to_existing_accounts"])
+
+    def test_load_config_merges_old_config_with_dynamic_defaults(self):
+        """Old config without dynamic proxy fields should get defaults on load."""
+        import monitor.db as _db
+
+        with self._ctx():
+            _db.init_db()
+            old_cfg = {"download_output_path": "/old/path"}
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump(old_cfg, f)
+
+            loaded = _db.load_config()
+
+            # New fields should have defaults
+            self.assertFalse(loaded["system_dynamic_proxy_enabled"])
+            self.assertTrue(loaded["allow_free_proxy"])
+            self.assertFalse(loaded["allow_free_proxy_for_auto_download"])
+            self.assertFalse(loaded["allow_free_proxy_with_cookies"])
+            self.assertTrue(loaded["manual_direct_fallback"])
+            self.assertFalse(loaded["auto_direct_fallback"])
+            # Old field preserved
+            self.assertEqual(loaded["download_output_path"], "/old/path")
+
+
+class TestDownloadProxyModeAccountRoundtrip(unittest.TestCase):
+    """Verify download_proxy_mode is correctly returned and saved via account API."""
+
+    def test_account_response_includes_download_proxy_mode(self):
+        import monitor.db as _db
+        import tempfile, shutil
+
+        tmpdir = tempfile.mkdtemp()
+        db_path = os.path.join(tmpdir, "test.db")
+        cfg_path = os.path.join(tmpdir, "cfg.json")
+        pkg_dir = tmpdir
+
+        orig_db = _db._DB_PATH
+        orig_cfg = _db._CONFIG_PATH
+        orig_pkg = _db._PKG_DIR
+
+        try:
+            _db._DB_PATH = db_path
+            _db._CONFIG_PATH = cfg_path
+            _db._PKG_DIR = pkg_dir
+            _db.init_db()
+
+            aid = _db.add_account(
+                name="Test Account",
+                channel_url="https://www.youtube.com/@test",
+                api_key_env="TEST_KEY",
+                download_proxy_mode="system_only",
+            )
+            account = _db.get_account(aid)
+
+            self.assertEqual(account["download_proxy_mode"], "system_only")
+        finally:
+            _db._DB_PATH = orig_db
+            _db._CONFIG_PATH = orig_cfg
+            _db._PKG_DIR = orig_pkg
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_update_account_changes_download_proxy_mode(self):
+        import monitor.db as _db
+        import tempfile, shutil
+
+        tmpdir = tempfile.mkdtemp()
+        db_path = os.path.join(tmpdir, "test.db")
+        cfg_path = os.path.join(tmpdir, "cfg.json")
+
+        orig_db = _db._DB_PATH
+        orig_cfg = _db._CONFIG_PATH
+        orig_pkg = _db._PKG_DIR
+
+        try:
+            _db._DB_PATH = db_path
+            _db._CONFIG_PATH = cfg_path
+            _db._PKG_DIR = tmpdir
+            _db.init_db()
+
+            aid = _db.add_account(
+                name="Test Account",
+                channel_url="https://www.youtube.com/@test",
+                api_key_env="TEST_KEY",
+                download_proxy_mode="auto",
+            )
+
+            # Update mode to account_only
+            _db.update_account(aid, download_proxy_mode="account_only")
+            account = _db.get_account(aid)
+            self.assertEqual(account["download_proxy_mode"], "account_only")
+
+            # Update mode to direct_only
+            _db.update_account(aid, download_proxy_mode="direct_only")
+            account = _db.get_account(aid)
+            self.assertEqual(account["download_proxy_mode"], "direct_only")
+        finally:
+            _db._DB_PATH = orig_db
+            _db._CONFIG_PATH = orig_cfg
+            _db._PKG_DIR = orig_pkg
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
