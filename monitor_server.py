@@ -317,6 +317,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_proxy_pools_list()
         elif path == "/api/dynamic-providers":
             self._api_dynamic_providers_list()
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/candidates/preview"):
+            pid = path.split("/")[-3]
+            if pid.isdigit():
+                self._api_dynamic_provider_candidates_preview(int(pid))
         elif path == "/api/routing-preview":
             self._api_routing_preview()
         elif path.startswith("/api/api-keys/"):
@@ -405,6 +409,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pid = path.split("/")[-2]
             if pid.isdigit():
                 self._api_dynamic_provider_health_check(int(pid))
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/refresh"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_refresh(int(pid))
         elif path.startswith("/api/dynamic-providers/") and path.endswith("/cooldown/clear"):
             pid = path.split("/")[-3]
             if pid.isdigit():
@@ -871,11 +879,57 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         providers = _db.list_dynamic_proxy_providers()
         result = []
         for p in providers:
-            cfg = p.get("config_json", {})
-            # Mask sensitive fields in preview
+            cfg = p.get("config_json", {}) or {}
             preview = dict(cfg)
             if "password" in preview:
                 preview["password"] = "***"
+            if "auth_secret" in preview:
+                preview["auth_secret"] = "***"
+            if "api_key" in preview:
+                preview["api_key"] = "***"
+
+            cooldown_until = p.get("cooldown_until")
+            is_in_cooldown = False
+            if cooldown_until:
+                try:
+                    cooldown_dt = datetime.fromisoformat(cooldown_until)
+                    now_dt = datetime.now(cooldown_dt.tzinfo) if cooldown_dt.tzinfo else datetime.now()
+                    is_in_cooldown = cooldown_dt > now_dt
+                except Exception:
+                    is_in_cooldown = False
+
+            status_map = {
+                "healthy": "可用",
+                "degraded": "降级",
+                "auth_error": "认证失败",
+                "down": "不可用",
+                "not_started": "未启动",
+            }
+            status_text = "冷却中" if is_in_cooldown else status_map.get(p.get("last_health_status") or "", "未知")
+
+            capabilities = []
+            if p.get("supports_cookies"):
+                capabilities.append("Cookie 下载可用")
+            if p.get("supports_auto_download"):
+                capabilities.append("自动下载可用")
+            if p.get("supports_country_filter"):
+                capabilities.append("支持国家筛选")
+            if p.get("supports_sticky_session"):
+                capabilities.append("支持粘性会话")
+
+            masked_preview = None
+            if p.get("adapter_type") == "rotating_gateway":
+                protocol = cfg.get("protocol", "http")
+                gateway_host = cfg.get("gateway_host")
+                gateway_port = cfg.get("gateway_port")
+                username = cfg.get("username", "")
+                if gateway_host and gateway_port:
+                    raw_url = f"{protocol}://{username + ':***@' if username else ''}{gateway_host}:{gateway_port}"
+                    masked_preview = _db.mask_proxy_url(raw_url)
+            elif p.get("adapter_type") == "local_gateway":
+                local_proxy = cfg.get("local_proxy_url")
+                masked_preview = _db.mask_proxy_url(local_proxy) if local_proxy else None
+
             result.append({
                 "id": p["id"],
                 "name": p["name"],
@@ -889,10 +943,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 "supports_sticky_session": bool(p.get("supports_sticky_session")),
                 "risk_level": p.get("risk_level", "medium"),
                 "notes": p.get("notes") or "",
+                "config_json": preview,
+                "masked_preview": masked_preview,
+                "status_text": status_text,
+                "capabilities": capabilities,
                 "last_health_status": p.get("last_health_status") or "",
                 "last_health_checked_at": p.get("last_health_checked_at") or "",
                 "last_error_message": p.get("last_error_message") or "",
-                "is_in_cooldown": bool(p.get("cooldown_until")),
+                "is_in_cooldown": is_in_cooldown,
                 "created_at": p.get("created_at"),
                 "updated_at": p.get("updated_at"),
             })
@@ -964,23 +1022,121 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_dynamic_provider_health_check(self, provider_id: int):
-        """POST /api/dynamic-providers/{id}/health-check — 触发健康检查（v1: 占位）"""
+        """POST /api/dynamic-providers/{id}/health-check — 触发健康检查"""
         try:
             existing = _db.get_dynamic_proxy_provider(provider_id)
             if not existing:
                 self._send_json({"error": "提供方不存在"}, 404)
                 return
-            # v1: 不实现实际 HTTP 健康检查，直接标记为 healthy
+
+            from monitor.provider_health import check_provider_health
+            result = check_provider_health(provider_id)
+
+            cfg = _db.load_config()
+            cooldown_seconds = cfg.get("provider_cooldown_seconds", 600)
+            cooldown_until: str | None = None
+            if result.status in ("down", "degraded"):
+                from datetime import timedelta
+                cooldown_until = (
+                    datetime.now().astimezone() + timedelta(seconds=cooldown_seconds)
+                ).isoformat(timespec="seconds")
+
             _db.update_dynamic_proxy_provider(
                 provider_id,
-                last_health_status="healthy",
+                last_health_status=result.status,
                 last_health_checked_at=_db.now_iso(),
-                last_error_message=None,
-                cooldown_until=None,
+                last_error_message=result.error_message,
+                cooldown_until=cooldown_until,
             )
-            self._send_json({"ok": True, "status": "healthy"})
+
+            self._send_json({
+                "ok": True,
+                "status": result.status,
+                "latency_ms": result.latency_ms,
+                "error_message": result.error_message,
+                "response_code": result.response_code,
+                "cooldown_until": cooldown_until,
+            })
         except Exception:
             _log.error("动态代理健康检查异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_candidates_preview(self, provider_id: int):
+        """GET /api/dynamic-providers/{id}/candidates/preview — 返回候选预览（掩码）"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            rows = _db.get_proxy_candidate_by_provider(provider_id, valid_only=False)
+            preview = []
+            status_counts: dict[str, int] = {}
+            latency_values: list[int] = []
+            score_values: list[float] = []
+            for row in rows[:10]:
+                preview.append({
+                    "id": row.get("id"),
+                    "candidate_key": row.get("candidate_key"),
+                    "protocol": row.get("protocol"),
+                    "host": row.get("host"),
+                    "port": row.get("port"),
+                    "masked_proxy_endpoint": row.get("masked_proxy_endpoint"),
+                    "last_probe_status": row.get("last_probe_status"),
+                    "score": row.get("score", 0.0),
+                })
+            for row in rows:
+                status = row.get("last_probe_status") or "unknown"
+                status_counts[status] = status_counts.get(status, 0) + 1
+                latency = row.get("latency_ms")
+                if isinstance(latency, int):
+                    latency_values.append(latency)
+                score = row.get("score")
+                if isinstance(score, (int, float)):
+                    score_values.append(float(score))
+            latency_summary = {
+                "count": len(latency_values),
+                "min_ms": min(latency_values) if latency_values else None,
+                "max_ms": max(latency_values) if latency_values else None,
+            }
+            score_summary = {
+                "count": len(score_values),
+                "min_score": min(score_values) if score_values else None,
+                "max_score": max(score_values) if score_values else None,
+            }
+            top_candidate = None
+            if rows:
+                first = rows[0]
+                top_candidate = {
+                    "masked_proxy_endpoint": first.get("masked_proxy_endpoint"),
+                    "last_probe_status": first.get("last_probe_status"),
+                    "latency_ms": first.get("latency_ms"),
+                    "score": first.get("score", 0.0),
+                }
+            self._send_json({
+                "provider_id": provider_id,
+                "provider_name": existing.get("name", ""),
+                "preview": preview,
+                "total_count": len(rows),
+                "status_counts": status_counts,
+                "latency_summary": latency_summary,
+                "score_summary": score_summary,
+                "top_candidate": top_candidate,
+            })
+        except Exception:
+            _log.error("动态代理候选预览异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_refresh(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/refresh — 手动刷新 provider 候选"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            result = _scheduler.refresh_dynamic_provider(provider_id)
+            self._send_json(result)
+        except Exception:
+            _log.error("动态代理提供方手动刷新异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
     def _api_dynamic_provider_cooldown_clear(self, provider_id: int):
@@ -1014,7 +1170,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         params = parse_qs(qs)
 
         try:
-            account_id = int(params.get("account_id", ["0"])[0])
+            raw_account_id = params.get("account_id", [None])[0]
+            if raw_account_id in (None, "", "0"):
+                raise ValueError("missing")
+            account_id = int(raw_account_id)
         except (ValueError, TypeError):
             self._send_json({"error": "account_id 必填且必须为整数"}, 400)
             return
@@ -1027,12 +1186,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if not account:
             self._send_json({"error": "账户不存在"}, 404)
             return
-
-        from monitor.dynamic_provider_resolver import resolve_for_manual_download, resolve_for_auto_download
-        if is_auto_download:
-            route = resolve_for_auto_download(account_id)
-        else:
-            route = resolve_for_manual_download(account_id, cookies_present)
 
         if user_forced_direct:
             from monitor.proxy_router import ProxyRouteResult
@@ -1050,6 +1203,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 session_mode=None,
                 cookies_file_present=cookies_present,
             )
+        else:
+            from monitor.dynamic_provider_resolver import resolve_for_manual_download, resolve_for_auto_download
+            if is_auto_download:
+                route = resolve_for_auto_download(account_id)
+            else:
+                route = resolve_for_manual_download(account_id, cookies_present)
 
         self._send_json({
             "account_id": account_id,

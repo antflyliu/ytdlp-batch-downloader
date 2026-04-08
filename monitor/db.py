@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 
 import logging_config
@@ -330,6 +330,86 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v7_dynamic_proxy", today),
+        )
+
+    # v8: 动态代理候选节点表
+    if "v8_dynamic_proxy_candidates" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS dynamic_proxy_candidates (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_key               TEXT    NOT NULL UNIQUE,
+                provider_id                 INTEGER NOT NULL,
+                protocol                    TEXT    NOT NULL,
+                host                        TEXT    NOT NULL,
+                port                        INTEGER NOT NULL,
+                username                    TEXT    DEFAULT NULL,
+                password_enc                TEXT    DEFAULT NULL,
+                auth_type                   TEXT    NOT NULL DEFAULT 'none',
+                masked_proxy_endpoint       TEXT    NOT NULL,
+                country_code                TEXT    DEFAULT NULL,
+                region                      TEXT    DEFAULT NULL,
+                city                        TEXT    DEFAULT NULL,
+                anonymity                   TEXT    DEFAULT NULL,
+                risk_level                  TEXT    NOT NULL DEFAULT 'medium',
+                supports_https              INTEGER NOT NULL DEFAULT 1,
+                supports_cookies            INTEGER NOT NULL DEFAULT 0,
+                supports_auto_download      INTEGER NOT NULL DEFAULT 1,
+                supports_sticky_session     INTEGER NOT NULL DEFAULT 0,
+                latency_ms                  INTEGER DEFAULT NULL,
+                last_probe_status           TEXT    NOT NULL DEFAULT 'unknown',
+                last_probe_at               TEXT    DEFAULT NULL,
+                score                       REAL    NOT NULL DEFAULT 0.0,
+                success_count               INTEGER NOT NULL DEFAULT 0,
+                failure_count               INTEGER NOT NULL DEFAULT 0,
+                consecutive_failures        INTEGER NOT NULL DEFAULT 0,
+                last_success_at             TEXT    DEFAULT NULL,
+                last_failure_at             TEXT    DEFAULT NULL,
+                last_error_message          TEXT    DEFAULT NULL,
+                failure_category            TEXT    DEFAULT NULL,
+                provider_reference_id       TEXT    DEFAULT NULL,
+                ttl_expires_at              TEXT    DEFAULT NULL,
+                last_seen_at                TEXT    NOT NULL,
+                created_at                  TEXT    NOT NULL,
+                updated_at                  TEXT    NOT NULL,
+                FOREIGN KEY (provider_id) REFERENCES dynamic_proxy_providers(id) ON DELETE CASCADE
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_provider_ttl "
+            "ON dynamic_proxy_candidates(provider_id, ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_score "
+            "ON dynamic_proxy_candidates(score DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_probe "
+            "ON dynamic_proxy_candidates(last_probe_status, ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_ttl "
+            "ON dynamic_proxy_candidates(ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_key "
+            "ON dynamic_proxy_candidates(candidate_key)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v8_dynamic_proxy_candidates", today),
+        )
+
+    # v9: provider refresh_interval_minutes
+    if "v9_provider_refresh_interval" not in applied:
+        cur = conn.execute("PRAGMA table_info(dynamic_proxy_providers)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "refresh_interval_minutes" not in cols:
+            conn.execute(
+                "ALTER TABLE dynamic_proxy_providers ADD COLUMN refresh_interval_minutes INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v9_provider_refresh_interval", today),
         )
 
 
@@ -722,6 +802,7 @@ def add_dynamic_proxy_provider(
     supports_sticky_session: bool = False,
     risk_level: str = "medium",
     notes: str | None = None,
+    refresh_interval_minutes: int = 0,
 ) -> int:
     """新增动态代理提供方（config_json 敏感字段自动加密）"""
     import json
@@ -733,12 +814,13 @@ def add_dynamic_proxy_provider(
                (name, enabled, billing_tier, adapter_type, priority,
                 supports_cookies, supports_auto_download, supports_country_filter,
                 supports_sticky_session, risk_level, notes, config_json,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                created_at, updated_at, refresh_interval_minutes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, int(enabled), billing_tier, adapter_type, priority,
              int(supports_cookies), int(supports_auto_download),
              int(supports_country_filter), int(supports_sticky_session),
-             risk_level, notes, cfg_str, now_iso(), now_iso()),
+             risk_level, notes, cfg_str, now_iso(), now_iso(),
+             int(refresh_interval_minutes)),
         )
         return cur.lastrowid
 
@@ -761,6 +843,7 @@ def update_dynamic_proxy_provider(
     last_health_checked_at: str | None = None,
     last_error_message: str | None = None,
     cooldown_until: str | None = None,
+    refresh_interval_minutes: int | None = None,
 ) -> None:
     """更新动态代理提供方"""
     import json
@@ -781,6 +864,7 @@ def update_dynamic_proxy_provider(
     if last_health_checked_at is not None:  fields.append("last_health_checked_at=?");  values.append(last_health_checked_at)
     if last_error_message is not None:      fields.append("last_error_message=?");     values.append(last_error_message)
     if cooldown_until is not None: fields.append("cooldown_until=?");    values.append(cooldown_until)
+    if refresh_interval_minutes is not None: fields.append("refresh_interval_minutes=?"); values.append(int(refresh_interval_minutes))
     if not fields:
         return
     fields.append("updated_at=?"); values.append(now_iso())
@@ -811,6 +895,256 @@ def get_enabled_providers(billing_tier: str | None = None) -> list[dict]:
                 (billing_tier,),
             ).fetchall()
         return [_parse_provider_json(dict(r)) for r in rows]
+
+
+# ── dynamic_proxy_candidates helpers ───────────────────────────
+
+def _encrypt_candidate_secret(value: str | None) -> str | None:
+    """Fernet 加密候选密码，返回 'enc:<base64>' 格式。"""
+    if not value:
+        return None
+    if value.startswith("enc:"):
+        return value
+    return _encrypt_config_value(value)
+
+
+def _decrypt_candidate_secret(encrypted: str | None) -> str | None:
+    """Fernet 解密候选密码，非加密值或解密失败原样返回。"""
+    if not encrypted:
+        return None
+    if not encrypted.startswith("enc:"):
+        return encrypted
+    return _decrypt_config_value(encrypted)
+
+
+def _build_runtime_proxy_url(
+    protocol: str,
+    host: str,
+    port: int,
+    username: str | None = None,
+    password: str | None = None,
+) -> str:
+    """按独立字段构造运行时可用的代理 URL。"""
+    if username and password:
+        from urllib.parse import quote
+        user_part = f"{quote(username)}:{quote(password)}"
+        return f"{protocol}://{user_part}@{host}:{port}"
+    return f"{protocol}://{host}:{port}"
+
+
+def _iso_future(seconds: int) -> str:
+    """返回从现在起 N 秒后的 ISO 8601 时间字符串。"""
+    from datetime import timedelta
+    return (datetime.now() + timedelta(seconds=seconds)).astimezone().isoformat(timespec="seconds")
+
+
+# ── dynamic_proxy_candidates CRUD ──────────────────────────────
+
+def add_proxy_candidate(
+    provider_id: int,
+    protocol: str,
+    host: str,
+    port: int,
+    username: str | None = None,
+    password: str | None = None,
+    auth_type: str = "none",
+    country_code: str | None = None,
+    region: str | None = None,
+    city: str | None = None,
+    anonymity: str | None = None,
+    risk_level: str = "medium",
+    supports_https: bool = True,
+    supports_cookies: bool = False,
+    supports_auto_download: bool = True,
+    supports_sticky_session: bool = False,
+    latency_ms: int | None = None,
+    last_probe_status: str = "unknown",
+    last_probe_at: str | None = None,
+    score: float = 0.0,
+    provider_reference_id: str | None = None,
+    ttl_expires_at: str | None = None,
+    masked_proxy_endpoint: str | None = None,
+) -> int:
+    """
+    新增或刷新代理候选节点（幂等：按派生 candidate_key 去重）。
+    返回候选节点 ID（新增或已存在）。
+    """
+    candidate_key = f"{provider_id}:{protocol}:{host}:{port}:{username or ''}"
+    password_enc = _encrypt_candidate_secret(password)
+    if masked_proxy_endpoint is None:
+        masked_ep = f"{protocol}://***:****@{host}:{port}" if username or password else f"{protocol}://{host}:{port}"
+    else:
+        masked_ep = masked_proxy_endpoint
+
+    now = now_iso()
+
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM dynamic_proxy_candidates WHERE candidate_key=?",
+            (candidate_key,),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    provider_id=?, protocol=?, host=?, port=?,
+                    username=?, password_enc=?, auth_type=?,
+                    masked_proxy_endpoint=?, country_code=?, region=?, city=?,
+                    anonymity=?, risk_level=?, supports_https=?,
+                    supports_cookies=?, supports_auto_download=?,
+                    supports_sticky_session=?, latency_ms=?,
+                    last_probe_status=?, last_probe_at=?, score=?,
+                    provider_reference_id=?, ttl_expires_at=?,
+                    last_seen_at=?, updated_at=?
+                   WHERE candidate_key=?""",
+                (
+                    provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_ep, country_code, region, city,
+                    anonymity, risk_level, int(supports_https),
+                    int(supports_cookies), int(supports_auto_download),
+                    int(supports_sticky_session), latency_ms,
+                    last_probe_status, last_probe_at or None, score,
+                    provider_reference_id, ttl_expires_at,
+                    now, now,
+                    candidate_key,
+                ),
+            )
+            return existing[0]
+        else:
+            cur = conn.execute(
+                """INSERT INTO dynamic_proxy_candidates
+                   (candidate_key, provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_proxy_endpoint, country_code, region, city,
+                    anonymity, risk_level, supports_https,
+                    supports_cookies, supports_auto_download, supports_sticky_session,
+                    latency_ms, last_probe_status, last_probe_at,
+                    score, provider_reference_id, ttl_expires_at,
+                    last_seen_at, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    candidate_key, provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_ep, country_code, region, city,
+                    anonymity, risk_level, int(supports_https),
+                    int(supports_cookies), int(supports_auto_download), int(supports_sticky_session),
+                    latency_ms, last_probe_status, last_probe_at,
+                    score, provider_reference_id, ttl_expires_at,
+                    now, now, now,
+                ),
+            )
+            return cur.lastrowid
+
+
+def get_proxy_candidate(candidate_id: int) -> dict | None:
+    """获取单个代理候选节点"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM dynamic_proxy_candidates WHERE id=?",
+            (candidate_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_proxy_candidate_by_provider(provider_id: int, valid_only: bool = True) -> list[dict]:
+    """
+    按 provider_id 获取候选节点列表。
+    valid_only=True 时过滤 ttl_expires_at > now，按 score DESC 排序。
+    """
+    now = now_iso()
+    with get_connection() as conn:
+        if valid_only:
+            rows = conn.execute(
+                """SELECT * FROM dynamic_proxy_candidates
+                   WHERE provider_id=? AND (ttl_expires_at IS NULL OR ttl_expires_at > ?)
+                   ORDER BY score DESC""",
+                (provider_id, now),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM dynamic_proxy_candidates
+                   WHERE provider_id=?
+                   ORDER BY score DESC""",
+                (provider_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def build_runtime_proxy_url(candidate: dict) -> str:
+    """公开接口：从候选记录还原运行时可用的代理 URL（解密密码）。"""
+    password_enc = candidate.get("password_enc")
+    password = _decrypt_candidate_secret(password_enc) if password_enc else None
+    return _build_runtime_proxy_url(
+        candidate.get("protocol", "http"),
+        candidate.get("host", ""),
+        candidate.get("port", ""),
+        candidate.get("username") or None,
+        password,
+    )
+
+
+def delete_expired_candidates() -> int:
+    """删除所有已过期的候选节点，返回删除数量。"""
+    now = now_iso()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM dynamic_proxy_candidates WHERE ttl_expires_at IS NOT NULL AND ttl_expires_at <= ?",
+            (now,),
+        )
+        return cur.rowcount
+
+
+def cleanup_stale_candidates(stale_days: int = 7) -> int:
+    """删除长期处于 down 状态的候选节点（last_probe_status='down' 且超过 stale_days 未恢复），返回删除数量。"""
+    cutoff = (datetime.now().astimezone() - timedelta(days=stale_days)).isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """DELETE FROM dynamic_proxy_candidates
+               WHERE last_probe_status = 'down'
+                 AND last_probe_at IS NOT NULL
+                 AND last_probe_at <= ?""",
+            (cutoff,),
+        )
+        return cur.rowcount
+
+
+def update_candidate_quality(
+    candidate_id: int,
+    success: bool,
+    latency_ms: int | None = None,
+    error_message: str | None = None,
+    failure_category: str | None = None,
+) -> None:
+    """更新候选节点质量指标（成功/失败）。"""
+    now = now_iso()
+    with get_connection() as conn:
+        if success:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    success_count = success_count + 1,
+                    consecutive_failures = 0,
+                    last_success_at = ?,
+                    latency_ms = COALESCE(?, latency_ms),
+                    last_error_message = NULL,
+                    failure_category = NULL,
+                    updated_at = ?
+                   WHERE id=?""",
+                (now, latency_ms, now, candidate_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    failure_count = failure_count + 1,
+                    consecutive_failures = consecutive_failures + 1,
+                    last_failure_at = ?,
+                    latency_ms = COALESCE(?, latency_ms),
+                    last_error_message = ?,
+                    failure_category = ?,
+                    updated_at = ?
+                   WHERE id=?""",
+                (now, latency_ms, error_message, failure_category, now, candidate_id),
+            )
 
 
 # ── download_decision_logs CRUD ─────────────────────────────

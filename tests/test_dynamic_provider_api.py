@@ -311,67 +311,198 @@ class TestDynamicProviderApi(unittest.TestCase):
         self.assertIsNone(call_kwargs["cooldown_until"])
         self.assertEqual(call_kwargs["last_health_status"], "healthy")
 
-    def test_health_check_local_gateway_success_updates_status(self):
-        from monitor.provider_health import ProbeResult
-        provider = {
-            "id": 1,
-            "name": "Local Gateway",
-            "adapter_type": "local_gateway",
-            "config_json": {"local_proxy_url": "http://127.0.0.1:7890", "healthcheck_url": "http://127.0.0.1:7890/health"},
-        }
+    def test_dynamic_provider_candidates_preview_endpoint(self):
         with mock.patch.object(monitor_server, "_db") as mock_db:
-            mock_db.get_dynamic_proxy_provider.return_value = provider
-            mock_db.load_config.return_value = {"provider_cooldown_seconds": 600}
-            body = b"{}"
-            with mock.patch("monitor.provider_health.check_provider_health", return_value=ProbeResult(
-                status="healthy", latency_ms=120, error_message=None, response_code=200,
-            )):
-                status, resp_body, _ = self._request(
-                    "POST",
-                    "/api/dynamic-providers/1/health-check",
-                    body=body,
-                    headers={
-                        "Authorization": "Bearer test-token",
-                        "Content-Type": "application/json",
-                        "Content-Length": str(len(body)),
-                    },
-                )
+            mock_db.get_dynamic_proxy_provider.return_value = {"id": 9, "name": "Preview Provider"}
+            mock_db.get_proxy_candidate_by_provider.return_value = [
+                {
+                    "id": 1,
+                    "candidate_key": "cand-1",
+                    "protocol": "http",
+                    "host": "8.8.8.8",
+                    "port": 8080,
+                    "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
+                    "last_probe_status": "healthy",
+                    "latency_ms": 120,
+                    "score": 12.5,
+                },
+                {
+                    "id": 2,
+                    "candidate_key": "cand-2",
+                    "protocol": "http",
+                    "host": "9.9.9.9",
+                    "port": 8081,
+                    "masked_proxy_endpoint": "http://9.9.9.9:8081",
+                    "last_probe_status": "down",
+                    "latency_ms": None,
+                    "score": 3.0,
+                },
+            ]
+            status, resp_body, _ = self._request(
+                "GET",
+                "/api/dynamic-providers/9/candidates/preview",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
         self.assertEqual(status, 200)
         data = json.loads(resp_body.decode("utf-8"))
-        self.assertEqual(data["status"], "healthy")
-        mock_db.update_dynamic_proxy_provider.assert_called()
+        self.assertEqual(data["provider_id"], 9)
+        self.assertEqual(data["total_count"], 2)
+        self.assertEqual(data["status_counts"], {"healthy": 1, "down": 1})
+        self.assertEqual(data["latency_summary"], {"count": 1, "min_ms": 120, "max_ms": 120})
+        self.assertEqual(data["score_summary"], {"count": 2, "min_score": 3.0, "max_score": 12.5})
+        self.assertEqual(data["top_candidate"], {
+            "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
+            "last_probe_status": "healthy",
+            "latency_ms": 120,
+            "score": 12.5,
+        })
+        self.assertEqual(data["preview"][0]["masked_proxy_endpoint"], "http://***:****@8.8.8.8:8080")
 
-    def test_health_check_local_gateway_failure_sets_down(self):
-        from monitor.provider_health import ProbeResult
-        provider = {
-            "id": 1,
-            "name": "Local Gateway",
-            "adapter_type": "local_gateway",
-            "config_json": {"local_proxy_url": "http://127.0.0.1:7890", "healthcheck_url": "http://127.0.0.1:7890/health"},
-        }
+    def test_dynamic_provider_manual_refresh_endpoint_returns_preview_aligned_summary(self):
         with mock.patch.object(monitor_server, "_db") as mock_db:
-            mock_db.get_dynamic_proxy_provider.return_value = provider
-            mock_db.load_config.return_value = {"provider_cooldown_seconds": 600}
-            body = b"{}"
-            with mock.patch("monitor.provider_health.check_provider_health", return_value=ProbeResult(
-                status="down", latency_ms=-1, error_message="connection refused", response_code=None,
-            )):
+            mock_db.get_dynamic_proxy_provider.return_value = {"id": 5, "name": "Refresh Provider"}
+            with mock.patch.object(monitor_server._scheduler, "refresh_dynamic_provider", return_value={
+                "ok": True,
+                "provider_id": 5,
+                "raw_count": 12,
+                "valid_count": 7,
+                "status_counts": {"healthy": 5, "down": 2},
+                "latency_summary": {"count": 5, "min_ms": 90, "max_ms": 240},
+                "score_summary": {"count": 7, "min_score": 2.0, "max_score": 18.0},
+                "top_candidate": {
+                    "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
+                    "last_probe_status": "healthy",
+                    "latency_ms": 90,
+                    "score": 18.0,
+                },
+            }) as mock_refresh:
                 status, resp_body, _ = self._request(
                     "POST",
-                    "/api/dynamic-providers/1/health-check",
-                    body=body,
-                    headers={
-                        "Authorization": "Bearer test-token",
-                        "Content-Type": "application/json",
-                        "Content-Length": str(len(body)),
-                    },
+                    "/api/dynamic-providers/5/refresh",
+                    body=b"{}",
+                    headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
                 )
+
         self.assertEqual(status, 200)
         data = json.loads(resp_body.decode("utf-8"))
-        self.assertEqual(data["status"], "down")
-        self.assertIn("cooldown_until", data)
-        mock_db.update_dynamic_proxy_provider.assert_called()
+        self.assertEqual(data["provider_id"], 5)
+        self.assertEqual(data["valid_count"], 7)
+        self.assertEqual(data["status_counts"], {"healthy": 5, "down": 2})
+        self.assertEqual(data["latency_summary"], {"count": 5, "min_ms": 90, "max_ms": 240})
+        self.assertEqual(data["score_summary"], {"count": 7, "min_score": 2.0, "max_score": 18.0})
+        self.assertEqual(data["top_candidate"]["score"], 18.0)
+        mock_refresh.assert_called_once_with(5)
 
+    def test_scheduler_refresh_dynamic_provider_singleflights_concurrent_calls(self):
+        provider = {
+            "id": 5,
+            "name": "Refresh Provider",
+            "adapter_type": "list_api",
+            "config_json": {
+                "response": {
+                    "items_path": "data",
+                    "field_mapping": {
+                        "host": ["ip"],
+                        "port": ["port"],
+                        "protocol": ["protocol"],
+                    },
+                },
+            },
+        }
+        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+            mock_db.get_dynamic_proxy_provider.return_value = provider
+            entered = threading.Event()
+            release = threading.Event()
+            call_counter = {"count": 0}
+
+            def fake_fetch(provider_arg, scenario_arg):
+                call_counter["count"] += 1
+                entered.set()
+                release.wait(timeout=1)
+                return [mock.Mock(host="8.8.8.8", port=8080, protocol="http", score=0.0)]
+
+            with mock.patch("monitor.provider_templates.fetch_provider_candidates", side_effect=fake_fetch):
+                with mock.patch.object(mock_db, "add_proxy_candidate", return_value=101) as mock_add:
+                    results: list[dict] = []
+
+                    def _run_refresh():
+                        results.append(monitor_server._scheduler.refresh_dynamic_provider(5))
+
+                    t1 = threading.Thread(target=_run_refresh)
+                    t1.start()
+                    entered.wait(timeout=1)
+
+                    t2 = threading.Thread(target=_run_refresh)
+                    t2.start()
+
+                    release.set()
+                    t1.join(timeout=2)
+                    t2.join(timeout=2)
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(call_counter["count"], 1)
+        self.assertEqual(mock_add.call_count, 1)
+        self.assertTrue(results[0]["ok"])
+        self.assertTrue(results[1]["ok"])
+
+    def test_scheduler_refresh_dynamic_provider_returns_preview_aligned_summary(self):
+        provider = {
+            "id": 7,
+            "name": "Summary Provider",
+            "adapter_type": "list_api",
+            "config_json": {
+                "response": {
+                    "items_path": "data",
+                    "field_mapping": {
+                        "host": ["ip"],
+                        "port": ["port"],
+                        "protocol": ["protocol"],
+                    },
+                },
+            },
+        }
+        candidate_a = mock.Mock(
+            host="8.8.8.8", port=8080, protocol="http", username=None, auth_type="none",
+            country_code=None, region=None, city=None, anonymity=None, risk_level="medium",
+            supports_https=True, supports_cookies=False, supports_auto_download=True,
+            supports_sticky_session=False, score=12.5, provider_reference_id=None, ttl_expires_at=None,
+            masked_proxy_endpoint="http://***:****@8.8.8.8:8080",
+        )
+        candidate_b = mock.Mock(
+            host="9.9.9.9", port=8081, protocol="http", username=None, auth_type="none",
+            country_code=None, region=None, city=None, anonymity=None, risk_level="medium",
+            supports_https=True, supports_cookies=False, supports_auto_download=True,
+            supports_sticky_session=False, score=3.0, provider_reference_id=None, ttl_expires_at=None,
+            masked_proxy_endpoint="http://9.9.9.9:8081",
+        )
+        probe_results = [
+            mock.Mock(status="healthy", latency_ms=120, error_message=None),
+            mock.Mock(status="down", latency_ms=None, error_message="connect failed"),
+        ]
+        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+            mock_db.get_dynamic_proxy_provider.return_value = provider
+            with mock.patch("monitor.provider_templates.fetch_provider_candidates", return_value=[candidate_a, candidate_b]):
+                with mock.patch("monitor.proxy_validator.CandidateProbeValidator") as mock_validator_cls:
+                    mock_validator = mock_validator_cls.return_value
+
+                    async def fake_probe(candidate_arg, timeout=8):
+                        return probe_results.pop(0)
+
+                    mock_validator.probe_lightweight.side_effect = fake_probe
+                    with mock.patch.object(mock_db, "add_proxy_candidate", return_value=101):
+                        result = monitor_server._scheduler.refresh_dynamic_provider(7)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status_counts"], {"healthy": 1, "down": 1})
+        self.assertEqual(result["latency_summary"], {"count": 1, "min_ms": 120, "max_ms": 120})
+        self.assertEqual(result["score_summary"], {"count": 2, "min_score": 3.0, "max_score": 12.5})
+        self.assertEqual(result["top_candidate"], {
+            "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
+            "last_probe_status": "healthy",
+            "latency_ms": 120,
+            "score": 12.5,
+        })
 
 if __name__ == "__main__":
     unittest.main()

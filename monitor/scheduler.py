@@ -175,6 +175,149 @@ def set_global_wecom_url(url: str | None) -> None:
     _log.info(f"全局企微 Webhook 已更新: {'已设置' if url else '未设置'}")
 
 
+# provider refresh singleflight state
+_refresh_locks: dict[int, threading.Lock] = {}
+_refresh_locks_guard = threading.Lock()
+_refresh_results: dict[int, dict] = {}
+
+
+def _get_refresh_lock(provider_id: int) -> threading.Lock:
+    with _refresh_locks_guard:
+        lock = _refresh_locks.get(provider_id)
+        if lock is None:
+            lock = threading.Lock()
+            _refresh_locks[provider_id] = lock
+        return lock
+
+
+def refresh_dynamic_provider(provider_id: int) -> dict:
+    """Task 9: refresh one dynamic provider and persist normalized candidates."""
+    lock = _get_refresh_lock(provider_id)
+    if not lock.acquire(blocking=False):
+        with lock:
+            return dict(_refresh_results.get(provider_id, {
+                "ok": False,
+                "provider_id": provider_id,
+                "raw_count": 0,
+                "valid_count": 0,
+                "error": "refresh_in_progress",
+            }))
+
+    try:
+        provider = _db.get_dynamic_proxy_provider(provider_id)
+        if not provider:
+            result = {
+                "ok": False,
+                "provider_id": provider_id,
+                "raw_count": 0,
+                "valid_count": 0,
+                "error": "provider_not_found",
+            }
+            _refresh_results[provider_id] = result
+            return dict(result)
+
+        from monitor.provider_templates import fetch_provider_candidates
+        from monitor.proxy_validator import CandidateProbeValidator
+
+        candidates = fetch_provider_candidates(provider, {})
+        validator = CandidateProbeValidator()
+        status_counts: dict[str, int] = {}
+        latency_values: list[int] = []
+        score_values: list[float] = []
+        top_candidate: dict | None = None
+        for candidate in candidates:
+            probe_result = None
+            try:
+                import asyncio
+                probe_result = asyncio.run(validator.probe_lightweight(candidate, timeout=8))
+            except Exception:
+                probe_result = None
+            probe_status = probe_result.status if probe_result is not None else getattr(candidate, "last_probe_status", "unknown")
+            probe_latency = probe_result.latency_ms if probe_result is not None else getattr(candidate, "latency_ms", None)
+            score = getattr(candidate, "score", 0.0)
+            score_value = float(score) if isinstance(score, (int, float)) else 0.0
+
+            status_counts[probe_status] = status_counts.get(probe_status, 0) + 1
+            if isinstance(probe_latency, int):
+                latency_values.append(probe_latency)
+            score_values.append(score_value)
+            if top_candidate is None:
+                top_candidate = {
+                    "masked_proxy_endpoint": getattr(candidate, "masked_proxy_endpoint", None),
+                    "last_probe_status": probe_status,
+                    "latency_ms": probe_latency,
+                    "score": score_value,
+                }
+
+            _db.add_proxy_candidate(
+                provider_id=provider_id,
+                protocol=candidate.protocol,
+                host=candidate.host,
+                port=candidate.port,
+                username=getattr(candidate, "username", None),
+                auth_type=getattr(candidate, "auth_type", "none"),
+                country_code=getattr(candidate, "country_code", None),
+                region=getattr(candidate, "region", None),
+                city=getattr(candidate, "city", None),
+                anonymity=getattr(candidate, "anonymity", None),
+                risk_level=getattr(candidate, "risk_level", "medium"),
+                supports_https=getattr(candidate, "supports_https", True),
+                supports_cookies=getattr(candidate, "supports_cookies", False),
+                supports_auto_download=getattr(candidate, "supports_auto_download", True),
+                supports_sticky_session=getattr(candidate, "supports_sticky_session", False),
+                latency_ms=probe_latency,
+                last_probe_status=probe_status,
+                last_probe_at=getattr(candidate, "last_probe_at", None),
+                score=score_value,
+                provider_reference_id=getattr(candidate, "provider_reference_id", None),
+                ttl_expires_at=getattr(candidate, "ttl_expires_at", None),
+                masked_proxy_endpoint=None,
+            )
+
+        latency_summary = {
+            "count": len(latency_values),
+            "min_ms": min(latency_values) if latency_values else None,
+            "max_ms": max(latency_values) if latency_values else None,
+        }
+        score_summary = {
+            "count": len(score_values),
+            "min_score": min(score_values) if score_values else None,
+            "max_score": max(score_values) if score_values else None,
+        }
+
+        result = {
+            "ok": True,
+            "provider_id": provider_id,
+            "raw_count": len(candidates),
+            "valid_count": len(candidates),
+            "status_counts": status_counts,
+            "latency_summary": latency_summary,
+            "score_summary": score_summary,
+            "top_candidate": top_candidate,
+        }
+        _refresh_results[provider_id] = result
+        return dict(result)
+    finally:
+        lock.release()
+
+
+def _cleanup_stale_and_expired_candidates() -> None:
+    """每日清理任务：删除过期 TTL 候选 + 长期 down 候选。"""
+    try:
+        deleted_expired = _db.delete_expired_candidates()
+    except Exception:
+        deleted_expired = 0
+        _log.warning("delete_expired_candidates failed", exc_info=True)
+    try:
+        deleted_stale = _db.cleanup_stale_candidates(stale_days=7)
+    except Exception:
+        deleted_stale = 0
+        _log.warning("cleanup_stale_candidates failed", exc_info=True)
+    total = deleted_expired + deleted_stale
+    if total > 0:
+        _log.info(f"候选清理完成: 过期={deleted_expired} 长期down={deleted_stale} 总计={total}")
+
+
 # 共享调度器实例
 _scheduler: "BackgroundScheduler | None" = None
 _scheduler_lock = threading.Lock()
@@ -529,6 +672,42 @@ def start(auto_download: bool = False) -> bool:
                 f"模式={acc['fetch_mode']} 限制={acc['fetch_limit']}"
             )
 
+        # 注册动态代理 provider 周期性刷新任务
+        providers = _db.list_dynamic_proxy_providers()
+        for prov in providers:
+            if not prov.get("enabled"):
+                continue
+            interval = prov.get("refresh_interval_minutes", 0)
+            if interval <= 0:
+                continue
+            _scheduler.add_job(
+                func=refresh_dynamic_provider,
+                trigger=apscheduler.triggers.interval.IntervalTrigger(
+                    minutes=interval,
+                    start_date=datetime.now().astimezone(),
+                ),
+                args=[prov["id"]],
+                id=f"provider_refresh_{prov['id']}",
+                name=f"ProviderRefresh {prov['name']}",
+                replace_existing=True,
+            )
+            _log.info(
+                f"注册 Provider 刷新任务: {prov['name']} 间隔={interval}分钟"
+            )
+
+        # 注册每日候选清理任务
+        _scheduler.add_job(
+            func=_cleanup_stale_and_expired_candidates,
+            trigger=apscheduler.triggers.interval.IntervalTrigger(
+                hours=24,
+                start_date=datetime.now().astimezone(),
+            ),
+            id="cleanup_stale_candidates",
+            name="CleanupStaleCandidates",
+            replace_existing=True,
+        )
+        _log.info("注册候选清理任务: 每24小时清理一次")
+
         _scheduler.start()
 
         # 持久化运行状态
@@ -599,6 +778,40 @@ def reload_jobs() -> int:
         else:
             _scheduler.add_job(**job_kwargs)
         _log.info(f"{'更新' if job_id in current_job_ids else '添加'}任务: {acc['name']} @ {acc['scan_interval']}min")
+
+    # Provider refresh jobs
+    providers = _db.list_dynamic_proxy_providers()
+    target_provider_job_ids = set()
+    for prov in providers:
+        if not prov.get("enabled"):
+            continue
+        interval = prov.get("refresh_interval_minutes", 0)
+        if interval <= 0:
+            continue
+        job_id = f"provider_refresh_{prov['id']}"
+        target_provider_job_ids.add(job_id)
+        job_kwargs = {
+            "func": refresh_dynamic_provider,
+            "trigger": apscheduler.triggers.interval.IntervalTrigger(
+                minutes=interval,
+                start_date=datetime.now().astimezone(),
+            ),
+            "args": [prov["id"]],
+            "name": f"ProviderRefresh {prov['name']}",
+            "replace_existing": True,
+        }
+        if job_id in current_job_ids:
+            _scheduler.reschedule_job(job_id, **job_kwargs)
+        else:
+            _scheduler.add_job(**job_kwargs)
+        _log.info(f"{'更新' if job_id in current_job_ids else '添加'}Provider刷新: {prov['name']} @ {interval}min")
+
+    # 移除不再需要的 provider refresh jobs
+    all_current_ids = {_j.id for _j in _scheduler.get_jobs()}
+    for job_id in all_current_ids:
+        if job_id.startswith("provider_refresh_") and job_id not in target_provider_job_ids:
+            _scheduler.remove_job(job_id)
+            _log.info(f"移除失效 Provider 刷新任务: {job_id}")
 
     active_count = len(_scheduler.get_jobs())
     _log.info(f"任务重载完成，当前活跃: {active_count}")
