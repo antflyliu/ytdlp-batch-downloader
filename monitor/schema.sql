@@ -140,3 +140,49 @@ CREATE TABLE IF NOT EXISTS monitor_notify_logs (
 
 CREATE INDEX IF NOT EXISTS idx_notify_logs_event_id ON monitor_notify_logs(event_id);
 CREATE INDEX IF NOT EXISTS idx_notify_logs_sent_at  ON monitor_notify_logs(sent_at DESC);
+
+-- ── 动态代理候选节点表 ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS dynamic_proxy_candidates (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_key               TEXT    NOT NULL UNIQUE,
+    provider_id                 INTEGER NOT NULL,
+    protocol                    TEXT    NOT NULL,
+    host                        TEXT    NOT NULL,
+    port                        INTEGER NOT NULL,
+    username                    TEXT    DEFAULT NULL,
+    password_enc                TEXT    DEFAULT NULL,
+    auth_type                   TEXT    NOT NULL DEFAULT 'none',
+    masked_proxy_endpoint       TEXT    NOT NULL,
+    country_code                TEXT    DEFAULT NULL,
+    region                      TEXT    DEFAULT NULL,
+    city                        TEXT    DEFAULT NULL,
+    anonymity                   TEXT    DEFAULT NULL,
+    risk_level                  TEXT    NOT NULL DEFAULT 'medium',
+    supports_https              INTEGER NOT NULL DEFAULT 1,
+    supports_cookies            INTEGER NOT NULL DEFAULT 0,
+    supports_auto_download      INTEGER NOT NULL DEFAULT 1,
+    supports_sticky_session     INTEGER NOT NULL DEFAULT 0,
+    latency_ms                  INTEGER DEFAULT NULL,
+    last_probe_status           TEXT    NOT NULL DEFAULT 'unknown',
+    last_probe_at               TEXT    DEFAULT NULL,
+    score                       REAL    NOT NULL DEFAULT 0.0,
+    success_count               INTEGER NOT NULL DEFAULT 0,
+    failure_count               INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures        INTEGER NOT NULL DEFAULT 0,
+    last_success_at             TEXT    DEFAULT NULL,
+    last_failure_at             TEXT    DEFAULT NULL,
+    last_error_message          TEXT    DEFAULT NULL,
+    failure_category            TEXT    DEFAULT NULL,
+    provider_reference_id       TEXT    DEFAULT NULL,
+    ttl_expires_at              TEXT    DEFAULT NULL,
+    last_seen_at                TEXT    NOT NULL,
+    created_at                  TEXT    NOT NULL,
+    updated_at                  TEXT    NOT NULL,
+    FOREIGN KEY (provider_id) REFERENCES dynamic_proxy_providers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidates_provider_ttl ON dynamic_proxy_candidates(provider_id, ttl_expires_at);
+CREATE INDEX IF NOT EXISTS idx_candidates_score        ON dynamic_proxy_candidates(score DESC);
+CREATE INDEX IF NOT EXISTS idx_candidates_probe        ON dynamic_proxy_candidates(last_probe_status, ttl_expires_at);
+CREATE INDEX IF NOT EXISTS idx_candidates_ttl          ON dynamic_proxy_candidates(ttl_expires_at);
+CREATE INDEX IF NOT EXISTS idx_candidates_key          ON dynamic_proxy_candidates(candidate_key);

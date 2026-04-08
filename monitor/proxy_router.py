@@ -40,6 +40,41 @@ class ProxyRouteResult:
 
 
 @dataclass
+class CanonicalProxyCandidate:
+    """Canonical proxy candidate model for future list_api/public_feed normalization."""
+    candidate_key: str
+    provider_id: int
+    provider_name: str
+    protocol: str
+    host: str
+    port: int
+    proxy_url: str
+    provider_adapter: str = "list_api"
+    username: str | None = None
+    password_enc: str | None = None
+    auth_type: str = "none"
+    country_code: str | None = None
+    region: str | None = None
+    city: str | None = None
+    anonymity: str | None = None
+    risk_level: str = "medium"
+    supports_https: bool = True
+    supports_cookies: bool = False
+    supports_auto_download: bool = True
+    supports_sticky_session: bool = False
+    latency_ms: int | None = None
+    last_probe_status: str = "unknown"
+    last_probe_at: str | None = None
+    success_count: int = 0
+    failure_count: int = 0
+    consecutive_failures: int = 0
+    score: float = 0.0
+    provider_reference_id: str | None = None
+    ttl_expires_at: str | None = None
+    last_seen_at: str | None = None
+
+
+@dataclass
 class ProxyProviderCandidate:
     """A dynamic proxy provider that is a candidate for routing."""
     provider_id: int
@@ -166,6 +201,36 @@ def _resolve_list_api(config_json: dict) -> list[str]:
     In v1 MVP, return empty list.
     """
     return []
+
+
+def _resolve_list_api_with_candidates(
+    provider: dict,
+    scenario_context: dict,
+) -> list[CanonicalProxyCandidate]:
+    """
+    Task 7 integration: delegate list_api candidate selection to the current
+    pool/selector skeleton and return the selected candidate list.
+    """
+    return _select_candidates_for_provider(provider, scenario_context)
+
+
+def _select_candidates_for_provider(provider: dict, scenario_context: dict) -> list[CanonicalProxyCandidate]:
+    """Delegate candidate selection to ProxyCandidatePool + ProxySelector."""
+    from monitor.proxy_candidate_pool import ProxyCandidatePool
+    from monitor.proxy_selector import ProxySelector
+
+    pool = ProxyCandidatePool()
+    selector = ProxySelector(pool)
+    return selector.select(
+        provider_id=provider["id"],
+        is_auto_download=scenario_context.get("is_auto_download", False),
+        cookies_present=scenario_context.get("cookies_present", False),
+        country_codes=scenario_context.get("country_codes"),
+        protocol_order=scenario_context.get("protocol_order"),
+        allow_free=scenario_context.get("allow_free", True),
+        billing_tier=provider.get("billing_tier"),
+        max_count=scenario_context.get("max_candidates", 5),
+    )
 
 
 def _resolve_rotating_gateway(config_json: dict) -> str | None:
@@ -352,7 +417,7 @@ def _try_system_proxy(
 
     if not providers_raw:
         _log.debug("No enabled providers found")
-        allow_direct = global_config["manual_direct_fallback"]
+        allow_direct = global_config["auto_direct_fallback"] if is_auto_download else global_config["manual_direct_fallback"]
         if allow_direct:
             return _direct_result(
                 reason="无可用动态代理提供方，已启用直连兜底",
@@ -422,17 +487,58 @@ def _try_system_proxy(
         # Resolve the actual proxy
         proxy = _resolve_provider_proxy(cand)
 
-        # For v1 MVP: public_feed and list_api return [] (no candidates yet).
-        # They are placeholders — skip them entirely since they don't yield usable proxies.
         # For gateway types (rotating/local): proxy must be a non-empty string.
+        # For pool-style types (public_feed/list_api): use selected candidate pool.
         is_pool_adapter = cand.adapter_type in ("public_feed", "list_api")
-        if proxy is None or (is_pool_adapter and not proxy):
-            if is_pool_adapter:
-                _log.debug(f"Provider {cand.name} ({cand.adapter_type}): v1 MVP — no candidate pool, skip")
-                warnings.append(f"提供方 {cand.name} 类型 {cand.adapter_type} 在 v1 中无候选，跳过")
+        if is_pool_adapter:
+            scenario = {
+                "is_auto_download": is_auto_download,
+                "cookies_present": cookies_file_present,
+                "country_codes": [],
+                "protocol_order": ["http", "https", "socks5"],
+                "allow_free": global_config.get("allow_free_proxy", True),
+                "max_candidates": 5,
+            }
+            if cand.adapter_type == "list_api":
+                selected_candidates = _resolve_list_api_with_candidates(raw, scenario)
             else:
-                _log.debug(f"Provider {cand.name} ({cand.adapter_type}): no proxy resolved")
-                warnings.append(f"提供方 {cand.name} 未返回可用代理，跳过")
+                selected_candidates = _select_candidates_for_provider(raw, scenario)
+            if not selected_candidates:
+                _log.debug(f"Provider {cand.name} ({cand.adapter_type}): no selected candidates")
+                warnings.append(f"提供方 {cand.name} 候选池为空，跳过")
+                continue
+
+            proxy_pool = [candidate.proxy_url for candidate in selected_candidates]
+            masked = _mask_proxy_url(proxy_pool[0])
+            tier_label = "系统付费动态代理" if cand.billing_tier == "paid" else "系统免费动态代理"
+            _log.info(
+                f"路由命中: {tier_label} provider={cand.name} "
+                f"adapter={cand.adapter_type} tier={cand.billing_tier} "
+                f"pool_size={len(proxy_pool)} first={masked}"
+            )
+
+            result_warnings = list(warnings)
+            if cand.billing_tier == "free":
+                result_warnings.append(f"使用免费动态代理提供方 {cand.name}，稳定性可能不如付费代理")
+
+            return ProxyRouteResult(
+                resolved_mode=cand.billing_tier + "_system",
+                proxy=None,
+                proxy_pool=proxy_pool,
+                provider_name=cand.name,
+                provider_tier=cand.billing_tier,
+                resolved_proxy_source="system_" + cand.billing_tier,
+                reason=f"命中系统动态代理提供方: {cand.name} ({cand.adapter_type})，返回 {len(proxy_pool)} 个候选",
+                warnings=result_warnings,
+                fallback_depth=1,
+                masked_proxy_endpoint=masked,
+                session_mode="rotating",
+                cookies_file_present=cookies_file_present,
+            )
+
+        if proxy is None:
+            _log.debug(f"Provider {cand.name} ({cand.adapter_type}): no proxy resolved")
+            warnings.append(f"提供方 {cand.name} 未返回可用代理，跳过")
             continue
 
         # Build result
@@ -466,7 +572,7 @@ def _try_system_proxy(
 
     # All providers exhausted
     warnings.append("所有动态代理提供方均不可用")
-    allow_direct = global_config["manual_direct_fallback"]
+    allow_direct = global_config["auto_direct_fallback"] if is_auto_download else global_config["manual_direct_fallback"]
     if allow_direct:
         _log.info("所有动态代理提供方不可用，启用直连兜底")
         return _direct_result(
