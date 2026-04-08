@@ -290,6 +290,24 @@ class TestGlobalWebhookConfigEncryption(_WebhookConfigTestCase):
             loaded_cfg = _db.load_config()
             self.assertEqual(loaded_cfg["global_feishu_url"], plaintext)
 
+    def test_save_config_encrypts_global_dingtalk_sign_secret(self):
+        import monitor.db as _db
+
+        plaintext = "SECxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["global_dingtalk_sign_secret"] = plaintext
+
+            _db.save_config(cfg)
+
+            raw_cfg = self._read_raw_config()
+            self.assertNotEqual(raw_cfg["global_dingtalk_sign_secret"], plaintext)
+            self.assertTrue(raw_cfg["global_dingtalk_sign_secret"].startswith("enc:"))
+
+            loaded_cfg = _db.load_config()
+            self.assertEqual(loaded_cfg["global_dingtalk_sign_secret"], plaintext)
+
     def test_load_config_migrates_plaintext_global_webhooks(self):
         import monitor.db as _db
 
@@ -331,6 +349,28 @@ class TestSchedulerGlobalWebhookLoading(_WebhookConfigTestCase):
             self.assertEqual(scheduler._GLOBAL_WEBHOOKS["wecom"], plaintext)
             raw_cfg = self._read_raw_config()
             self.assertTrue(raw_cfg["global_wecom_url"].startswith("enc:"))
+
+    def test_ensure_global_webhooks_loads_dingtalk_sign_secret(self):
+        import monitor.db as _db
+        from monitor import scheduler
+
+        sec = "SECbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["global_dingtalk_sign_secret"] = sec
+            _db.save_config(cfg)
+
+            scheduler._GLOBAL_WEBHOOKS = {}
+            scheduler._GLOBAL_WEBHOOKS_LOADED = False
+            scheduler._GLOBAL_DINGTALK_SIGN_SECRET = None
+            scheduler._invalidate_config_cache()
+
+            scheduler._ensure_global_webhooks()
+
+            self.assertEqual(scheduler._GLOBAL_DINGTALK_SIGN_SECRET, sec)
+            raw_cfg = self._read_raw_config()
+            self.assertTrue(raw_cfg["global_dingtalk_sign_secret"].startswith("enc:"))
 
 
 class TestNotifyLogWebhookRedaction(_WebhookConfigTestCase):

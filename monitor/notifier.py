@@ -2,9 +2,14 @@
 monitor.notifier — 多平台通知器
 支持：日志文件 / 飞书 / 钉钉 / 企业微信
 """
+import base64
+import hashlib
+import hmac
 import logging
+import time
 from datetime import datetime
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -31,6 +36,30 @@ _FEISHU_HEADER_COLORS: dict[str, str] = {
     "scan_ok": "blue",
     "scan_new": "green",
 }
+
+
+def finalize_dingtalk_webhook_url(webhook_url: str, dingtalk_sign_secret: str | None) -> str:
+    """
+    钉钉自定义机器人加签：在 URL 查询串中附加 timestamp、sign。
+    未配置密钥或 URL 为空时返回原 URL（兼容未开启加签的机器人）。
+    """
+    if not webhook_url or not (dingtalk_sign_secret or "").strip():
+        return webhook_url
+    secret = dingtalk_sign_secret.strip()
+    timestamp = str(round(time.time() * 1000))
+    string_to_sign = f"{timestamp}\n{secret}"
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).digest()
+    sign_b64 = base64.b64encode(digest).decode("utf-8")
+    parts = urlsplit(webhook_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["timestamp"] = timestamp
+    query["sign"] = sign_b64
+    new_query = urlencode(query)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
 
 # ── 飞书模板专用工具函数 ───────────────────────────────────────────────────
@@ -682,6 +711,7 @@ def notify(
     feishu_message_mode: str = FEISHU_MODE_CARD,
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
+    dingtalk_sign_secret: str | None = None,
 ) -> None:
     """
     统一通知入口：文件日志 + 指定平台 Webhook
@@ -691,6 +721,7 @@ def notify(
     :param feishu_message_mode: 飞书发送模式，card_json（默认）或 template
     :param feishu_template_id: 飞书详情卡片模板ID（template 模式用）
     :param feishu_scan_template_id: 飞书扫描确认模板ID（template 模式用）
+    :param dingtalk_sign_secret: 钉钉机器人加签密钥（SEC…），按账户配置；仅 platform=dingtalk 时生效
     """
     now_str = _db.now_iso()
 
@@ -721,14 +752,19 @@ def notify(
         feishu_message_mode=feishu_message_mode,
         feishu_template_id=feishu_template_id,
     )
-    success, response = _send_webhook(webhook_url, payload, platform)
-    _log_result(platform, account_name, len(videos), success, response, event_id, account_id, now_str, webhook_url)
+    send_url = (
+        finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+        if platform == "dingtalk"
+        else webhook_url
+    )
+    success, response = _send_webhook(send_url, payload, platform)
+    _log_result(platform, account_name, len(videos), success, response, event_id, account_id, now_str, send_url)
     if success:
-        _log.info(f"✅ {platform} 通知发送成功: {account_name} → {response[:120]}")
+        _log.info(f"[ok] {platform} 通知发送成功: {account_name} → {response[:120]}")
         video_ids = [v["video_id"] for v in videos]
         _db.mark_notify_sent(video_ids, now_str)
     else:
-        _log.error(f"❌ {platform} 通知发送失败: {account_name} → {response[:200]}")
+        _log.error(f"[fail] {platform} 通知发送失败: {account_name} → {response[:200]}")
 
 
 def _log_result(

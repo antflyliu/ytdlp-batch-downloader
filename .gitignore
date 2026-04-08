@@ -54,3 +54,6 @@ monitor/data/
 
 # Test scripts
 scripts/test_*.py
+
+# Git worktrees
+.worktrees/

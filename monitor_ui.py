@@ -185,6 +185,33 @@ class AccountDialog(tk.Toplevel):
                 bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
                ).grid(row=15, column=1, sticky=tk.W, padx=(8, 0))
 
+        # 钉钉加签（仅钉钉平台显示；与 Web 端一致的语义说明，焦点环色见 DESIGN.md Focus Blue）
+        self._dingtalk_sign_frame = tk.Frame(frame, bg="#1677FF", padx=2, pady=2)
+        _dt_inner = tk.Frame(self._dingtalk_sign_frame, bg=c["bg"])
+        _dt_inner.grid(row=0, column=0, sticky=tk.NSEW)
+        self._dingtalk_sign_frame.columnconfigure(0, weight=1)
+        tk.Label(_dt_inner, text="钉钉加签密钥", bg=c["bg"], fg="#1677FF",
+                 font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(6, 0))
+        self._vars["dingtalk_sign_secret"] = tk.StringVar(
+            value=(self.account.get("dingtalk_sign_secret", "") if self.account else "")
+        )
+        dsec_entry = tk.Entry(
+            _dt_inner, textvariable=self._vars["dingtalk_sign_secret"],
+            bg=c["surface2"], fg=c["text"],
+            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+            font=("Segoe UI", 9), show="*",
+            highlightbackground=c["border"], highlightthickness=1,
+            highlightcolor="#3898ec",
+        )
+        dsec_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(6, 0))
+        _dt_inner.columnconfigure(1, weight=1)
+        tk.Label(
+            _dt_inner,
+            text="加签时填 SEC，须与上方账户 Webhook 同一机器人；仅用全局钉钉 Webhook 时请留空",
+            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7), wraplength=420, justify=tk.LEFT,
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 6))
+        self._dingtalk_sign_frame.grid(row=16, column=0, columnspan=2, sticky=tk.EW)
+
         # 飞书模板配置（仅飞书平台显示）
         self._feishu_template_group = tk.Frame(frame, bg=c["bg"])
 
@@ -235,7 +262,7 @@ class AccountDialog(tk.Toplevel):
                 bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
                ).grid(row=4, column=1, sticky=tk.W, padx=(8, 0))
 
-        self._feishu_template_group.grid(row=16, column=0, columnspan=2, sticky=tk.W)
+        self._feishu_template_group.grid(row=17, column=0, columnspan=2, sticky=tk.W)
 
         # 启用/通知复选框
         self._vars["enabled"] = tk.BooleanVar(
@@ -247,17 +274,17 @@ class AccountDialog(tk.Toplevel):
             cb = tk.Checkbutton(frame, text=label_text, variable=self._vars[key],
                               bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
                               activebackground=c["bg"], font=("Segoe UI", 9))
-            cb.grid(row=17 if key == "enabled" else 18, column=0, columnspan=2,
+            cb.grid(row=18 if key == "enabled" else 19, column=0, columnspan=2,
                     sticky=tk.W, pady=(8, 0))
 
         # 分隔
         sep3 = tk.Frame(frame, bg=c["border"], height=1)
-        sep3.grid(row=19, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+        sep3.grid(row=20, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
 
         # 下载代理设置
         tk.Label(frame, text="下载代理设置", bg=c["bg"], fg=c["accent"],
                  font=("Segoe UI", 9, "bold")).grid(
-                     row=20, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+                     row=21, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
 
         self._vars["proxy_enabled"] = tk.BooleanVar(
             value=bool(self.account.get("proxy_enabled", 0)) if self.account else False)
@@ -274,7 +301,7 @@ class AccountDialog(tk.Toplevel):
                                   variable=self._vars["proxy_enabled"],
                                   bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
                                   activebackground=c["bg"], font=("Segoe UI", 9))
-        proxy_cb.grid(row=21, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        proxy_cb.grid(row=22, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         self._vars["proxy_enabled"].trace_add("write", _toggle_proxy_section)
 
         # 代理池选择
@@ -307,7 +334,7 @@ class AccountDialog(tk.Toplevel):
         # 初始状态
         if not self._vars["proxy_enabled"].get():
             self._proxy_pool_row.grid_remove()
-        self._proxy_pool_row.grid(row=22, column=0, columnspan=2, sticky=tk.W)
+        self._proxy_pool_row.grid(row=23, column=0, columnspan=2, sticky=tk.W)
 
         # 按钮
         btn_frame = tk.Frame(self, bg=c["bg"])
@@ -353,6 +380,7 @@ class AccountDialog(tk.Toplevel):
                 "notify_enabled": self._vars["notify_enabled"].get(),
                 "notify_platform": self._vars["notify_platform"].get(),
                 "webhook_url": self._vars["webhook_url"].get().strip() or None,
+                "dingtalk_sign_secret": self._vars["dingtalk_sign_secret"].get().strip() or None,
                 "feishu_message_mode": mode_raw,
                 "feishu_template_id": self._vars["feishu_template_id"].get().strip() or None,
                 "feishu_scan_template_id": self._vars["feishu_scan_template_id"].get().strip() or None,
@@ -398,6 +426,11 @@ class AccountDialog(tk.Toplevel):
                 self._feishu_template_group.grid()
             else:
                 self._feishu_template_group.grid_remove()
+        if hasattr(self, "_dingtalk_sign_frame"):
+            if selected == "dingtalk":
+                self._dingtalk_sign_frame.grid()
+            else:
+                self._dingtalk_sign_frame.grid_remove()
 
 
 # ── 全局设置弹窗 ──────────────────────────────────────────────────────────
@@ -411,7 +444,7 @@ class GlobalConfigDialog(tk.Toplevel):
         c = _COLORS
         self.configure(bg=c["bg"])
         self.title("全局 Webhook 配置")
-        self.geometry("500x280")
+        self.geometry("500x360")
         self.grab_set()
 
         frame = tk.Frame(self, bg=c["bg"])
@@ -422,41 +455,59 @@ class GlobalConfigDialog(tk.Toplevel):
 
         self._vars = {}
         webhook_fields = [
-            ("飞书 Webhook URL",   "global_feishu_url",    "#7B68EE"),
-            ("钉钉 Webhook URL",   "global_dingtalk_url",  "#1677FF"),
-            ("企微 Webhook URL",   "global_wecom_url",     "#52C41A"),
+            ("飞书 Webhook URL",   "global_feishu_url",             "#7B68EE", False),
+            ("钉钉 Webhook URL",   "global_dingtalk_url",           "#1677FF", False),
+            ("钉钉加签密钥（全局）", "global_dingtalk_sign_secret", "#1677FF", True),
+            ("企微 Webhook URL",   "global_wecom_url",              "#52C41A", False),
         ]
 
-        for i, (label, key, color) in enumerate(webhook_fields):
+        for i, (label, key, color, mask) in enumerate(webhook_fields):
             tk.Label(frame, text=label, bg=c["bg"], fg=color,
                      font=("Segoe UI", 9)).grid(row=i, column=0, sticky=tk.W, pady=(6, 2))
             var = tk.StringVar(value=cfg.get(key, ""))
             self._vars[key] = var
-            entry = tk.Entry(frame, textvariable=var, bg=c["surface2"], fg=c["text"],
-                           insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                           font=("Segoe UI", 9),
-                           highlightbackground=c["border"], highlightthickness=1)
+            entry = tk.Entry(
+                frame,
+                textvariable=var,
+                bg=c["surface2"],
+                fg=c["text"],
+                insertbackground=c["accent"],
+                relief=tk.FLAT,
+                bd=0,
+                font=("Segoe UI", 9),
+                highlightbackground=c["border"],
+                highlightthickness=1,
+                show="*" if mask else "",
+            )
             entry.grid(row=i, column=1, sticky=tk.EW, padx=(8, 0), pady=(6, 2))
 
-        tk.Label(frame, text="账户级 URL 会覆盖此处全局配置",
+        tk.Label(frame, text="账户级 URL 会覆盖此处全局配置；全局钉钉加签仅在使用全局钉钉 Webhook 时生效",
                  bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
-                ).grid(row=3, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
+                ).grid(row=4, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
 
         btn_frame = tk.Frame(self, bg=c["bg"])
         btn_frame.pack(fill=tk.X, pady=16)
         btn_frame.columnconfigure(0, weight=1)
 
         def do_save():
-            cfg["global_feishu_url"]    = self._vars["global_feishu_url"].get().strip()
+            cfg["global_feishu_url"] = self._vars["global_feishu_url"].get().strip()
             cfg["global_dingtalk_url"] = self._vars["global_dingtalk_url"].get().strip()
-            cfg["global_wecom_url"]    = self._vars["global_wecom_url"].get().strip()
-            _save_config(cfg)
-            # 通知调度器更新全局 Webhook
+            cfg["global_dingtalk_sign_secret"] = self._vars["global_dingtalk_sign_secret"].get().strip()
+            cfg["global_wecom_url"] = self._vars["global_wecom_url"].get().strip()
+            try:
+                _save_config(cfg)
+            except ValueError as ve:
+                messagebox.showerror("保存失败", str(ve))
+                return
             try:
                 import monitor.scheduler as sch
-                sch._GLOBAL_WEBHOOKS["feishu"]    = cfg["global_feishu_url"] or None
-                sch._GLOBAL_WEBHOOKS["dingtalk"] = cfg["global_dingtalk_url"] or None
-                sch._GLOBAL_WEBHOOKS["wecom"]   = cfg["global_wecom_url"] or None
+
+                merged = _load_config()
+                sch._invalidate_config_cache()
+                sch._GLOBAL_WEBHOOKS["feishu"] = merged.get("global_feishu_url") or None
+                sch._GLOBAL_WEBHOOKS["dingtalk"] = merged.get("global_dingtalk_url") or None
+                sch._GLOBAL_WEBHOOKS["wecom"] = merged.get("global_wecom_url") or None
+                sch.set_global_dingtalk_sign_secret(merged.get("global_dingtalk_sign_secret"))
             except Exception:
                 pass
             messagebox.showinfo("成功", "全局配置已保存")
@@ -620,8 +671,8 @@ class MonitorPage:
         btn_frame.pack(side=tk.RIGHT)
 
         for btn_text, cmd, color in [
-            ("⚙ 全局设置", self._open_global_config, c["surface2"]),
-            ("🌐 代理池", self._open_proxy_pools, c["surface2"]),
+            ("全局设置", self._open_global_config, c["surface2"]),
+            ("代理池", self._open_proxy_pools, c["surface2"]),
             ("+ 添加账户", self._add_account, c["accent"]),
         ]:
             b = tk.Label(btn_frame, text=btn_text, bg=color, fg=c["text"] if color != c["accent"] else "#ffffff",
@@ -901,6 +952,7 @@ class MonitorPage:
                     notify_enabled=dialog.result["notify_enabled"],
                     notify_platform=dialog.result["notify_platform"],
                     webhook_url=dialog.result.get("webhook_url"),
+                    dingtalk_sign_secret=dialog.result.get("dingtalk_sign_secret"),
                     feishu_message_mode=dialog.result.get("feishu_message_mode", "card_json"),
                     feishu_template_id=dialog.result.get("feishu_template_id"),
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
@@ -931,6 +983,7 @@ class MonitorPage:
                     notify_enabled=dialog.result["notify_enabled"],
                     notify_platform=dialog.result["notify_platform"],
                     webhook_url=dialog.result.get("webhook_url"),
+                    dingtalk_sign_secret=dialog.result.get("dingtalk_sign_secret"),
                     feishu_message_mode=dialog.result.get("feishu_message_mode"),
                     feishu_template_id=dialog.result.get("feishu_template_id"),
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
@@ -1045,9 +1098,9 @@ def run_standalone(force_restart: bool = False):
         already_running = False
 
     if already_running and force_restart:
-        print(f"\n♻️  检测到 Web UI 已在运行，正在强制重启: http://127.0.0.1:{port}")
+        print(f"\n检测到 Web UI 已在运行，正在强制重启: http://127.0.0.1:{port}")
         if not _shutdown_existing_web_ui(port):
-            print("❌ 强制重启失败：无法关闭旧 Web UI 进程")
+            print("强制重启失败：无法关闭旧 Web UI 进程")
             return
         already_running = False
 
@@ -1066,7 +1119,7 @@ def run_standalone(force_restart: bool = False):
 
     import webbrowser
     webbrowser.open(f"http://127.0.0.1:{port}")
-    print(f"\n🌐 监控 Web UI 已启动: http://127.0.0.1:{port}")
+    print(f"\n监控 Web UI 已启动: http://127.0.0.1:{port}")
     print(f"   按 Ctrl+C 停止\n")
     try:
         while True:
