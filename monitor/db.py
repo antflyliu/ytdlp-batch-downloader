@@ -37,6 +37,7 @@ DEFAULT_PROXY_PROTOCOL_ORDER = ("http", "https", "socks5", "socks4")
 _GLOBAL_WEBHOOK_KEYS = (
     "global_feishu_url",
     "global_dingtalk_url",
+    "global_dingtalk_sign_secret",
     "global_wecom_url",
 )
 
@@ -66,6 +67,7 @@ def _config_default() -> dict:
     return {
         "global_feishu_url": "",
         "global_dingtalk_url": "",
+        "global_dingtalk_sign_secret": "",
         "global_wecom_url": "",
         "default_fetch_mode": "playlist",
         "default_fetch_limit": 5,
@@ -134,6 +136,12 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     """保存全局配置，Webhook URL 落盘时加密。"""
+    from monitor.validators import normalize_dingtalk_sign_secret
+
+    cfg = {**_config_default(), **(cfg or {})}
+    cfg["global_dingtalk_sign_secret"] = (
+        normalize_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret")) or ""
+    )
     _write_config(_CONFIG_PATH, _encrypt_config_webhooks(cfg))
 
 

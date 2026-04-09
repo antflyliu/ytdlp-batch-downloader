@@ -604,7 +604,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """
         cfg = _db.load_config()
         for key in [
-            "global_feishu_url", "global_dingtalk_url", "global_wecom_url",
+            "global_feishu_url", "global_dingtalk_url", "global_dingtalk_sign_secret", "global_wecom_url",
             "quota_budget_per_day", "download_cookies_file", "download_output_path",
             "enable_aria2", "default_sub_langs", "default_api_key_id",
             # 系统默认动态代理配置
@@ -628,9 +628,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not ak:
                 self._send_json({"error": f"指定的默认 API Key (id={default_key_id}) 不存在"}, 400)
                 return
-        _db.save_config(cfg)
+        try:
+            _db.save_config(cfg)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
         _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
+        _scheduler.set_global_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret") or None)
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
         _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})

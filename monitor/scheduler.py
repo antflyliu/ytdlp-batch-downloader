@@ -30,6 +30,7 @@ _log = logging_config.get_logger("monitor.scheduler")
 # 平台级全局 Webhook URL
 _GLOBAL_WEBHOOKS: dict[str, str | None] = {}
 _GLOBAL_WEBHOOKS_LOADED = False
+_GLOBAL_DINGTALK_SIGN_SECRET: str | None = None
 
 # 模块级配置缓存（避免每次扫描重复读取 config.json）
 _config_cache: dict | None = None
@@ -51,7 +52,7 @@ def _invalidate_config_cache() -> None:
 
 def _ensure_global_webhooks() -> None:
     """确保全局 Webhook 已加载（模块加载时 + 每次扫描前）"""
-    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED
+    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED, _GLOBAL_DINGTALK_SIGN_SECRET
     if _GLOBAL_WEBHOOKS_LOADED:
         return
     try:
@@ -59,6 +60,7 @@ def _ensure_global_webhooks() -> None:
         _GLOBAL_WEBHOOKS["feishu"] = cfg.get("global_feishu_url") or None
         _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url") or None
         _GLOBAL_WEBHOOKS["wecom"] = cfg.get("global_wecom_url") or None
+        _GLOBAL_DINGTALK_SIGN_SECRET = cfg.get("global_dingtalk_sign_secret") or None
     except Exception:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True
@@ -97,7 +99,15 @@ def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> 
     if not webhook_url:
         _log.warning(f"quota 报警无 Webhook URL，跳过: {account['name']}")
         return
-    _quota.send_alert(api_key, usage, budget, webhook_url)
+    use_global_dingtalk_secret = platform == "dingtalk" and not account.get("webhook_url")
+    _quota.send_alert(
+        api_key,
+        usage,
+        budget,
+        webhook_url,
+        platform=platform,
+        dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+    )
 
 
 def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
@@ -170,6 +180,12 @@ def set_global_feishu_url(url: str | None) -> None:
 def set_global_dingtalk_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["dingtalk"] = url
     _log.info(f"全局钉钉 Webhook 已更新: {'已设置' if url else '未设置'}")
+
+
+def set_global_dingtalk_sign_secret(secret: str | None) -> None:
+    global _GLOBAL_DINGTALK_SIGN_SECRET
+    _GLOBAL_DINGTALK_SIGN_SECRET = secret
+    _log.info(f"全局钉钉加签密钥已更新: {'已设置' if secret else '未设置'}")
 
 def set_global_wecom_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["wecom"] = url
@@ -545,6 +561,10 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         )
         if account["notify_enabled"] and new_videos:
             webhook_url = account.get("webhook_url") or _GLOBAL_WEBHOOKS.get(account.get("notify_platform", "feishu"))
+            use_global_dingtalk_secret = (
+                account.get("notify_platform", "feishu") == "dingtalk"
+                and not account.get("webhook_url")
+            )
             channel_name = (channel_info or {}).get("channel_name") or account["name"]
             _notifier.notify(
                 event_id=event_id,
@@ -561,6 +581,7 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
                 feishu_message_mode=account.get("feishu_message_mode", "card_json"),
                 feishu_template_id=account.get("feishu_template_id"),
                 feishu_scan_template_id=account.get("feishu_scan_template_id"),
+                dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
             )
         elif account["notify_enabled"] and not new_videos:
             _log.info(f"无新视频，跳过通知推送: {account['name']}")
