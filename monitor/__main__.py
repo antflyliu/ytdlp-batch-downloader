@@ -88,20 +88,25 @@ def cmd_events(limit: int = 20):
 def cmd_add(args):
     """添加监控账户"""
     _db.init_db()
-    account_id = _db.add_account(
-        name=args.name,
-        channel_url=args.channel_url,
-        api_key_env=args.api_key_env,
-        fetch_mode=args.fetch_mode,
-        fetch_limit=args.fetch_limit,
-        scan_interval=args.scan_interval,
-        notify_enabled=not args.no_notify,
-        notify_platform=args.notify_platform,
-        webhook_url=args.webhook_url or None,
-        feishu_message_mode=args.feishu_mode,
-        feishu_template_id=args.feishu_template_id or None,
-        feishu_scan_template_id=args.feishu_scan_template_id or None,
-    )
+    try:
+        account_id = _db.add_account(
+            name=args.name,
+            channel_url=args.channel_url,
+            api_key_env=args.api_key_env,
+            fetch_mode=args.fetch_mode,
+            fetch_limit=args.fetch_limit,
+            scan_interval=args.scan_interval,
+            notify_enabled=not args.no_notify,
+            notify_platform=args.notify_platform,
+            webhook_url=args.webhook_url or None,
+            dingtalk_sign_secret=(args.dingtalk_sign_secret or "").strip() or None,
+            feishu_message_mode=args.feishu_mode,
+            feishu_template_id=args.feishu_template_id or None,
+            feishu_scan_template_id=args.feishu_scan_template_id or None,
+        )
+    except ValueError as e:
+        print(f"✗ 配置错误: {e}")
+        raise SystemExit(2) from e
     print(f"✓ 账户添加成功 (id={account_id}): {args.name} @ {args.channel_url} "
           f"[{args.notify_platform}]")
     if args.start:
@@ -162,6 +167,11 @@ def main():
                       choices=["feishu", "dingtalk", "wecom"],
                       help="通知平台 (默认飞书)")
     add_p.add_argument("--webhook-url", help="各平台 Webhook URL（可选，留空用全局配置）")
+    add_p.add_argument(
+        "--dingtalk-sign-secret",
+        default="",
+        help="钉钉机器人加签密钥 SEC…（可选，与 --webhook-url 成对；仅 notify_platform=dingtalk 时生效）",
+    )
     add_p.add_argument("--feishu-mode", default="card_json", choices=["card_json", "template"],
                       help="飞书发送方式 (默认 card_json)")
     add_p.add_argument("--feishu-template-id",

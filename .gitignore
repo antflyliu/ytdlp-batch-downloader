@@ -11,6 +11,7 @@ venv/
 
 # Claude Code user config (sensitive)
 .claude/settings.json
+.claude/settings.local.json
 .claude/hooks/
 .claude/memory/
 .claude/plugins/
@@ -42,6 +43,14 @@ YouTube批量下载器.spec
 # MCP (contains API keys)
 .mcp.json
 
+# Local agent/review artifacts
+.agents/
+.full-review/
+.specstory/
+.vscode/
+logs/
+patch_provider_ui_obs.py
+
 # User data (sensitive)
 cookies.json
 channel_videos.csv
@@ -54,3 +63,6 @@ monitor/data/
 
 # Test scripts
 scripts/test_*.py
+
+# Git worktrees
+.worktrees/

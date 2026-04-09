@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -q pytest ruff
+        run: pip install -q -r requirements.txt pytest ruff
 
       - name: Lint
         run: ruff check monitor_server.py monitor/scheduler.py monitor/db.py monitor/fetcher.py --ignore E501
@@ -38,7 +38,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -q pyinstaller pyyaml
+        run: pip install -q -r requirements.txt pyinstaller pyyaml
 
       - name: Build exe
         run: pyinstaller YouTubeMonitor.spec --noconfirm 2>&1 | tail -5

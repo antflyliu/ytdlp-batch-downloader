@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YouTube 视频监控</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -328,11 +329,804 @@
   }
   .tag-success { background: var(--success-dim); color: var(--success); }
   .tag-error { background: var(--error-dim); color: var(--error); }
+  .tag-warning { background: rgba(245,158,11,0.12); color: var(--warning); }
   .tag-muted { background: var(--surface3); color: var(--text-muted); }
   .tag-accent { background: var(--accent-dim); color: var(--accent); }
   .tag-feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }
   .tag-dingtalk { background: rgba(22,119,255,0.15); color: var(--dingtalk); }
   .tag-wecom { background: rgba(82,196,26,0.15); color: var(--wecom); }
+
+  /* ── 代理池专属色 ─────────────────────────────────────────── */
+  /* teal 作为代理池的视觉标识：网络路由、隧道感，与 indigo 主体形成功能区隔 */
+  :root {
+    --proxy-tint: rgba(45,212,191,0.08);
+    --proxy-border: rgba(45,212,191,0.25);
+    --proxy-text: #2dd4bf;
+    --proxy-bg: rgba(45,212,191,0.12);
+    --proxy-dot-on: #2dd4bf;
+    --proxy-dot-off: #4a5568;
+  }
+
+  /* ── 代理池状态指示点 ────────────────────────────────────── */
+  .proxy-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .proxy-dot.on  { background: var(--proxy-dot-on); box-shadow: 0 0 6px var(--proxy-dot-on); }
+  .proxy-dot.off { background: var(--proxy-dot-off); }
+
+  /* ── 代理池 header 按钮增强 ──────────────────────────────── */
+  .btn-ghost-proxy {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-ghost-proxy::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--proxy-tint);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .btn-ghost-proxy:hover {
+    border-color: var(--proxy-border);
+    color: var(--proxy-text);
+  }
+  .btn-ghost-proxy:hover::before { opacity: 1; }
+  .btn-ghost-proxy svg { position: relative; z-index: 1; }
+
+  /* ── 代理池模态框 ────────────────────────────────────────── */
+  #modalProxyPools .modal-header {
+    border-bottom: 1.5px solid var(--proxy-border);
+  }
+  #modalProxyPools .modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--proxy-text);
+  }
+  #modalProxyPools .modal-title::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 18px;
+    background: var(--proxy-text);
+    border-radius: 2px;
+    box-shadow: 0 0 8px var(--proxy-text);
+  }
+  #modalProxyPools .modal-body {
+    padding: 16px 24px 20px;
+    background:
+      radial-gradient(circle at top right, rgba(45,212,191,0.04), transparent 30%),
+      linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
+  }
+
+  /* ── 代理池演示入口 ──────────────────────────────── */
+  #ppDemoSection {
+    background:
+      linear-gradient(135deg, rgba(45,212,191,0.08), rgba(45,212,191,0.02)),
+      rgba(9,14,20,0.92);
+    border: 1px solid rgba(45,212,191,0.18);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  #ppDemoIcon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: rgba(45,212,191,0.15);
+    border: 1px solid var(--proxy-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  #ppDemoSection:hover #ppDemoIcon {
+    background: rgba(45,212,191,0.25);
+    transform: scale(1.05);
+  }
+  #ppDemoIcon svg {
+    width: 20px; height: 20px;
+    stroke: var(--proxy-text);
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  #ppDemoText {
+    flex: 1;
+    min-width: 0;
+  }
+  #ppDemoText h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--proxy-text);
+    margin-bottom: 3px;
+  }
+  #ppDemoText p {
+    font-size: 11px;
+    color: rgba(45,212,191,0.6);
+    line-height: 1.4;
+  }
+  #ppDemoBtn {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1.5px solid var(--proxy-border);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--proxy-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  #ppDemoBtn:hover {
+    background: rgba(45,212,191,0.12);
+    border-color: var(--proxy-text);
+    box-shadow: 0 0 12px rgba(45,212,191,0.15);
+  }
+  #ppDemoBtn svg {
+    width: 14px; height: 14px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  /* ── 演示 iframe 视图 ─────────────────────────── */
+  #ppDemoView {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+  }
+  #ppDemoView.show {
+    display: flex;
+  }
+  #ppDemoToolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(42,53,73,0.5);
+  }
+  #ppDemoToolbar span {
+    font-size: 12px;
+    color: var(--proxy-text);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #ppDemoToolbar span svg {
+    width: 14px; height: 14px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  #ppDemoClose {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font);
+    transition: all 0.15s;
+  }
+  #ppDemoClose:hover {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  #ppDemoFrame {
+    flex: 1;
+    border-radius: 10px;
+    border: 1px solid var(--proxy-border);
+    background: #000;
+    min-height: 0;
+  }
+
+  /* ── 代理池表格 ───────────────────────────────────────────── */
+  #ppTableView {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .proxy-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .proxy-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .proxy-table td {
+    padding: 13px 14px;
+    border-bottom: 1px solid rgba(42,53,73,0.5);
+    vertical-align: middle;
+  }
+  .proxy-table tr:last-child td { border-bottom: none; }
+  .proxy-table tr:hover td { background: rgba(42,53,73,0.3); }
+  .proxy-table .url-cell {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: -0.2px;
+  }
+  .proxy-table .name-cell {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .proxy-table .status-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ── 代理池表单模态框 ────────────────────────────────────── */
+  #modalProxyPoolForm .modal-header {
+    border-bottom: 1px solid var(--proxy-border);
+  }
+  #modalProxyPoolForm .modal-title {
+    color: var(--proxy-text);
+    font-size: 15px;
+  }
+  #modalProxyPoolForm .form-label {
+    color: var(--proxy-text);
+    font-size: 11px;
+  }
+  #modalProxyPoolForm .form-input:focus {
+    border-color: var(--proxy-border);
+    box-shadow: 0 0 0 3px var(--proxy-tint), 0 1px 0 var(--proxy-border);
+  }
+  .pp-scheme-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: var(--mono);
+    background: var(--proxy-tint);
+    color: var(--proxy-text);
+    border: 1px solid var(--proxy-border);
+    letter-spacing: 0.3px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .pp-hint-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .pp-hint-schemes {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .pp-scheme-chip {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+
+  /* ── 账户表单代理区域 ────────────────────────────────────── */
+  .proxy-section {
+    background:
+      linear-gradient(180deg, rgba(45,212,191,0.08), rgba(45,212,191,0.03)),
+      rgba(9,14,20,0.9);
+    border: 1px solid rgba(45,212,191,0.18);
+    border-radius: 14px;
+    padding: 16px 16px 14px;
+    margin: 4px 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+    position: relative;
+    overflow: hidden;
+  }
+  .proxy-section::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(45,212,191,0.35), transparent);
+    pointer-events: none;
+  }
+  .proxy-section .form-label {
+    color: var(--proxy-text);
+    font-size: 11px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .proxy-section .form-label::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--proxy-dot-on);
+    box-shadow: 0 0 6px var(--proxy-dot-on);
+  }
+  .proxy-section .form-hint {
+    color: rgba(45,212,191,0.6);
+  }
+  .proxy-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .proxy-toggle-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .proxy-toggle-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 2px;
+    letter-spacing: -0.01em;
+  }
+  .proxy-toggle-sub {
+    font-size: 11px;
+    color: rgba(45,212,191,0.72);
+    line-height: 1.5;
+    max-width: 42ch;
+  }
+  .proxy-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  /* Custom toggle switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle-switch input { display: none; }
+  .toggle-track {
+    width: 36px; height: 20px;
+    background: var(--surface3);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+    position: relative;
+    display: inline-block;
+  }
+  .toggle-thumb {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: all 0.2s ease;
+  }
+  .toggle-switch input:checked + .toggle-track {
+    background: var(--proxy-bg);
+    border-color: var(--proxy-border);
+    box-shadow: 0 0 0 3px rgba(45,212,191,0.06);
+  }
+  .toggle-switch input:checked + .toggle-track .toggle-thumb {
+    left: 18px;
+    background: var(--proxy-text);
+    box-shadow: 0 0 6px var(--proxy-dot-on);
+  }
+  .proxy-select-wrap {
+    margin-top: 8px;
+  }
+  .proxy-select-wrap select {
+    width: 100%;
+    border-color: rgba(45,212,191,0.22);
+    background: rgba(8,12,18,0.78);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+  .proxy-select-wrap select option[disabled] { color: var(--text-dim); }
+  .proxy-mode-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(45,212,191,0.08);
+    border: 1px solid rgba(45,212,191,0.14);
+    color: rgba(45,212,191,0.82);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .proxy-mode-kicker::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--proxy-text);
+    box-shadow: 0 0 8px rgba(45,212,191,0.42);
+  }
+
+  /* ── 代理池工作台层级 ───────────────────────────── */
+  .pp-workspace-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .pp-workspace-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .pp-workspace-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    letter-spacing: 0.02em;
+  }
+  .pp-workspace-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+  .pp-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .pp-ghost-action {
+    background: transparent;
+    border: 1px solid rgba(45,212,191,0.18);
+    color: rgba(45,212,191,0.88);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .pp-ghost-action:hover {
+    background: rgba(45,212,191,0.08);
+    border-color: var(--proxy-border);
+  }
+  .pp-ghost-action svg {
+    width: 12px; height: 12px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .pp-table-shell {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    border-radius: 12px;
+    border: 1px solid rgba(42,53,73,0.8);
+    background: rgba(13,17,25,0.55);
+  }
+  .pp-demo-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: rgba(45,212,191,0.65);
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+  }
+  .pp-demo-note svg {
+    width: 12px; height: 12px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .pp-state-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(45,212,191,0.16);
+    background: rgba(45,212,191,0.06);
+    color: rgba(45,212,191,0.82);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .pp-state-chip::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--proxy-text);
+    box-shadow: 0 0 6px rgba(45,212,191,0.45);
+  }
+
+  /* ── 账户表格代理列 ──────────────────────────────────────── */
+  .account-proxy-cell {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* ── 代理池空状态增强 ────────────────────────────────────── */
+  .proxy-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 22px 24px;
+    margin-top: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(45,212,191,0.14);
+    background:
+      linear-gradient(180deg, rgba(45,212,191,0.06), rgba(45,212,191,0.02)),
+      linear-gradient(90deg, rgba(255,255,255,0.015), rgba(255,255,255,0));
+    position: relative;
+    overflow: hidden;
+  }
+  .proxy-empty::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, rgba(45,212,191,0.9), rgba(45,212,191,0.18));
+    box-shadow: 0 0 18px rgba(45,212,191,0.14);
+  }
+  .proxy-empty::after {
+    content: '';
+    position: absolute;
+    right: -34px;
+    top: -26px;
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(45,212,191,0.08), transparent 70%);
+    pointer-events: none;
+  }
+  .proxy-empty-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 0;
+    text-align: left;
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+  }
+  .proxy-empty-icon {
+    width: 54px;
+    height: 54px;
+    margin: 0;
+    border-radius: 16px;
+    background: rgba(45,212,191,0.08);
+    border: 1.5px dashed rgba(45,212,191,0.22);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .proxy-empty-icon svg {
+    width: 24px;
+    height: 24px;
+    stroke: var(--proxy-text);
+    opacity: 0.84;
+  }
+  .proxy-empty-copy {
+    min-width: 0;
+    flex: 1;
+  }
+  .proxy-empty-cta {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+  }
+  .proxy-empty-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin-bottom: 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(45,212,191,0.14);
+    background: rgba(45,212,191,0.06);
+    color: rgba(45,212,191,0.82);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .proxy-empty-kicker::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--proxy-text);
+    box-shadow: 0 0 8px rgba(45,212,191,0.4);
+  }
+  .proxy-empty-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.16;
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
+  }
+  .proxy-empty-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    max-width: 44ch;
+    margin: 0;
+  }
+  .proxy-empty-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    align-self: stretch;
+    position: relative;
+    z-index: 1;
+  }
+  .proxy-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(42,53,73,0.7);
+    min-width: 0;
+  }
+  .proxy-step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(45,212,191,0.08);
+    border: 1px solid rgba(45,212,191,0.2);
+    color: var(--proxy-text);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .proxy-step-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .proxy-step-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .proxy-step-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .proxy-step-arrow { display: none; }
+  .proxy-empty-cta {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+  }
+  .proxy-empty-primary {
+    min-width: 170px;
+    justify-content: center;
+    box-shadow: 0 10px 24px rgba(99,102,241,0.14);
+  }
+  .proxy-url-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .proxy-url-note svg {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+    opacity: 0.7;
+  }
+  @media (max-width: 720px) {
+    .proxy-empty {
+      gap: 14px;
+    }
+    .proxy-empty-steps {
+      grid-template-columns: 1fr;
+    }
+    .proxy-empty-cta {
+      flex-direction: column;
+      width: 100%;
+      align-items: stretch;
+    }
+    .proxy-empty-primary {
+      width: 100%;
+      min-width: 0;
+    }
+    .proxy-url-note {
+      white-space: normal;
+    }
+  }
 
   /* ── 操作按钮组 ───────────────────────────────────────────── */
   .actions { display: flex; gap: 6px; align-items: center; }
@@ -354,6 +1148,10 @@
   .btn-sm:hover { background: var(--surface3); color: var(--text); }
   .btn-sm.danger { border-color: rgba(239,68,68,0.3); color: var(--error); }
   .btn-sm.danger:hover { background: var(--error-dim); }
+  .btn-sm.warning { border-color: rgba(245,158,11,0.3); color: var(--warning); }
+  .btn-sm.warning:hover { background: rgba(245,158,11,0.12); }
+  .btn-sm.success { border-color: rgba(34,197,94,0.3); color: var(--success); }
+  .btn-sm.success:hover { background: var(--success-dim); }
   .btn-sm.info { border-color: rgba(99,102,241,0.3); color: var(--accent); }
   .btn-sm.info:hover { background: var(--accent-dim); }
   .btn-sm.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -498,6 +1296,31 @@
     gap: 8px;
   }
 
+  /* 应用内确认框：z-index 高于其他业务模态（如在「动态代理」抽屉内触发） */
+  #modalAppConfirm.modal-overlay { z-index: 1100; }
+  /* 正文节奏参考 DESIGN.md：宽松行高、次要色层次（映射到深色主题的 --text-muted） */
+  #modalAppConfirm .modal-confirm-desc {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    white-space: pre-line;
+  }
+  /* DESIGN.md：Focus Blue 仅用于焦点环，与深色页上的 --accent 并存 */
+  #modalAppConfirm .btn:focus-visible,
+  #modalAppConfirm .modal-close:focus-visible {
+    outline: 2px solid #3898ec;
+    outline-offset: 2px;
+  }
+  /* 危险操作确认：与表格「删除」红色语义一致，略加强边框层次（DESIGN.md Error Crimson 映射） */
+  #modalAppConfirm.modal-app-confirm--danger > .modal {
+    border-color: rgba(239, 68, 68, 0.38);
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+  }
+  #modalAppConfirm.modal-app-confirm--danger .modal-title {
+    color: #fecaca;
+  }
+
   /* ── 表单 ─────────────────────────────────────────────────── */
   .form-group {
     margin-bottom: 18px;
@@ -530,6 +1353,32 @@
   .form-input::placeholder { color: var(--text-dim); }
   .form-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* 平台专属敏感字段（钉钉加签）：侧栏色带 + 弱衬底，与 DESIGN.md「分区层次」一致且不破坏深色主题 */
+  .form-group--dingtalk-addon {
+    margin-bottom: 18px;
+    padding: 12px 14px 14px;
+    background: rgba(22, 119, 255, 0.06);
+    border: 1px solid rgba(22, 119, 255, 0.22);
+    border-radius: var(--r-md);
+    border-left: 3px solid var(--dingtalk);
+  }
+  .form-group--dingtalk-addon .form-label--platform {
+    color: var(--dingtalk);
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .form-group--dingtalk-addon .form-hint {
+    color: var(--text-muted);
+    line-height: 1.45;
+    max-width: 52ch;
+  }
+  .form-group--dingtalk-addon .form-input:focus-visible {
+    border-color: var(--dingtalk);
+    box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.2);
+  }
 
   /* 平台选择 */
   .platform-selector { display: flex; gap: 8px; }
@@ -940,6 +1789,671 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
+
+  /* ── Dynamic proxy settings ────────────────────────────────── */
+  .settings-section {
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 16px 0;
+    position: relative;
+  }
+  .settings-section:last-child { border-bottom: none; }
+  .section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--proxy-text, #2dd4bf);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(45,212,191,0.9), rgba(45,212,191,0.12));
+  }
+  .settings-subsection {
+    margin-top: 12px;
+    padding: 14px 14px 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .subsection-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    flex: 1;
+    padding-right: 12px;
+  }
+  .setting-desc {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 2px;
+  }
+  .settings-details {
+    margin-top: 12px;
+  }
+  .settings-details summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    padding: 4px 0;
+    user-select: none;
+  }
+  .settings-details[open] summary {
+    color: rgba(255,255,255,0.6);
+  }
+  .form-help-text {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 4px;
+  }
+
+  /* ── Dynamic provider UI ───────────────────────────────────── */
+  .dp-summary {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid rgba(45,212,191,0.12);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(45,212,191,0.05), rgba(255,255,255,0.015));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .dp-summary-copy { min-width: 0; flex: 1; }
+  .dp-summary-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .dp-summary-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .dp-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .dp-card {
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .dp-card-main { min-width: 0; flex: 1; }
+  .dp-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .dp-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .dp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-dim);
+  }
+  .dp-badge.paid { color: #a7f3d0; border-color: rgba(16,185,129,0.18); background: rgba(16,185,129,0.08); }
+  .dp-badge.free { color: #fde68a; border-color: rgba(245,158,11,0.18); background: rgba(245,158,11,0.08); }
+  .dp-badge.healthy { color: #86efac; border-color: rgba(34,197,94,0.18); background: rgba(34,197,94,0.08); }
+  .dp-badge.degraded, .dp-badge.cooldown { color: #fcd34d; border-color: rgba(245,158,11,0.18); background: rgba(245,158,11,0.08); }
+  .dp-badge.down, .dp-badge.auth_error, .dp-badge.not_started { color: #fca5a5; border-color: rgba(239,68,68,0.18); background: rgba(239,68,68,0.08); }
+  .dp-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dp-cap-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .dp-cap {
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.72);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .dp-preview {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--proxy-text);
+    margin-top: 4px;
+    word-break: break-all;
+  }
+  .dp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+    max-width: 220px;
+  }
+  .dp-empty {
+    text-align: center;
+    padding: 38px 20px;
+    border: 1px dashed rgba(45,212,191,0.16);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(45,212,191,0.04), rgba(255,255,255,0.01));
+  }
+  .routing-preview {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(99,102,241,0.14);
+    background: linear-gradient(180deg, rgba(99,102,241,0.08), rgba(255,255,255,0.015));
+    display: none;
+  }
+  .routing-preview.show { display: block; }
+  .routing-preview-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(129,140,248,0.92);
+    margin-bottom: 8px;
+  }
+  .routing-preview-main {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .routing-preview-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .routing-chip {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.76);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .routing-preview-reason {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+  .routing-preview-warnings {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #fbbf24;
+    line-height: 1.5;
+  }
+
+
+  /* ── Routing info toast ────────────────────────────────────── */
+  .toast.warning { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.4); }
+
+  /* ── 动态代理提供方专属色 ───────────────────────────────── */
+  /* indigo 作为动态代理提供方的视觉标识：付费/智能代理感，与 teal 静态代理池形成功能区隔 */
+  :root {
+    --dyn-tint: rgba(99,102,241,0.08);
+    --dyn-border: rgba(99,102,241,0.25);
+    --dyn-text: #6366f1;
+    --dyn-bg: rgba(99,102,241,0.12);
+    --dyn-dot-on: #6366f1;
+    --dyn-dot-off: #4a5568;
+  }
+
+  /* ── 动态代理提供方模态框 ──────────────────────────────── */
+  #modalDynamicProviders .modal-header {
+    border-bottom: 1.5px solid var(--dyn-border);
+  }
+  #modalDynamicProviders .modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--dyn-text);
+  }
+  #modalDynamicProviders .modal-title::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 18px;
+    background: var(--dyn-text);
+    border-radius: 2px;
+    box-shadow: 0 0 8px var(--dyn-text);
+  }
+  #modalDynamicProviders > .modal {
+    overflow: hidden;
+  }
+  #modalDynamicProviders .modal-body {
+    padding: 16px 24px 20px;
+    background:
+      radial-gradient(circle at top right, rgba(99,102,241,0.04), transparent 30%),
+      linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
+    gap: 0;
+  }
+  /* 工作台主体：工具条 + 固定高度调度区 + 可滚动表格区（避免日志撑版） */
+  #modalDynamicProviders .modal-body > .dyn-toolbar-row {
+    flex-shrink: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-scheduler-split {
+    flex-shrink: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-table-shell {
+    flex: 1 1 0;
+    min-height: 140px;
+    overflow: auto;
+    margin-top: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-empty {
+    flex: 1 1 auto;
+    min-height: 120px;
+  }
+  /* 最近调度执行 + 调度说明：等高、内部滚动（DESIGN.md 暖灰层次 → #b0aea5 / #f5f4ed） */
+  .dyn-scheduler-split {
+    margin: 14px 0 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.85fr);
+    gap: 14px;
+    align-items: stretch;
+    min-height: 220px;
+    height: min(340px, 38vh);
+    max-height: 420px;
+  }
+  .dyn-scheduler-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: rgba(18, 21, 35, 0.58);
+    border: 1px solid rgba(135, 134, 127, 0.16);
+    border-radius: 18px;
+    padding: 14px 16px;
+    box-shadow: 0 0 0 1px rgba(232, 230, 220, 0.04) inset;
+  }
+  .dyn-scheduler-card-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .dyn-scheduler-card-head--simple {
+    justify-content: flex-start;
+    margin-bottom: 0;
+  }
+  .dyn-scheduler-card-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
+  }
+  .dyn-scheduler-card-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .dyn-scheduler-card-scroll::-webkit-scrollbar-thumb {
+    background: rgba(135, 134, 127, 0.35);
+    border-radius: 999px;
+  }
+  #dynProviderSchedulerLogs.dyn-scheduler-card-scroll {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+  .dyn-scheduler-help-body {
+    padding-top: 8px;
+    font-size: 12px;
+    color: #b0aea5;
+    line-height: 1.65;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .dyn-scheduler-help-body strong {
+    color: #d6d3d1;
+    font-weight: 600;
+  }
+  @media (max-width: 640px) {
+    .dyn-scheduler-split {
+      grid-template-columns: 1fr;
+      height: auto;
+      max-height: none;
+      min-height: 0;
+    }
+    .dyn-scheduler-card {
+      max-height: min(280px, 42vh);
+    }
+  }
+  .dyn-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dyn-text);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dyn-section-title::before {
+    content: '';
+    width: 16px;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(99,102,241,0.9), rgba(99,102,241,0.12));
+  }
+  .dyn-toolbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .dyn-toolbar-left {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dyn-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dyn-ghost-btn {
+    background: transparent;
+    border: 1px solid rgba(99,102,241,0.18);
+    color: rgba(99,102,241,0.88);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .dyn-ghost-btn:hover {
+    background: rgba(99,102,241,0.08);
+    border-color: var(--dyn-border);
+  }
+  .dyn-ghost-btn svg {
+    width: 12px; height: 12px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .dyn-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .dyn-table th {
+    text-align: left;
+    padding: 9px 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid rgba(42,53,73,0.8);
+    white-space: nowrap;
+  }
+  .dyn-table td {
+    padding: 12px 12px;
+    border-bottom: 1px solid rgba(42,53,73,0.5);
+    vertical-align: middle;
+  }
+  .dyn-table tr:last-child td { border-bottom: none; }
+  .dyn-table tr:hover td { background: rgba(42,53,73,0.3); }
+  .dyn-table .name-cell { font-weight: 500; color: var(--text); }
+  .dyn-table .mono-cell {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dyn-table .chip-cell {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .dyn-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .dyn-chip-paid {
+    background: rgba(99,102,241,0.1);
+    border: 1px solid rgba(99,102,241,0.25);
+    color: var(--dyn-text);
+  }
+  .dyn-chip-free {
+    background: rgba(82,196,26,0.1);
+    border: 1px solid rgba(82,196,26,0.25);
+    color: #52c41a;
+  }
+  .dyn-chip-risk-low {
+    background: rgba(34,197,94,0.08);
+    border: 1px solid rgba(34,197,94,0.2);
+    color: #22c55e;
+  }
+  .dyn-chip-risk-medium {
+    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.2);
+    color: #f59e0b;
+  }
+  .dyn-chip-risk-high {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    color: #ef4444;
+  }
+  .dyn-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dyn-dot.on  { background: var(--dyn-dot-on); box-shadow: 0 0 6px var(--dyn-dot-on); }
+  .dyn-dot.off { background: var(--dyn-dot-off); }
+  .dyn-dot.cooldown { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+  .dyn-status-text { font-size: 11px; }
+  .dyn-status-healthy { color: #22c55e; }
+  .dyn-status-degraded { color: #f59e0b; }
+  .dyn-status-down { color: #ef4444; }
+  .dyn-status-unknown { color: var(--text-dim); }
+  .dyn-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .dyn-table-shell {
+    border-radius: 12px;
+    border: 1px solid rgba(42,53,73,0.8);
+    background: rgba(13,17,25,0.55);
+  }
+  .dyn-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 24px;
+    border-radius: 14px;
+    border: 1px solid rgba(99,102,241,0.14);
+    background:
+      linear-gradient(180deg, rgba(99,102,241,0.06), rgba(99,102,241,0.02)),
+      linear-gradient(90deg, rgba(255,255,255,0.015), rgba(255,255,255,0));
+    position: relative;
+    overflow: hidden;
+  }
+  .dyn-empty::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, rgba(99,102,241,0.9), rgba(99,102,241,0.18));
+  }
+  .dyn-empty-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .dyn-empty-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+  .dyn-empty-cta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .dyn-empty-primary {
+    background: rgba(99,102,241,0.1);
+    border-color: var(--dyn-border);
+    color: var(--dyn-text);
+    font-weight: 600;
+  }
+  .dyn-note {
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .dyn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.2);
+    color: #f59e0b;
+  }
+
+  /* ── 动态代理提供方表单模态框 ─────────────────────────── */
+  #modalDynamicProviderForm .modal-header {
+    border-bottom: 1px solid var(--dyn-border);
+  }
+  #modalDynamicProviderForm .modal-title {
+    color: var(--dyn-text);
+  }
+  #modalDynamicProviderForm .form-label {
+    color: var(--dyn-text);
+    font-size: 11px;
+  }
+  #modalDynamicProviderForm .form-input:focus {
+    border-color: var(--dyn-border);
+    box-shadow: 0 0 0 3px var(--dyn-tint), 0 1px 0 var(--dyn-border);
+  }
+  .dyn-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .dyn-config-section {
+    background: rgba(99,102,241,0.04);
+    border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 4px;
+  }
+  .dyn-config-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dyn-text);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .dyn-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .dyn-toggle-row:last-child { border-bottom: none; }
+  .dyn-toggle-label {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .dyn-toggle-desc {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+
+  /* toggle override for dyn color */
+  #modalDynamicProviderForm .toggle-switch input:checked + .toggle-track {
+    background: var(--dyn-bg);
+    border-color: var(--dyn-border);
+  }
+  #modalDynamicProviderForm .toggle-switch input:checked + .toggle-track .toggle-thumb {
+    left: 18px;
+    background: var(--dyn-text);
+  }
+
+  .btn-dyn-primary {
+    background: var(--dyn-text);
+    color: #fff;
+  }
+  .btn-dyn-primary:hover { filter: brightness(1.1); }
+
 </style>
 </head>
 <body>
@@ -948,7 +2462,7 @@
   <header class="header">
     <div class="header-left">
       <div class="logo">
-        <div class="logo-icon">📡</div>
+        <div class="logo-icon" aria-hidden="true">监</div>
         <span class="logo-text">YouTube Monitor</span>
         <span class="logo-sub">视频监控</span>
       </div>
@@ -959,8 +2473,16 @@
     </div>
     <div class="header-right">
       <button class="btn btn-ghost" onclick="openConfig()">⚙ 全局配置</button>
-      <button class="btn btn-ghost" onclick="openCache()">📦 API 缓存</button>
-      <button class="btn btn-ghost" onclick="openApiKeys()">🔑 API Keys</button>
+      <button class="btn btn-ghost" onclick="openCache()">API 缓存</button>
+      <button class="btn btn-ghost" onclick="openApiKeys()">API Keys</button>
+      <button class="btn-ghost-proxy" onclick="openProxyPools()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        固定代理
+      </button>
     </div>
   </header>
 
@@ -1000,7 +2522,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">👥</div>
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">户</div>
           监控账户
         </div>
         <div class="actions">
@@ -1024,6 +2546,7 @@
               <th>获取</th>
               <th>状态</th>
               <th>通知</th>
+              <th>代理</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -1032,7 +2555,7 @@
         </table>
       </div>
       <div class="empty-state" id="emptyAccounts" style="display:none">
-        <div class="empty-icon">📭</div>
+        <div class="empty-icon" aria-hidden="true">—</div>
         <div class="empty-title">暂无监控账户</div>
         <div class="empty-desc">点击右上角「添加账户」开始监控 YouTube 频道</div>
         <button class="btn btn-primary" onclick="openAddAccount()">+ 添加第一个账户</button>
@@ -1043,7 +2566,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <div class="card-title-icon" style="background:var(--success-dim);color:var(--success)">📋</div>
+          <div class="card-title-icon" style="background:var(--success-dim);color:var(--success)" aria-hidden="true">事</div>
           扫描事件日志
         </div>
         <div style="font-size:11px;color:var(--text-dim)" id="eventCount">最近 20 条</div>
@@ -1110,9 +2633,9 @@
       <div class="form-group">
         <label class="form-label">通知平台</label>
         <div class="platform-selector" id="platformSelector">
-          <button type="button" class="platform-btn active-feishu" onclick="selectPlatform('feishu')">💬 飞书</button>
-          <button type="button" class="platform-btn" onclick="selectPlatform('dingtalk')">🔔 钉钉</button>
-          <button type="button" class="platform-btn" onclick="selectPlatform('wecom')">💼 企微</button>
+          <button type="button" class="platform-btn active-feishu" onclick="selectPlatform('feishu')">飞书</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('dingtalk')">钉钉</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('wecom')">企微</button>
         </div>
         <input type="hidden" id="accPlatform" value="feishu">
       </div>
@@ -1120,6 +2643,11 @@
         <label class="form-label">Webhook URL</label>
         <input class="form-input" id="accWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
         <div class="form-hint">留空则使用全局 Webhook 配置</div>
+      </div>
+      <div class="form-group form-group--dingtalk-addon" id="dingtalkSignSecretGroup" style="display:none" role="region" aria-label="钉钉机器人加签配置">
+        <label class="form-label form-label--platform" for="accDingtalkSecret">钉钉加签密钥</label>
+        <input class="form-input" id="accDingtalkSecret" type="password" name="dingtalk_sign_secret" autocomplete="new-password" inputmode="text" spellcheck="false" placeholder="SEC 开头，与当前 Webhook 同一机器人" aria-describedby="accDingtalkSecretHint">
+        <div class="form-hint" id="accDingtalkSecretHint">若机器人在钉钉后台开启了「加签」，请填写 SEC；与账户级 Webhook URL 须为同一机器人。仅使用全局钉钉 Webhook 时勿在此填写。</div>
       </div>
       <!-- 飞书模板配置（仅飞书平台显示） -->
       <div class="form-group" id="feishuTemplateConfig" style="display:none">
@@ -1152,6 +2680,55 @@
           发送通知
         </label>
       </div>
+      <hr class="form-sep">
+      <div class="proxy-section">
+        <div class="form-label">下载网络策略</div>
+        <div class="proxy-toggle-row">
+          <div class="proxy-toggle-copy">
+            <div class="proxy-toggle-title">启用账户固定代理</div>
+            <div class="proxy-toggle-sub">新视频自动下载与手动批量下载都会使用所选节点</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="accProxyEnabled" onchange="toggleProxySection()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="proxy-mode-kicker">routing policy</div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">
+            下载模式
+            <span class="form-hint" style="margin-top:2px">决定何时使用固定代理、何时回退动态代理</span>
+          </label>
+          <select id="accDownloadProxyMode" class="form-input" onchange="onAccountProxyModeChange()">
+            <option value="auto">自动（推荐）</option>
+            <option value="account_only">仅账户固定代理</option>
+            <option value="system_only">仅系统动态代理</option>
+            <option value="direct_only">始终直连</option>
+          </select>
+          <div class="form-help-text" id="accProxyModeHelp">
+            优先使用账户固定代理，不可用时回退到系统动态代理
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="btn btn-sm info" onclick="previewAccountRouting()">预览本次路由</button>
+            <span style="font-size:11px;color:var(--text-dim)">不会触发下载，仅预览当前账户在此模式下会如何选线路</span>
+          </div>
+          <div id="routingPreviewBox" class="routing-preview">
+            <div class="routing-preview-title">download routing preview</div>
+            <div class="routing-preview-main" id="routingPreviewMain">—</div>
+            <div class="routing-preview-meta" id="routingPreviewMeta"></div>
+            <div class="routing-preview-reason" id="routingPreviewReason"></div>
+            <div class="routing-preview-warnings" id="routingPreviewWarnings"></div>
+          </div>
+        </div>
+
+        <div class="proxy-select-wrap">
+          <select class="form-input" id="accProxyPoolSelect" onchange="updateProxyLabel()" disabled>
+            <option value="">— 先开启代理，再选择节点 —</option>
+          </select>
+        </div>
+        <div class="form-hint">同一账户的两条下载路径共用一套代理配置，避免单 IP 被限流</div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modalAccount')">取消</button>
@@ -1160,15 +2737,194 @@
   </div>
 </div>
 
+<!-- 模态: 固定代理管理 -->
+<div class="modal-overlay" id="modalProxyPools">
+  <div class="modal" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">固定代理管理</div>
+      <button class="modal-close" onclick="closeModal('modalProxyPools')">✕</button>
+    </div>
+    <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column">
+
+      <!-- 演示入口 -->
+      <div id="ppDemoSection">
+        <div id="ppDemoIcon">
+          <svg viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+        </div>
+        <div id="ppDemoText">
+          <div class="pp-state-chip">快速了解</div>
+          <h4 style="margin-top:6px">固定代理工作原理</h4>
+          <p>节点绑定 → 路由覆盖自动/批量下载 → 防 429 限流</p>
+        </div>
+        <button id="ppDemoBtn" onclick="openProxyDemo()">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          查看说明
+        </button>
+      </div>
+
+      <!-- 表格视图 -->
+      <div id="ppTableView">
+        <div class="pp-workspace-head">
+          <div class="pp-workspace-copy">
+            <div class="pp-workspace-title">固定代理节点工作台</div>
+            <div class="pp-workspace-desc">
+              在这里维护所有下载节点。已掩码展示地址，仅保留主机信息；启用后的节点可被账户直接绑定。
+            </div>
+          </div>
+          <div class="pp-toolbar-actions">
+            <span class="pp-demo-note">
+              <svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
+              masked URLs
+            </span>
+            <button class="pp-ghost-action" onclick="openProxyDemo()">
+              <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              回看演示
+            </button>
+            <button class="btn btn-sm" style="background:rgba(45,212,191,0.1);border-color:var(--proxy-border);color:var(--proxy-text);font-weight:600" onclick="openAddProxyPool()">+ 添加节点</button>
+          </div>
+        </div>
+        <div class="pp-table-shell">
+        <table class="proxy-table" id="proxyPoolTableWrap">
+          <thead>
+            <tr>
+              <th style="width:40px">ID</th>
+              <th>名称</th>
+              <th>代理节点</th>
+              <th style="width:100px">状态</th>
+              <th style="width:160px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="proxyPoolTable">
+          </tbody>
+        </table>
+        </div>
+        <div id="emptyProxyPools" class="proxy-empty" style="display:none">
+          <div class="proxy-empty-header">
+            <div class="proxy-empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+                <circle cx="12" cy="10" r="2.5"/>
+                <path d="M6.5 7c0-1.5.8-3 2.5-3.5M17.5 7c0-1.5-.8-3-2.5-3.5"/>
+              </svg>
+            </div>
+            <div class="proxy-empty-copy">
+              <div class="proxy-empty-kicker">workspace empty</div>
+              <div class="proxy-empty-title">固定代理节点工作台还没有接入任何出口</div>
+              <div class="proxy-empty-desc">先创建一个节点，再把它绑定到账户的下载网络策略里。配置完成后，自动下载和批量下载都会复用这条出口链路。</div>
+            </div>
+          </div>
+          <div class="proxy-empty-steps">
+            <div class="proxy-step">
+              <div class="proxy-step-num">1</div>
+              <div class="proxy-step-body">
+                <div class="proxy-step-title">创建节点</div>
+                <div class="proxy-step-sub">录入代理地址并启用，支持 HTTP / HTTPS / SOCKS5</div>
+              </div>
+            </div>
+            <div class="proxy-step">
+              <div class="proxy-step-num">2</div>
+              <div class="proxy-step-body">
+                <div class="proxy-step-title">绑定到账户</div>
+                <div class="proxy-step-sub">在账户设置里配置下载网络策略并选择节点</div>
+              </div>
+            </div>
+          </div>
+          <div class="proxy-empty-cta">
+            <button class="btn btn-primary btn-sm proxy-empty-primary" onclick="openAddProxyPool()">+ 创建第一个节点</button>
+            <div class="proxy-url-note">
+              <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              地址凭证默认掩码，仅保留节点信息用于识别
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 演示视图（点击按钮切换） -->
+      <div id="ppDemoView">
+        <div id="ppDemoToolbar">
+          <span>
+            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            固定代理功能预览
+          </span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="pp-demo-note">
+              <svg viewBox="0 0 24 24"><path d="M8 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M14 3h7v7"/><path d="M10 14L21 3"/></svg>
+              iframe preview
+            </span>
+            <button id="ppDemoClose" onclick="closeProxyDemo()">返回节点管理</button>
+          </div>
+        </div>
+        <iframe id="ppDemoFrame" src="proxy-pool-feature.html" frameborder="0" allowfullscreen title="固定代理功能演示"></iframe>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 添加/编辑固定代理 -->
+<div class="modal-overlay" id="modalProxyPoolForm">
+  <div class="modal" style="max-width:480px" id="modalProxyPoolFormInner">
+    <div class="modal-header">
+      <div class="modal-title" id="modalProxyPoolFormTitle">添加固定代理节点</div>
+      <button class="modal-close" onclick="closeModal('modalProxyPoolForm')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppId">
+      <div class="form-group">
+        <label class="form-label" for="ppName">节点名称</label>
+        <input class="form-input" id="ppName" placeholder="例如：香港节点-01 / 住宅代理">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ppUrl">
+          代理地址
+          <span class="pp-scheme-tag">HTTP</span>
+        </label>
+        <input class="form-input" id="ppUrl" placeholder="http://user:pass@host:port">
+        <div class="pp-hint-row">
+          <div class="pp-hint-schemes">
+            <span class="pp-scheme-chip">http</span>
+            <span class="pp-scheme-chip">https</span>
+            <span class="pp-scheme-chip">socks5</span>
+            <span class="pp-scheme-chip">socks4</span>
+          </div>
+        </div>
+        <div class="form-hint" style="margin-top:4px">
+          支持带用户名密码认证的代理，认证信息已加密存储
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(42,53,73,0.4);margin-top:4px">
+        <div class="proxy-toggle-label" style="font-size:12px;color:var(--text-muted)">
+          <label class="toggle-switch">
+            <input type="checkbox" id="ppEnabled" checked>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+          立即启用
+        </div>
+        <div style="font-size:11px;color:var(--text-dim)">保存后可在账户中关联使用</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalProxyPoolForm')">取消</button>
+      <button class="btn btn-primary" onclick="saveProxyPool()" style="background:var(--proxy-text);color:#0f1117;font-weight:600">
+        保存节点
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- 全屏: 视频详情 -->
 <div class="modal-overlay" id="modalVideoDetail">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">📹 视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
+      <div class="modal-title">视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:11px;color:var(--text-dim);padding:2px 6px;background:var(--surface2);border-radius:4px;border:1px solid var(--border)">ESC 关闭</span>
         <span id="vdTotal" style="font-size:12px;color:var(--text-muted);margin-right:8px"></span>
-        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>⬇ 下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>下载选中 (<span id="vdSelCount">0</span>)</button>
         <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
       </div>
     </div>
@@ -1187,7 +2943,7 @@
           <option value="desc">降序</option>
           <option value="asc">升序</option>
         </select>
-        <button class="btn btn-sm" onclick="vdSearch()">🔍 搜索</button>
+        <button class="btn btn-sm" onclick="vdSearch()">搜索</button>
         <button class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-left:auto">
           <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
@@ -1260,6 +3016,23 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeScanConfirm()">取消</button>
       <button class="btn btn-primary" onclick="confirmScanNow()">开始扫描</button>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 通用确认（替代原生 confirm，与现有 modal 组件一致） -->
+<div class="modal-overlay" id="modalAppConfirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" id="appConfirmTitle"></div>
+      <button type="button" class="modal-close" onclick="closeAppConfirm(false)" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body" style="padding-top:12px">
+      <p class="modal-confirm-desc" id="appConfirmBody"></p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="appConfirmCancelBtn" onclick="closeAppConfirm(false)">取消</button>
+      <button type="button" class="btn btn-primary" id="appConfirmPrimaryBtn" onclick="closeAppConfirm(true)">确定</button>
     </div>
   </div>
 </div>
@@ -1350,7 +3123,7 @@
 <div class="modal-overlay" id="modalCache">
   <div class="modal" style="max-width:700px">
     <div class="modal-header">
-      <div class="modal-title">📦 API 缓存管理</div>
+      <div class="modal-title">API 缓存管理</div>
       <button class="modal-close" onclick="closeModal('modalCache')">✕</button>
     </div>
     <div class="modal-body">
@@ -1382,42 +3155,47 @@
     <div class="modal-body">
       <div class="config-grid">
         <div class="form-group">
-          <label class="form-label" style="color:var(--feishu)">💬 飞书 Webhook</label>
+          <label class="form-label" style="color:var(--feishu)">飞书 Webhook</label>
           <input class="form-input" id="cfgFeishu" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
           <div class="form-hint">账户级 URL 会覆盖此处全局配置</div>
         </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--dingtalk)">🔔 钉钉 Webhook</label>
+          <label class="form-label" style="color:var(--dingtalk)">钉钉 Webhook</label>
           <input class="form-input" id="cfgDingtalk" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx">
         </div>
+        <div class="form-group form-group--dingtalk-addon">
+          <label class="form-label form-label--platform" for="cfgDingtalkSecret">钉钉加签密钥（全局）</label>
+          <input class="form-input" id="cfgDingtalkSecret" type="password" name="global_dingtalk_sign_secret" autocomplete="new-password" inputmode="text" spellcheck="false" placeholder="SEC 开头，与上方全局钉钉 Webhook 同一机器人" aria-describedby="cfgDingtalkSecretHint">
+          <div class="form-hint" id="cfgDingtalkSecretHint">若全局钉钉机器人开启了「加签」，在此填写与 Webhook 成对的 SEC；未加签留空。账户级 Webhook 仍优先使用账户里的加签密钥。</div>
+        </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--wecom)">💼 企业微信 Webhook</label>
+          <label class="form-label" style="color:var(--wecom)">企业微信 Webhook</label>
           <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">📊 每日 API Quota 上限（兜底）</label>
+          <label class="form-label">每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
           <div class="form-hint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">🔑 默认 API Key</label>
+          <label class="form-label">默认 API Key</label>
           <select class="form-input" id="cfgDefaultApiKey" style="width:100%">
             <option value="">— 无默认 Key（需手动指定）—</option>
           </select>
-          <div class="form-hint">账户未指定 API Key 时使用此默认 Key。可在「🔑 API Keys」中添加更多 Key。</div>
+          <div class="form-hint">账户未指定 API Key 时使用此默认 Key。可在顶部「API Keys」中添加更多 Key。</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">🍪 Cookie 文件路径</label>
+          <label class="form-label">Cookie 文件路径</label>
           <input class="form-input" id="cfgCookiesFile" placeholder="例: C:\cookies.txt">
           <div class="form-hint">Netscape 格式 (.txt) 或 JSON 格式 (.json)。留空则不使用 Cookie。可通过浏览器扩展 "Get cookies.txt LOCALLY" 导出。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">📂 下载保存路径</label>
+          <label class="form-label">下载保存路径</label>
           <input class="form-input" id="cfgDownloadPath" placeholder="留空默认: videos/">
           <div class="form-hint">视频下载文件的保存目录（绝对路径）</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">⚡ 下载加速</label>
+          <label class="form-label">下载加速</label>
           <label class="checkbox-label" style="margin-top:6px">
             <input type="checkbox" id="cfgEnableAria2">
             <span class="checkbox-box"></span>
@@ -1426,15 +3204,549 @@
           <div class="form-hint">开启后所有下载（启动监控自动下载、立即扫描自动下载、视频详情下载选中）均使用 aria2c 16 连接并发，速度显著提升。需提前安装 aria2 并加入 PATH。</div>
         </div>
         <div class="form-group" style="margin-top:8px">
-          <label class="form-label">📝 字幕语言（批量下载时）</label>
+          <label class="form-label">字幕语言（批量下载时）</label>
           <input class="form-input" id="cfgSubLangs" placeholder="zh-Hans,en">
           <div class="form-hint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
+        </div>
+
+        <!-- ===== 系统默认动态代理 ===== -->
+        <div class="settings-section">
+          <h3 class="section-title">系统默认动态代理</h3>
+
+          <!-- 开关: 启用系统默认动态代理 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              启用系统默认动态代理
+              <span class="setting-desc">当账户固定代理不可用时，系统自动尝试动态代理线路。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_system_dynamic_proxy_enabled" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 开关: 新账户默认继承 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              新账户默认继承系统动态代理
+              <span class="setting-desc">新建账户时，如果没有绑定固定代理，将自动按系统策略选择。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_apply_dynamic_proxy_to_new_accounts" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 开关: 历史账户启用回退 -->
+          <div class="setting-row">
+            <label class="setting-label">
+              对现有账户统一启用系统回退
+              <span class="setting-desc" style="color:#f59e0b">注意：开启后将改变现有账户行为，请确认。</span>
+            </label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="cfg_apply_dynamic_proxy_to_existing_accounts" onchange="onDynamicProxySettingChange()">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+
+          <!-- 风险控制区块 -->
+          <div class="settings-subsection">
+            <h4 class="subsection-title">风险控制</h4>
+
+            <!-- 免费代理参与手动下载 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                允许免费代理参与手动下载
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 免费代理参与自动下载 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                允许免费代理参与自动下载
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_for_auto_download" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- Cookie下载禁止免费代理 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                带 Cookie 下载禁止免费代理
+                <span class="setting-desc">安全策略：Cookie 下载默认不使用免费公共代理。</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_with_cookies" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 手动下载允许直连兜底 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                手动下载允许直连兜底
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_manual_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <!-- 自动下载允许直连兜底 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                自动下载允许直连兜底
+                <span class="setting-desc" style="color:#f59e0b">注意：自动下载默认不允许直连，请确认。</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_auto_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 高级设置区块 -->
+          <details class="settings-details">
+            <summary>高级设置</summary>
+
+            <!-- 协议优先级 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                协议优先级
+                <span class="setting-desc">按顺序尝试代理协议</span>
+              </label>
+              <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="min-width:280px;max-width:100%;width:auto;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+                <option value="http,https,socks5,socks4">HTTP → HTTPS → SOCKS5 → SOCKS4（推荐）</option>
+                <option value="http,https,socks5">HTTP → HTTPS → SOCKS5</option>
+                <option value="https,http,socks5,socks4">HTTPS → HTTP → SOCKS5 → SOCKS4</option>
+                <option value="https,http,socks5">HTTPS → HTTP → SOCKS5</option>
+                <option value="socks5,https,http,socks4">SOCKS5 → HTTPS → HTTP → SOCKS4</option>
+                <option value="socks5,https,http">SOCKS5 → HTTPS → HTTP</option>
+              </select>
+            </div>
+
+            <!-- 会话模式 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                默认会话模式
+              </label>
+              <select id="cfg_default_session_mode" onchange="onDynamicProxySettingChange()" style="width:200px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+                <option value="sticky">粘性会话（推荐）</option>
+                <option value="rotating">轮换会话</option>
+              </select>
+            </div>
+
+            <!-- 粘性会话时长 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                粘性会话时长（分钟）
+              </label>
+              <input type="number" id="cfg_default_sticky_minutes" value="10" min="1" max="60"
+                     style="width:80px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none" onchange="onDynamicProxySettingChange()">
+            </div>
+
+            <!-- 掩码代理日志 -->
+            <div class="setting-row">
+              <label class="setting-label">
+                日志中掩码代理地址
+                <span class="setting-desc">隐藏代理出口的具体 IP 和端口</span>
+              </label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_mask_proxy_in_logs" checked onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </details>
+
+          <!-- 管理提供方入口 -->
+          <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.15);border-radius:12px">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--dyn-text);margin-bottom:2px">动态代理提供方管理</div>
+              <div style="font-size:11px;color:var(--text-muted)">添加、编辑和测试动态代理提供方（付费/免费）</div>
+            </div>
+            <button class="btn btn-sm" style="background:rgba(99,102,241,0.1);border-color:var(--dyn-border);color:var(--dyn-text);font-weight:600;flex-shrink:0" onclick="openDynamicProviders()">
+              管理提供方
+            </button>
+          </div>
         </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modalConfig')">取消</button>
       <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 动态代理提供方管理 -->
+<div class="modal-overlay" id="modalDynamicProviders">
+  <div class="modal" style="max-width:760px;height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">动态代理提供方</div>
+      <button class="modal-close" onclick="closeModal('modalDynamicProviders')">✕</button>
+    </div>
+    <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column">
+      <div class="dyn-toolbar-row" style="align-items:stretch;gap:14px;flex-wrap:wrap">
+        <div class="dyn-toolbar-left" style="flex:1 1 320px;display:block">
+          <div style="font-family:Georgia,serif;font-size:18px;color:#f5f4ed;line-height:1.15;margin-bottom:6px">动态代理调度工作台</div>
+          <div style="font-size:12px;color:#9b9bb2;line-height:1.6;max-width:520px">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。<strong style="color:#c4c2bd;font-weight:600">Provider Scheduler 不会随页面打开自动启动</strong>，需点击「启动动态代理调度」。</div>
+        </div>
+        <div style="flex:1 1 260px;background:rgba(18,21,35,0.74);border:1px solid rgba(135,134,127,0.18);border-radius:18px;padding:14px 16px;box-shadow:0 0 0 1px rgba(232,230,220,0.04) inset">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#87867f">Provider Scheduler</div>
+            <div id="dynProviderSchedulerBadge" style="font-size:11px;padding:4px 10px;border-radius:999px;background:rgba(200,100,66,0.12);color:#d97757;border:1px solid rgba(201,100,66,0.18)">未启动</div>
+          </div>
+          <div id="dynSchedulerHint" style="font-size:12px;color:#b0aea5;line-height:1.55;margin-bottom:12px">调度器未运行：刷新间隔不会自动生效</div>
+          <div id="dynProviderNextRun" style="font-size:11px;color:#87867f;line-height:1.5">下一次执行：—</div>
+        </div>
+        <div class="dyn-toolbar-right" style="align-items:flex-start;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="dyn-ghost-btn" id="btnDynProviderSchedulerToggle" onclick="toggleDynamicProviderScheduler()">启动动态代理调度</button>
+          <button class="dyn-ghost-btn" onclick="reloadDynamicProviderJobs()">重载动态代理任务</button>
+          <button class="dyn-ghost-btn" onclick="runDynamicProviderJobsOnce()">立即刷新全部列表 API</button>
+          <button class="dyn-ghost-btn" onclick="healthCheckAllProviders()">
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            全量健康检查
+          </button>
+          <button class="btn btn-sm" style="background:rgba(201,100,66,0.12);border-color:rgba(201,100,66,0.18);color:#f5f4ed;font-weight:600" onclick="openAddDynamicProvider()">+ 添加提供方</button>
+        </div>
+      </div>
+
+      <div class="dyn-scheduler-split" role="region" aria-label="调度执行记录与说明">
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head">
+            <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">最近调度执行</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="font-size:11px;color:#87867f">独立于 monitor_events</div>
+              <select id="dynProviderLogFilter" class="form-input" style="width:auto;min-width:120px;padding:6px 10px;background:rgba(20,20,19,0.76);border-color:rgba(135,134,127,0.18);color:#f5f4ed" onchange="loadProviderSchedulerLogs()">
+                <option value="all">全部日志</option>
+                <option value="refresh">仅 refresh</option>
+                <option value="cleanup">仅 cleanup</option>
+                <option value="error">仅 error</option>
+              </select>
+            </div>
+          </div>
+          <div id="dynProviderSchedulerLogs" class="dyn-scheduler-card-scroll"></div>
+        </div>
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head dyn-scheduler-card-head--simple">
+            <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">调度说明</div>
+          </div>
+          <div class="dyn-scheduler-card-scroll dyn-scheduler-help-body">
+            <div>• 进程内只有 <strong>一个</strong> Provider Scheduler；各提供方以「定时任务」形式挂在上面，没有单独的「多个 Scheduler」列表。</div>
+            <div>• 仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）&gt; 0</strong> 的提供方会注册定时拉列表；否则启动后也只有每日 cleanup 等任务。</div>
+            <div>• <strong>重载动态代理任务</strong> 只重建任务，不会立即调用外部 API。</div>
+            <div>• <strong>立即刷新全部列表 API</strong> 会立刻执行一次批量 refresh。</div>
+            <div>• cleanup 会独立记录，不再混入账号监控事件；左侧「最近调度执行」即各任务运行历史。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dyn-table-shell">
+        <table class="dyn-table" id="dynProviderTable">
+          <thead>
+            <tr>
+              <th style="width:36px">ID</th>
+              <th>名称</th>
+              <th>计费</th>
+              <th>适配器</th>
+              <th>健康状态</th>
+              <th>优先级</th>
+              <th>功能</th>
+              <th style="width:160px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="dynProviderTableBody">
+          </tbody>
+        </table>
+      </div>
+      <div id="dynEmptyState" class="dyn-empty" style="display:none">
+        <div class="dyn-empty-title">还没有配置动态代理提供方</div>
+        <div class="dyn-empty-desc">添加一个提供方后，它将参与系统动态代理路由决策。付费提供方优先，免费提供方兜底。</div>
+        <div class="dyn-empty-cta">
+          <button class="btn btn-sm dyn-empty-primary" onclick="openAddDynamicProvider()">+ 添加第一个提供方</button>
+          <span class="dyn-note">提供方按优先级从低到高依次尝试</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="dynProviderDetailDrawer" style="display:none;background:rgba(10,11,17,0.48)">
+  <div class="modal" style="max-width:560px;height:88vh;display:flex;flex-direction:column;margin-left:auto;margin-right:24px;background:#141413;border:1px solid rgba(232,230,220,0.12);box-shadow:0 24px 80px rgba(0,0,0,0.45)">
+    <div class="modal-header" style="border-bottom:1px solid rgba(232,230,220,0.10)">
+      <div class="modal-title" style="font-family:Georgia,serif;color:#f5f4ed">提供方运行详情</div>
+      <button class="modal-close" onclick="closeDynamicProviderDetail()">✕</button>
+    </div>
+    <div class="modal-body" style="flex:1;overflow:auto">
+      <div id="dynProviderDetailError" style="display:none;margin-bottom:12px;padding:12px 14px;border-radius:14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.14);color:#fecaca;font-size:12px;line-height:1.6"></div>
+      <div id="dynProviderDetailPreviewSummary" style="display:none;margin-bottom:12px;padding:12px 14px;border-radius:14px;background:rgba(34,197,94,0.06);border:1px solid rgba(232,230,220,0.10);color:#d6d3d1;font-size:12px;line-height:1.6"></div>
+      <div id="dynProviderDetailFailures" style="display:none;margin-bottom:12px;padding:12px 14px;border-radius:14px;background:rgba(250,204,21,0.07);border:1px solid rgba(250,204,21,0.14);color:#fde68a;font-size:12px;line-height:1.6">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <strong style="display:block;color:#fef3c7">最近失败原因</strong>
+          <button id="dynProviderDetailFailuresToggle" class="btn-sm" style="padding:4px 8px;font-size:10px" onclick="toggleProviderFailureList()">展开</button>
+        </div>
+        <div id="dynProviderDetailFailuresList"></div>
+      </div>
+      <div id="dynProviderDetailActions" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
+      <div id="dynProviderDetailBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 模态: 添加/编辑动态代理提供方 -->
+<div class="modal-overlay" id="modalDynamicProviderForm">
+  <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <div class="modal-title" id="dynFormTitle">添加动态代理提供方</div>
+      <button class="modal-close" onclick="closeModal('modalDynamicProviderForm')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="dynId">
+
+      <!-- 基础信息 -->
+      <div class="form-group">
+        <label class="form-label" for="dynName">提供方名称</label>
+        <input class="form-input" id="dynName" placeholder="例如：ProxyMesh 住宅代理 / 免费ProxyAPI">
+      </div>
+
+      <div class="dyn-form-row">
+        <div class="form-group">
+          <label class="form-label" for="dynBillingTier">计费层级</label>
+          <select class="form-input" id="dynBillingTier" onchange="onDynBillingTierChange()">
+            <option value="paid">付费（优先）</option>
+            <option value="free">免费（兜底）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="dynAdapterType">适配器类型</label>
+          <select class="form-input" id="dynAdapterType" onchange="onDynAdapterTypeChange()">
+            <option value="rotating_gateway">旋转网关（推荐）</option>
+            <option value="local_gateway">本地网关</option>
+            <option value="public_feed">公共订阅源</option>
+            <option value="list_api">列表 API</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="dyn-form-row">
+        <div class="form-group">
+          <label class="form-label" for="dynPriority">优先级（数字越小越优先）</label>
+          <input class="form-input" id="dynPriority" type="number" value="100" min="1" max="999" placeholder="1~999">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="dynRefreshInterval">刷新间隔（分钟，0=禁用）</label>
+          <input class="form-input" id="dynRefreshInterval" type="number" value="0" min="0" max="10080" placeholder="0=禁用自动刷新">
+        </div>
+      </div>
+
+      <div class="dyn-form-row">
+        <div class="form-group">
+          <label class="form-label" for="dynRiskLevel">风险等级</label>
+          <select class="form-input" id="dynRiskLevel">
+            <option value="low">低风险</option>
+            <option value="medium" selected>中等风险</option>
+            <option value="high">高风险</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 网关配置（rotating_gateway） -->
+      <div id="dynGatewayConfig" class="dyn-config-section">
+        <div class="dyn-config-title">网关配置</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label class="form-label" for="dynGatewayHost">网关地址</label>
+          <input class="form-input" id="dynGatewayHost" placeholder="proxy.example.com">
+        </div>
+        <div class="dyn-form-row" style="margin-bottom:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="dynGatewayPort">端口</label>
+            <input class="form-input" id="dynGatewayPort" type="number" placeholder="8080">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="dynProtocol">协议</label>
+            <select class="form-input" id="dynProtocol">
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+              <option value="socks5">SOCKS5</option>
+              <option value="socks4">SOCKS4</option>
+            </select>
+          </div>
+        </div>
+        <div class="dyn-form-row">
+          <div class="form-group">
+            <label class="form-label" for="dynUsername">用户名</label>
+            <input class="form-input" id="dynUsername" placeholder="可选">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="dynPassword">密码</label>
+            <input class="form-input" id="dynPassword" type="password" placeholder="可选">
+          </div>
+        </div>
+      </div>
+
+      <!-- 本地网关配置（local_gateway） -->
+      <div id="dynLocalConfig" class="dyn-config-section" style="display:none">
+        <div class="dyn-config-title">本地网关配置</div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label" for="dynLocalProxyUrl">本地代理地址</label>
+          <input class="form-input" id="dynLocalProxyUrl" placeholder="http://127.0.0.1:7890">
+          <div class="form-hint" style="margin-top:4px">填写本地运行的代理服务地址（如 Clash、v2ray 等）</div>
+        </div>
+      </div>
+
+      <!-- 列表API配置（list_api / public_feed） -->
+      <div id="dynListApiConfig" class="dyn-config-section" style="display:none">
+        <div class="dyn-config-title">列表 API 配置</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label class="form-label" for="dynListApiAdapterName">列表解析适配器</label>
+          <select class="form-input" id="dynListApiAdapterName" title="持久化为 config_json.adapter_name">
+            <option value="">通用 JSON（GET + 结果路径/字段映射）</option>
+            <option value="geonode">Geonode 列表 API</option>
+          </select>
+          <div class="form-hint" style="margin-top:4px">Geonode 官方接口请选择「Geonode」；其它 JSON 接口可留空并配置结果路径。</div>
+        </div>
+        <div class="dyn-form-row" style="margin-bottom:8px">
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <label class="form-label" for="dynListApiBaseUrl">API 地址</label>
+            <input class="form-input" id="dynListApiBaseUrl" placeholder="https://proxylist.geonode.com">
+          </div>
+          <div class="form-group" style="margin-bottom:0;width:90px">
+            <label class="form-label" for="dynListApiLimit">每页数量</label>
+            <input class="form-input" id="dynListApiLimit" type="number" value="50" min="1" max="500" placeholder="50">
+          </div>
+        </div>
+        <div class="dyn-form-row" style="margin-bottom:8px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="dynListApiItemsPath">结果路径</label>
+            <input class="form-input" id="dynListApiItemsPath" placeholder="data（返回字段中的路径）">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="dynListApiCountry">国家过滤</label>
+            <input class="form-input" id="dynListApiCountry" placeholder="留空不限">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="dynListApiProtocol">协议过滤</label>
+            <select class="form-input" id="dynListApiProtocol">
+              <option value="">不限</option>
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+              <option value="socks5">SOCKS5</option>
+              <option value="socks4">SOCKS4</option>
+            </select>
+          </div>
+        </div>
+        <div class="dyn-form-row" style="margin-bottom:4px">
+          <div>
+            <div class="dyn-toggle-label">API 密钥认证</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynListApiHasAuth" onchange="onDynListApiAuthToggle()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div id="dynListApiAuthFields" style="display:none">
+          <div class="dyn-form-row">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="dynListApiUsername">用户名</label>
+              <input class="form-input" id="dynListApiUsername" placeholder="可选">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="dynListApiPassword">密码</label>
+              <input class="form-input" id="dynListApiPassword" type="password" placeholder="可选">
+            </div>
+          </div>
+        </div>
+        <div id="dynListApiAdvSection" style="margin-top:6px">
+          <div class="dyn-adv-trigger" onclick="onDynListApiAdvToggle()">高级字段映射 ▾</div>
+          <div id="dynListApiAdvFields" style="display:none;margin-top:6px">
+            <div class="dyn-form-row" style="margin-bottom:4px">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" for="dynListApiHostField">Host 字段名</label>
+                <input class="form-input" id="dynListApiHostField" value="ip" placeholder="ip">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" for="dynListApiPortField">Port 字段名</label>
+                <input class="form-input" id="dynListApiPortField" value="port" placeholder="port">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" for="dynListApiProtocolField">Protocol 字段名</label>
+                <input class="form-input" id="dynListApiProtocolField" value="protocols" placeholder="protocols 或 protocols,protocol">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 功能开关 -->
+      <div class="dyn-config-section" style="margin-top:8px">
+        <div class="dyn-config-title">功能支持</div>
+        <div class="dyn-toggle-row">
+          <div>
+            <div class="dyn-toggle-label">支持自动下载</div>
+            <div class="dyn-toggle-desc">参与自动下载时的代理路由</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynSupportsAutoDownload" checked>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="dyn-toggle-row">
+          <div>
+            <div class="dyn-toggle-label">支持 Cookie 下载</div>
+            <div class="dyn-toggle-desc">可用于需要登录态的下载</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynSupportsCookies">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="dyn-toggle-row">
+          <div>
+            <div class="dyn-toggle-label">支持国家筛选</div>
+            <div class="dyn-toggle-desc">可指定出口 IP 的地理位置</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynSupportsCountryFilter">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="dyn-toggle-row">
+          <div>
+            <div class="dyn-toggle-label">支持粘性会话</div>
+            <div class="dyn-toggle-desc">同一 IP 保持一段时间（推荐开启）</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynSupportsStickySession" checked>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="dyn-toggle-row">
+          <div>
+            <div class="dyn-toggle-label">立即启用</div>
+            <div class="dyn-toggle-desc">启用后参与路由决策</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dynEnabled" checked>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 备注 -->
+      <div class="form-group" style="margin-top:12px">
+        <label class="form-label" for="dynNotes">备注</label>
+        <input class="form-input" id="dynNotes" placeholder="可选，如服务地址、账号信息等">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')">取消</button>
+      <button class="btn btn-dyn-primary" onclick="saveDynamicProvider()">保存提供方</button>
     </div>
   </div>
 </div>
@@ -1446,21 +3758,41 @@
   // ── API ─────────────────────────────────────────────────────
   const API = '/api';
 
-  // Bearer token：存储在 sessionStorage，初始化时从服务器获取
-  let _bearerToken = sessionStorage.getItem('monitor_api_token') || '';
-  let _tokenFetched = false;
-
-  async function _fetchToken() {
-    if (_tokenFetched) return;
-    _tokenFetched = true;
+  // 本机调试/自动化：?api_token=xxx 写入 sessionStorage 并从地址栏移除（避免误分享带 token 的 URL）
+  (function bootstrapTokenFromQuery() {
     try {
-      const r = await fetch(API + '/token');
-      if (r.ok) {
-        const data = await r.json();
-        _bearerToken = data.token || '';
-        sessionStorage.setItem('monitor_api_token', _bearerToken);
-      }
-    } catch (_) { /* 服务器未启动，静默忽略 */ }
+      const host = window.location.hostname;
+      if (host !== '127.0.0.1' && host !== 'localhost') return;
+      const p = new URLSearchParams(window.location.search);
+      const t = (p.get('api_token') || '').trim();
+      if (!t) return;
+      sessionStorage.setItem('monitor_api_token', t);
+      p.delete('api_token');
+      const qs = p.toString();
+      const path = window.location.pathname || '/';
+      history.replaceState(null, '', path + (qs ? '?' + qs : '') + window.location.hash);
+    } catch (_) { /* ignore */ }
+  })();
+
+  // Bearer token：存储在 sessionStorage；无 token 时由 ensureBearerBeforeApi 串行提示（不请求 /api/token）
+  let _bearerToken = sessionStorage.getItem('monitor_api_token') || '';
+  /** @type {Promise<void>|null} 并行 api() 共用的「先拿到 token」屏障，避免竞态导致大量无 Authorization 请求 */
+  let _ensureBearerPromise = null;
+
+  /**
+   * 在发起需认证的请求前确保已有 Bearer（或用户已取消提示）。
+   * 冷启动无 session token 时不请求 GET /api/token：服务端该接口也需 Bearer，无 token 时必然 401，徒增日志与往返。
+   * 并行 api() 仍通过 _ensureBearerPromise 共用一个 prompt，避免竞态。
+   */
+  async function ensureBearerBeforeApi() {
+    if (_bearerToken) return;
+    if (_ensureBearerPromise) return _ensureBearerPromise;
+    _ensureBearerPromise = (async () => {
+      _promptToken();
+    })().finally(() => {
+      _ensureBearerPromise = null;
+    });
+    return _ensureBearerPromise;
   }
 
   function _promptToken() {
@@ -1472,11 +3804,24 @@
     return _bearerToken;
   }
 
-  async function api(method, path, body, _retry = false) {
-    if (!_bearerToken && !_retry) {
-      await _fetchToken();
-      if (!_bearerToken) _promptToken();
+  /**
+   * 多个并行 api() 同时 401 时共用的「重新登录」屏障，只弹一次输入框，全部 await 后再各自重试。
+   */
+  let _reauth401Promise = null;
+
+  function ensureReauthAfter401() {
+    if (!_reauth401Promise) {
+      _reauth401Promise = (async () => {
+        _promptToken();
+      })().finally(() => {
+        _reauth401Promise = null;
+      });
     }
+    return _reauth401Promise;
+  }
+
+  async function api(method, path, body, _retry = false) {
+    if (!_retry) await ensureBearerBeforeApi();
     const opts = {
       method,
       headers: {
@@ -1485,13 +3830,28 @@
       },
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
-    const r = await fetch(API + path, opts);
+    let r;
+    try {
+      r = await fetch(API + path, opts);
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      return { error: '网络错误: ' + msg + '（若正在「刷新提供方」，可稍后再试；或确认本机监控服务已启动）', _fetchFailed: true };
+    }
     if (r.status === 401 && !_retry) {
-      _promptToken();
+      await ensureReauthAfter401();
       return api(method, path, body, true);
     }
     const text = await r.text();
-    try { return JSON.parse(text); } catch { return { error: text || '请求失败' }; }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { error: text || '请求失败', _httpStatus: r.status };
+    }
+    if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+      data._httpStatus = r.status;
+    }
+    return data;
   }
 
   // ── Toast ────────────────────────────────────────────────────
@@ -1536,6 +3896,9 @@
     }
   }
 
+  let _appConfirmResolve = null;
+  let _appConfirmEscHandler = null;
+
   function openModal(id) {
     document.getElementById(id).classList.add('show');
   }
@@ -1545,6 +3908,66 @@
       _vdEscHandler = null;
     }
     document.getElementById(id).classList.remove('show');
+  }
+
+  /**
+   * Promise 版确认框，替代 alert/confirm，样式与 .modal-overlay 一致。
+   * @param {{ title: string, message: string, confirmText?: string, cancelText?: string, variant?: 'primary'|'danger' }} options
+   */
+  function showAppConfirm(options) {
+    return new Promise((resolve) => {
+      if (_appConfirmResolve) {
+        const prev = _appConfirmResolve;
+        _appConfirmResolve = null;
+        prev(false);
+      }
+      _appConfirmResolve = resolve;
+      const titleEl = document.getElementById('appConfirmTitle');
+      const bodyEl = document.getElementById('appConfirmBody');
+      const primaryBtn = document.getElementById('appConfirmPrimaryBtn');
+      const cancelBtn = document.getElementById('appConfirmCancelBtn');
+      titleEl.textContent = options.title || '确认';
+      bodyEl.textContent = options.message || '';
+      primaryBtn.textContent = options.confirmText || '确定';
+      cancelBtn.textContent = options.cancelText || '取消';
+      const danger = options.variant === 'danger';
+      primaryBtn.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+      const appConfirmOverlay = document.getElementById('modalAppConfirm');
+      if (appConfirmOverlay) {
+        appConfirmOverlay.classList.toggle('modal-app-confirm--danger', danger);
+      }
+      if (_appConfirmEscHandler) {
+        document.removeEventListener('keydown', _appConfirmEscHandler);
+        _appConfirmEscHandler = null;
+      }
+      _appConfirmEscHandler = (e) => {
+        if (e.key === 'Escape') {
+          closeAppConfirm(false);
+        }
+      };
+      document.addEventListener('keydown', _appConfirmEscHandler);
+      openModal('modalAppConfirm');
+      requestAnimationFrame(() => {
+        try {
+          primaryBtn.focus();
+        } catch (e) { /* ignore */ }
+      });
+    });
+  }
+
+  function closeAppConfirm(confirmed) {
+    if (_appConfirmEscHandler) {
+      document.removeEventListener('keydown', _appConfirmEscHandler);
+      _appConfirmEscHandler = null;
+    }
+    const fn = _appConfirmResolve;
+    _appConfirmResolve = null;
+    const appConfirmEl = document.getElementById('modalAppConfirm');
+    if (appConfirmEl) appConfirmEl.classList.remove('modal-app-confirm--danger');
+    closeModal('modalAppConfirm');
+    if (fn) {
+      fn(!!confirmed);
+    }
   }
 
   function _resetScanNowState() {
@@ -1565,6 +3988,8 @@
       if (e.target === el && el.id !== 'modalVideoDetail') {
         if (el.id === 'modalScanConfirm') {
           closeScanConfirm();
+        } else if (el.id === 'modalAppConfirm') {
+          closeAppConfirm(false);
         } else {
           el.classList.remove('show');
         }
@@ -1580,6 +4005,7 @@
     document.getElementById('accPlatform').value = p;
     const isFeishu = p === 'feishu';
     document.getElementById('feishuTemplateConfig').style.display = isFeishu ? '' : 'none';
+    document.getElementById('dingtalkSignSecretGroup').style.display = p === 'dingtalk' ? '' : 'none';
     updateFeishuModeUI();
   }
 
@@ -1625,6 +4051,21 @@
     const empty = document.getElementById('emptyAccounts');
     const tableWrap = document.querySelector('.table-wrap');
 
+    if (!Array.isArray(accounts)) {
+      const msg = (accounts && accounts.error) ? String(accounts.error) : '加载失败';
+      if (accounts && accounts._httpStatus === 429) {
+        toast('账户列表请求被限流，将随下次刷新重试', 'warning');
+      } else {
+        toast(msg, 'err');
+      }
+      tbody.innerHTML =
+        '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:20px">' +
+        esc(msg) + '</td></tr>';
+      empty.style.display = 'none';
+      tableWrap.style.display = 'block';
+      return;
+    }
+
     if (!accounts || accounts.length === 0) {
       tbody.innerHTML = '';
       empty.style.display = 'block';
@@ -1652,6 +4093,9 @@
       const apiKeyTag = a.api_key_id
         ? '<span class="tag tag-accent">Key-' + a.api_key_id + '</span>'
         : '<span class="tag tag-muted">默认</span>';
+      const proxyTag = a.proxy_enabled && a.proxy_pool_id
+        ? '<span class="account-proxy-cell"><span class="proxy-dot on" title="代理已启用"></span><span style="font-size:11px;color:var(--proxy-text)">启用</span></span>'
+        : '<span class="account-proxy-cell"><span class="proxy-dot off" title="不使用代理"></span><span style="font-size:11px;color:var(--text-dim)">—</span></span>';
       return `<tr>
         <td class="td-mono">${a.id}</td>
         <td class="td-name">${esc(a.name)}</td>
@@ -1662,6 +4106,7 @@
         <td class="td-mono">${a.fetch_limit}</td>
         <td>${statusTag}</td>
         <td>${platTag}${notifyTag}</td>
+        <td>${proxyTag}</td>
         <td>
           <div class="actions">
             <button class="btn-sm" onclick="openEditAccount(${a.id})">编辑</button>
@@ -1676,9 +4121,12 @@
 
   // ── 加载统计 ───────────────────────────────────────────────────
   async function loadStats() {
-    const stats = await api('GET', '/stats');
+    const [stats, quota] = await Promise.all([
+      api('GET', '/stats'),
+      api('GET', '/quota').catch(() => null),
+    ]);
     let totalScans = 0, totalNew = 0, lastScan = '—';
-    if (stats && stats.length > 0) {
+    if (Array.isArray(stats) && stats.length > 0) {
       totalScans = stats.reduce((s, r) => s + (r.total_scans || 0), 0);
       totalNew = stats.reduce((s, r) => s + (r.total_new_videos || 0), 0);
       const latest = stats.find(r => r.last_scan_at);
@@ -1686,13 +4134,12 @@
         ? fmtTime(latest.last_scan_at)
         : '从未';
     }
-    document.getElementById('statAccounts').textContent = stats ? stats.length : '0';
+    document.getElementById('statAccounts').textContent = Array.isArray(stats) ? String(stats.length) : '—';
     document.getElementById('statScans').textContent = totalScans;
     document.getElementById('statNew').textContent = totalNew;
     document.getElementById('statLast').textContent = lastScan;
 
     // ── Quota 展示 ────────────────────────────────────────────
-    const quota = await api('GET', '/quota').catch(() => null);
     if (quota && quota.items && quota.items.length > 0) {
       let totalUsed = 0, totalBudget = 0, totalScans = 0, blockedScans = 0;
       quota.items.forEach(q => {
@@ -1722,6 +4169,13 @@
   async function loadEvents() {
     const events = await api('GET', '/events?limit=20');
     const area = document.getElementById('logArea');
+    if (!Array.isArray(events)) {
+      area.innerHTML =
+        '<div class="log-line"><span class="log-time">—</span><span class="log-msg err">' +
+        esc((events && events.error) ? String(events.error) : '事件加载失败') +
+        '</span></div>';
+      return;
+    }
     if (!events || events.length === 0) {
       area.innerHTML = '<div class="log-line"><span class="log-time">—</span><span class="log-msg">暂无扫描记录</span></div>';
       return;
@@ -1733,15 +4187,24 @@
       const msg = e.status === 'success'
         ? `${e.account_name}: API返回${e.total_videos} 新增${e.new_videos} 耗时${e.duration_ms}ms`
         : e.status === 'error'
-        ? `${e.account_name}: ❌ ${e.error_message}`
+        ? `${e.account_name}: 失败 ${e.error_message}`
         : `${e.account_name}: 进行中...`;
       return `<div class="log-line"><span class="log-time">${time}</span><span class="log-msg ${cls}">${esc(msg)}</span></div>`;
     }).join('');
   }
 
   // ── 刷新 ───────────────────────────────────────────────────────
-  async function refresh() {
-    await Promise.all([loadStatus(), loadAccounts(), loadStats(), loadEvents()]);
+  /**
+   * 串行队列：重叠的 refresh()（如定时与手动操作同时触发）依次执行，不丢弃后续周期。
+   * 前一链 rejected 时仍用 .then(run, run) 接上下一次刷新。
+   */
+  let _refreshChain = Promise.resolve();
+
+  function refresh() {
+    const run = () => Promise.all([loadStatus(), loadAccounts(), loadStats(), loadEvents()]);
+    const p = _refreshChain.then(run, run);
+    _refreshChain = p.catch(() => {});
+    return p;
   }
 
   // ── 调度器控制 ─────────────────────────────────────────────────
@@ -1789,8 +4252,72 @@
     toast(r.ok ? `重载完成，活跃任务: ${r.active_jobs}` : '重载失败', r.ok ? 'ok' : 'err');
   }
 
+  async function toggleDynamicProviderScheduler() {
+    const status = await api('GET', '/provider-scheduler/status');
+    const running = !!(status && status.running);
+
+    if (running) {
+      const ok = await showAppConfirm({
+        title: '停止动态代理调度？',
+        message: '停止后，仅提供方 refresh / cleanup 任务会暂停；账号监控扫描不会受到影响。',
+        confirmText: '停止',
+        variant: 'danger',
+      });
+      if (!ok) return;
+      const r = await api('POST', '/provider-scheduler/stop', {});
+      if (r.ok !== false) {
+        await updateProviderSchedulerHint();
+        toast('动态代理调度已停止', 'ok');
+      } else {
+        toast(r.error || '操作失败', 'err');
+      }
+      return;
+    }
+
+    const ok = await showAppConfirm({
+      title: '启动动态代理调度？',
+      message: '启动后，将按提供方配置的刷新间隔执行列表拉取与候选清理。',
+      confirmText: '启动',
+    });
+    if (!ok) return;
+    const r = await api('POST', '/provider-scheduler/start', {});
+    if (r.ok !== false) {
+      await updateProviderSchedulerHint();
+      toast('动态代理调度已启动', 'ok');
+    } else {
+      toast(r.error || '启动失败', 'err');
+    }
+  }
+
+  async function reloadDynamicProviderJobs() {
+    const r = await api('POST', '/provider-scheduler/reload', {});
+    toast(r.ok ? `动态代理任务已重载，活跃任务: ${r.active_jobs}` : '重载失败', r.ok ? 'ok' : 'err');
+    await updateProviderSchedulerHint();
+  }
+
+  async function runDynamicProviderJobsOnce() {
+    const ok = await showAppConfirm({
+      title: '立即刷新全部列表 API？',
+      message: '这会立刻对所有启用的列表拉取型提供方执行一次 refresh。',
+      confirmText: '立即刷新',
+    });
+    if (!ok) return;
+    const r = await api('POST', '/provider-scheduler/run-once', {});
+    if (!r || r.error) {
+      toast('执行失败: ' + (r && r.error ? r.error : '未知错误'), 'err');
+      return;
+    }
+    const count = r.provider_count || 0;
+    const results = r.results || [];
+    const rawTotal = results.reduce((sum, x) => sum + (x.raw_count || 0), 0);
+    const validTotal = results.reduce((sum, x) => sum + (x.valid_count || 0), 0);
+    toast(`已执行 ${count} 个提供方的立即刷新 · raw ${rawTotal} / valid ${validTotal}`, 'ok');
+    await updateProviderSchedulerHint();
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
   // ── 账户操作 ────────────────────────────────────────────────────
-  function openAddAccount() {
+  async function openAddAccount() {
     document.getElementById('modalAccountTitle').textContent = '添加监控账户';
     document.getElementById('accId').value = '';
     document.getElementById('accName').value = '';
@@ -1802,13 +4329,23 @@
     document.getElementById('accLimit').value = '5';
     document.getElementById('accInterval').value = '5';
     document.getElementById('accWebhook').value = '';
+    document.getElementById('accDingtalkSecret').value = '';
     document.getElementById('accFeishuMode').value = 'card_json';
     document.getElementById('accFeishuTemplateId').value = '';
     document.getElementById('accFeishuScanTemplateId').value = '';
     document.getElementById('accEnabled').checked = true;
     document.getElementById('accNotify').checked = true;
+    document.getElementById('accProxyEnabled').checked = false;
+    document.getElementById('accProxyPoolSelect').value = '';
+    document.getElementById('accProxyPoolSelect').disabled = true;
+    document.getElementById('accProxyPoolSelect').style.opacity = '0.4';
+    // Set default download proxy mode
+    document.getElementById('accDownloadProxyMode').value = 'auto';
+    onAccountProxyModeChange();
     selectPlatform('feishu');
-    refreshApiKeySelectors();
+    await refreshApiKeySelectors();
+    await refreshProxyPoolSelectors();
+    await toggleProxySection();
     openModal('modalAccount');
   }
 
@@ -1828,12 +4365,22 @@
     document.getElementById('accLimit').value = acc.fetch_limit;
     document.getElementById('accInterval').value = acc.scan_interval;
     document.getElementById('accWebhook').value = acc.webhook_url || '';
+    document.getElementById('accDingtalkSecret').value = acc.dingtalk_sign_secret || '';
     document.getElementById('accFeishuMode').value = acc.feishu_message_mode || 'card_json';
     document.getElementById('accFeishuTemplateId').value = acc.feishu_template_id || '';
     document.getElementById('accFeishuScanTemplateId').value = acc.feishu_scan_template_id || '';
     document.getElementById('accEnabled').checked = acc.enabled;
     document.getElementById('accNotify').checked = acc.notify_enabled;
+    document.getElementById('accProxyEnabled').checked = !!acc.proxy_enabled;
+    // Set download proxy mode
+    const proxyMode = acc.download_proxy_mode || 'auto';
+    document.getElementById('accDownloadProxyMode').value = proxyMode;
+    onAccountProxyModeChange();
+    // refreshProxyPoolSelectors() 必须先执行完毕，才知道 options 里有没有 acc.proxy_pool_id
+    const savedProxyId = acc.proxy_pool_id || '';
+    await refreshProxyPoolSelectors(savedProxyId);
     selectPlatform(acc.notify_platform);
+    await toggleProxySection();
     openModal('modalAccount');
   }
 
@@ -1842,10 +4389,138 @@
     document.getElementById('accApiKeyId').value = sel.value;
   }
 
+  async function toggleProxySection() {
+    const enabled = document.getElementById('accProxyEnabled').checked;
+    const sel = document.getElementById('accProxyPoolSelect');
+    sel.disabled = !enabled;
+    if (!enabled) {
+      sel.value = '';
+      sel.style.opacity = '0.4';
+      sel.style.cursor = 'not-allowed';
+    } else {
+      sel.style.opacity = '';
+      sel.style.cursor = '';
+    }
+  }
+
+  function updateProxyLabel() {
+    // 用于前端展示，实际值由 option.value 获取
+  }
+
+  // Proxy mode descriptions
+  const PROXY_MODE_HELP = {
+    'auto': '优先使用账户固定代理，不可用时回退到系统动态代理',
+    'account_only': '只使用账户绑定的固定代理，不做系统回退',
+    'system_only': '忽略账户固定代理，始终使用系统动态代理',
+    'direct_only': '本账户下载不使用任何代理',
+  };
+
+  function onAccountProxyModeChange() {
+    const mode = document.getElementById('accDownloadProxyMode').value;
+    const helpText = document.getElementById('accProxyModeHelp');
+    const proxyToggle = document.getElementById('accProxyEnabled');
+    const proxySelect = document.getElementById('accProxyPoolSelect');
+
+    if (helpText) {
+      helpText.textContent = PROXY_MODE_HELP[mode] || '';
+    }
+
+    if (!proxyToggle || !proxySelect) return;
+
+    if (mode === 'account_only') {
+      // account_only 语义要求用户可直接选择固定代理，不应继续保持禁用态
+      proxyToggle.checked = true;
+      proxySelect.disabled = false;
+      proxySelect.style.opacity = '';
+      proxySelect.style.cursor = '';
+      return;
+    }
+
+    if (mode === 'direct_only' || mode === 'system_only') {
+      // 禁用交互，但保留当前选择，避免用户切换模式时丢失配置
+      proxySelect.disabled = true;
+      proxySelect.style.opacity = '0.4';
+      proxySelect.style.cursor = 'not-allowed';
+      return;
+    }
+
+    // auto 模式恢复为由固定代理开关控制
+    toggleProxySection();
+  }
+
+  function onDynamicProxySettingChange() {
+    // No-op: config modal saves on explicit button click, no need to track dirty state
+  }
+
+  async function previewAccountRouting() {
+    const accIdVal = document.getElementById('accId').value;
+    if (!accIdVal) {
+      toast('请先保存账户，再预览路由', 'info');
+      return;
+    }
+    const accountId = parseInt(accIdVal, 10);
+    const auto = 0;
+    const cookies = (_gConfig && _gConfig.download_cookies_file) ? 1 : 0;
+    const direct = document.getElementById('accDownloadProxyMode').value === 'direct_only' ? 1 : 0;
+    const res = await api('GET', '/routing-preview?account_id=' + accountId + '&auto=' + auto + '&cookies=' + cookies + '&direct=' + direct);
+    if (res.error) {
+      toast(res.error, 'err');
+      return;
+    }
+    const routing = res.routing || {};
+    const sourceLabels = {
+      account_static: '账户固定代理',
+      system_paid: '系统付费动态代理',
+      system_free: '系统免费动态代理',
+      direct: '直连',
+      failed: '路由失败',
+    };
+    const box = document.getElementById('routingPreviewBox');
+    const mainText = sourceLabels[routing.resolved_proxy_source] || routing.resolved_proxy_source || '未知';
+    const mainEl = document.getElementById('routingPreviewMain');
+    mainEl.textContent = mainText;
+    // Color-code: failure = red, direct = yellow, success = green
+    if (routing.resolved_proxy_source === 'failed') {
+      mainEl.style.color = '#f87171';
+    } else if (routing.resolved_proxy_source === 'direct') {
+      mainEl.style.color = '#fbbf24';
+    } else {
+      mainEl.style.color = '#34d399';
+    }
+    const meta = [];
+    if (routing.provider_name) meta.push('<span class="routing-chip">' + esc(routing.provider_name) + '</span>');
+    if (routing.provider_tier) meta.push('<span class="routing-chip">' + esc(routing.provider_tier) + '</span>');
+    if (routing.session_mode) meta.push('<span class="routing-chip">' + esc(routing.session_mode) + '</span>');
+    if (routing.masked_proxy_endpoint) meta.push('<span class="routing-chip">' + esc(routing.masked_proxy_endpoint) + '</span>');
+    if (typeof routing.fallback_depth === 'number') meta.push('<span class="routing-chip">fallback #' + routing.fallback_depth + '</span>');
+    document.getElementById('routingPreviewMeta').innerHTML = meta.join('');
+    document.getElementById('routingPreviewReason').textContent = routing.reason || '—';
+    document.getElementById('routingPreviewWarnings').textContent = routing.warnings && routing.warnings.length ? ('注意：' + routing.warnings.join(' · ')) : '';
+    box.classList.add('show');
+  }
+
+  async function refreshProxyPoolSelectors(selectedId) {
+    const sel = document.getElementById('accProxyPoolSelect');
+    const pools = await api('GET', '/proxy-pools');
+    const opts = ['<option value="">— 选择固定代理 —</option>'];
+    if (pools && pools.length > 0) {
+      pools.forEach(p => {
+        const enabled = p.enabled ? '' : ' [禁用]';
+        opts.push('<option value="' + p.id + '">' + esc(p.name) + enabled + '</option>');
+      });
+    }
+    sel.innerHTML = opts.join('');
+    if (selectedId !== undefined) {
+      sel.value = selectedId;
+    }
+  }
+
   async function saveAccount() {
     // api_key_id: 空字符串/0 → None(清除); 有值 → int
     const apiKeyIdVal = document.getElementById('accApiKeyId').value;
     const api_key_id = apiKeyIdVal ? parseInt(apiKeyIdVal, 10) : null;
+    const proxyPoolIdVal = document.getElementById('accProxyPoolSelect').value;
+    const proxy_pool_id = proxyPoolIdVal ? parseInt(proxyPoolIdVal, 10) : null;
     const body = {
       id: parseInt(document.getElementById('accId').value, 10) || null,
       name: document.getElementById('accName').value.trim(),
@@ -1857,14 +4532,22 @@
       scan_interval: parseInt(document.getElementById('accInterval').value, 10) || 5,
       notify_platform: document.getElementById('accPlatform').value,
       webhook_url: document.getElementById('accWebhook').value.trim() || null,
+      dingtalk_sign_secret: document.getElementById('accDingtalkSecret').value.trim() || null,
       feishu_message_mode: document.getElementById('accFeishuMode').value,
       feishu_template_id: document.getElementById('accFeishuTemplateId').value.trim() || null,
       feishu_scan_template_id: document.getElementById('accFeishuScanTemplateId').value.trim() || null,
       enabled: document.getElementById('accEnabled').checked,
       notify_enabled: document.getElementById('accNotify').checked,
+      proxy_pool_id: proxy_pool_id,
+      proxy_enabled: document.getElementById('accProxyEnabled').checked,
+      download_proxy_mode: document.getElementById('accDownloadProxyMode').value,
     };
     if (!body.name || !body.channel_url) {
       toast('名称和频道 URL 不能为空', 'err');
+      return;
+    }
+    if (body.download_proxy_mode === 'account_only' && (!body.proxy_enabled || !body.proxy_pool_id)) {
+      toast('“仅账户固定代理”模式必须启用并选择一个固定代理节点', 'err');
       return;
     }
     const r = await api('POST', '/accounts', body);
@@ -1907,7 +4590,7 @@
     document.getElementById('vdSubToggle').checked = false;
     _updateVdSubLabelText();
     const accounts = await api('GET', '/accounts');
-    const acc = accounts && accounts.find(a => a.id === accId);
+    const acc = Array.isArray(accounts) ? accounts.find(a => a.id === accId) : null;
     document.getElementById('vdAccountName').textContent = acc ? '— ' + acc.name : '';
     // ESC 键关闭全屏视频详情
     _vdEscHandler = (e) => { if (e.key === 'Escape') closeModal('modalVideoDetail'); };
@@ -1923,11 +4606,27 @@
     const sortDir = document.getElementById('vdSortDir').value;
     const pageSize = parseInt(document.getElementById('vdPageSize').value, 10) || 20;
     const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=' + pageSize);
+    const tbody = document.getElementById('vdTbody');
+    if (!res || res.error || !Array.isArray(res.videos)) {
+      const msg = (res && res.error) ? String(res.error) : '加载失败';
+      if (res && res._httpStatus === 429) {
+        toast('请求过于频繁，请稍后再试或点击「搜索」重试', 'warning');
+      } else {
+        toast(msg, 'err');
+      }
+      document.getElementById('vdTotal').textContent = '共 — 条';
+      document.getElementById('vdPageInfo').textContent = '— / — 页';
+      document.getElementById('vdPrevBtn').disabled = true;
+      document.getElementById('vdNextBtn').disabled = true;
+      tbody.innerHTML =
+        '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px;line-height:1.6">' +
+        esc(msg) + '<br><span style="font-size:12px;opacity:.85">若为限流，等待约 1 分钟后点击「搜索」刷新。</span></td></tr>';
+      return;
+    }
     document.getElementById('vdTotal').textContent = '共 ' + res.total + ' 条';
     document.getElementById('vdPageInfo').textContent = res.page + ' / ' + res.pages + ' 页';
     document.getElementById('vdPrevBtn').disabled = res.page <= 1;
     document.getElementById('vdNextBtn').disabled = res.page >= res.pages;
-    const tbody = document.getElementById('vdTbody');
     if (!res.videos || res.videos.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
       return;
@@ -2018,8 +4717,10 @@
     _updateVdSelCount();
   }
   function _updateVdSelCount() {
-    document.getElementById('vdSelCount').textContent = _vdSel.size;
-    document.getElementById('vdBatchBtn').disabled = _vdSel.size === 0;
+    const n = document.getElementById('vdSelCount');
+    const b = document.getElementById('vdBatchBtn');
+    if (n) n.textContent = _vdSel.size;
+    if (b) b.disabled = _vdSel.size === 0;
   }
   let _vdDlPollTimer = null;
 
@@ -2038,19 +4739,43 @@
     if (_vdSel.size === 0) return;
     const btn = document.getElementById('vdBatchBtn');
     btn.disabled = true;
-    btn.textContent = '提交中...';
+    btn.innerHTML = '<span class="spinner"></span><span>提交中...</span>';
 
     const payload = Object.assign({ video_ids: Array.from(_vdSel) }, _getVdSubPayload());
     const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', payload);
     if (!r.ok) {
       toast('下载失败: ' + (r.error || ''), 'err');
       btn.disabled = false;
-      btn.innerHTML = '⬇ 下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+      btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
       return;
     }
 
     toast(r.queued + ' 个视频已开始下载', 'ok');
+
+    // 显示路由信息
+    const routing = r.routing;
+    if (routing) {
+      const sourceLabels = {
+        'account_static': '账户固定代理',
+        'system_paid': '系统付费动态代理',
+        'system_free': '系统免费动态代理',
+        'direct': '直连',
+        'failed': '路由失败',
+      };
+      const source = sourceLabels[routing.source] || routing.source || '未知';
+      let routingMsg = '本次线路: ' + source;
+      if (routing.provider) routingMsg += ' | ' + routing.provider;
+      if (routing.warnings && routing.warnings.length > 0) {
+        routingMsg += ' | 注意：' + routing.warnings.join(', ');
+      }
+      setTimeout(() => {
+        toast(routingMsg, routing.source === 'direct' || routing.source === 'failed' ? 'warning' : 'info');
+      }, 500);
+    }
+
     _vdShowDlBar(r.task_id, r.queued);
+    btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+    btn.disabled = true;
     await vdLoad();
   }
 
@@ -2063,13 +4788,20 @@
     document.getElementById('vdDlStatus').textContent = '';
 
     if (_vdDlPollTimer) clearInterval(_vdDlPollTimer);
-    _vdDlPollTimer = setInterval(() => _vdPollDlTask(taskId, total), 2000);
+    _vdDlPollTimer = setInterval(() => _vdPollDlTask(taskId, total), 3000);
   }
 
   async function _vdPollDlTask(taskId, total) {
     try {
       const t = await api('GET', '/download-tasks/' + taskId);
-      if (t.error) { _vdDlDone('查询失败: ' + t.error); return; }
+      if (t.error) {
+        // 全局限流时不要结束任务：后台仍在下载，仅跳过本次 UI 更新
+        if (t._httpStatus === 429) {
+          return;
+        }
+        _vdDlDone('查询失败: ' + t.error);
+        return;
+      }
 
       const pct = total > 0 ? Math.round((t.completed / total) * 100) : 0;
       document.getElementById('vdDlLabel').textContent =
@@ -2098,7 +4830,7 @@
     document.getElementById('vdDlFill').style.width = '100%';
     const btn = document.getElementById('vdBatchBtn');
     btn.disabled = false;
-    btn.innerHTML = '⬇ 下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+    btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
     _vdSel.clear();
     _updateVdSelCount();
     vdLoad();
@@ -2161,6 +4893,7 @@
     _gConfig = cfg;  // 缓存，供字幕配置等使用
     document.getElementById('cfgFeishu').value = cfg.global_feishu_url || '';
     document.getElementById('cfgDingtalk').value = cfg.global_dingtalk_url || '';
+    document.getElementById('cfgDingtalkSecret').value = cfg.global_dingtalk_sign_secret || '';
     document.getElementById('cfgWecom').value = cfg.global_wecom_url || '';
     document.getElementById('cfgQuotaBudget').value = cfg.quota_budget_per_day || 8000;
     document.getElementById('cfgCookiesFile').value = cfg.download_cookies_file || '';
@@ -2169,6 +4902,26 @@
     document.getElementById('cfgSubLangs').value = cfg.default_sub_langs || 'zh-Hans,en';
     await refreshApiKeySelectors();
     document.getElementById('cfgDefaultApiKey').value = cfg.default_api_key_id || '';
+
+    // 系统默认动态代理配置
+    document.getElementById('cfg_system_dynamic_proxy_enabled').checked = !!cfg.system_dynamic_proxy_enabled;
+    document.getElementById('cfg_apply_dynamic_proxy_to_new_accounts').checked = cfg.apply_dynamic_proxy_to_new_accounts !== false;
+    document.getElementById('cfg_apply_dynamic_proxy_to_existing_accounts').checked = !!cfg.apply_dynamic_proxy_to_existing_accounts;
+    document.getElementById('cfg_allow_free_proxy').checked = cfg.allow_free_proxy !== false;
+    document.getElementById('cfg_allow_free_proxy_for_auto_download').checked = !!cfg.allow_free_proxy_for_auto_download;
+    document.getElementById('cfg_allow_free_proxy_with_cookies').checked = !!cfg.allow_free_proxy_with_cookies;
+    document.getElementById('cfg_manual_direct_fallback').checked = cfg.manual_direct_fallback !== false;
+    document.getElementById('cfg_auto_direct_fallback').checked = !!cfg.auto_direct_fallback;
+    const protoOrder = cfg.default_proxy_protocol_order;
+    if (Array.isArray(protoOrder)) {
+      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder.join(',');
+    } else {
+      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder || 'http,https,socks5,socks4';
+    }
+    document.getElementById('cfg_default_session_mode').value = cfg.default_session_mode || 'sticky';
+    document.getElementById('cfg_default_sticky_minutes').value = cfg.default_sticky_minutes || 10;
+    document.getElementById('cfg_mask_proxy_in_logs').checked = cfg.mask_proxy_in_logs !== false;
+
     openModal('modalConfig');
   }
 
@@ -2176,6 +4929,7 @@
     const body = {
       global_feishu_url: document.getElementById('cfgFeishu').value.trim(),
       global_dingtalk_url: document.getElementById('cfgDingtalk').value.trim(),
+      global_dingtalk_sign_secret: document.getElementById('cfgDingtalkSecret').value.trim() || '',
       global_wecom_url: document.getElementById('cfgWecom').value.trim(),
       quota_budget_per_day: parseInt(document.getElementById('cfgQuotaBudget').value, 10) || 8000,
       download_cookies_file: document.getElementById('cfgCookiesFile').value.trim(),
@@ -2183,6 +4937,20 @@
       enable_aria2: document.getElementById('cfgEnableAria2').checked,
       default_sub_langs: document.getElementById('cfgSubLangs').value.trim() || 'zh-Hans,en',
       default_api_key_id: document.getElementById('cfgDefaultApiKey').value || null,
+
+      // 系统默认动态代理配置
+      system_dynamic_proxy_enabled: document.getElementById('cfg_system_dynamic_proxy_enabled').checked,
+      apply_dynamic_proxy_to_new_accounts: document.getElementById('cfg_apply_dynamic_proxy_to_new_accounts').checked,
+      apply_dynamic_proxy_to_existing_accounts: document.getElementById('cfg_apply_dynamic_proxy_to_existing_accounts').checked,
+      allow_free_proxy: document.getElementById('cfg_allow_free_proxy').checked,
+      allow_free_proxy_for_auto_download: document.getElementById('cfg_allow_free_proxy_for_auto_download').checked,
+      allow_free_proxy_with_cookies: document.getElementById('cfg_allow_free_proxy_with_cookies').checked,
+      manual_direct_fallback: document.getElementById('cfg_manual_direct_fallback').checked,
+      auto_direct_fallback: document.getElementById('cfg_auto_direct_fallback').checked,
+      default_proxy_protocol_order: document.getElementById('cfg_default_proxy_protocol_order').value.split(',').map(s => s.trim()).filter(Boolean),
+      default_session_mode: document.getElementById('cfg_default_session_mode').value,
+      default_sticky_minutes: parseInt(document.getElementById('cfg_default_sticky_minutes').value) || 10,
+      mask_proxy_in_logs: document.getElementById('cfg_mask_proxy_in_logs').checked,
     };
     const r = await api('POST', '/config', body);
     if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
@@ -2398,6 +5166,151 @@
       cfgSel.innerHTML = cfgOpts.join('');
     }
   }
+  // ── 代理池演示 ──────────────────────────────────────────────
+  function openProxyDemo() {
+    document.getElementById('ppTableView').style.display = 'none';
+    document.getElementById('ppDemoView').classList.add('show');
+    document.getElementById('ppDemoSection').style.display = 'none';
+    // 重设 modal-body 滚动
+    const mb = document.querySelector('#modalProxyPools .modal-body');
+    if (mb) mb.style.overflow = 'hidden';
+    // 隐藏工具栏的"回看演示"按钮，进入演示后不再显示此入口
+    const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+    if (demoBtn) demoBtn.style.display = 'none';
+  }
+
+  function closeProxyDemo() {
+    document.getElementById('ppTableView').style.display = '';
+    document.getElementById('ppDemoView').classList.remove('show');
+    document.getElementById('ppDemoSection').style.display = '';
+    const mb = document.querySelector('#modalProxyPools .modal-body');
+    if (mb) mb.style.overflow = 'auto';
+    // 重新检查空状态，决定是否恢复"回看演示"按钮
+    const empty = document.getElementById('emptyProxyPools');
+    const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+    if (demoBtn) {
+      demoBtn.style.display = (empty && empty.style.display !== 'none') ? 'none' : '';
+    }
+  }
+
+  // ── IP 代理池 ─────────────────────────────────────────────────
+  async function openProxyPools() {
+    closeProxyDemo(); // 确保重置到表格视图
+    openModal('modalProxyPools');
+    await loadProxyPoolTable();
+  }
+
+  async function loadProxyPoolTable() {
+    const pools = await api('GET', '/proxy-pools');
+    const tbody = document.getElementById('proxyPoolTable');
+    const empty = document.getElementById('emptyProxyPools');
+    const wrap = document.getElementById('proxyPoolTableWrap');
+    if (!pools || pools.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      if (wrap) wrap.style.display = 'none';
+      // 空状态时隐藏"回看演示"按钮，避免用户分叉 CTA
+      const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+      if (demoBtn) demoBtn.style.display = 'none';
+      return;
+    }
+    if (wrap) wrap.style.display = 'table';
+    empty.style.display = 'none';
+    const demoBtn2 = document.querySelector('#modalProxyPools .pp-ghost-action');
+    if (demoBtn2) demoBtn2.style.display = '';
+    tbody.innerHTML = pools.map(p => `
+      <tr>
+        <td class="td-mono" style="color:var(--proxy-text)">${p.id}</td>
+        <td class="name-cell">${esc(p.name)}</td>
+        <td class="url-cell" title="${esc(p.proxy_url)}">${esc(p.proxy_url)}</td>
+        <td>
+          <div class="status-cell">
+            <span class="proxy-dot ${p.enabled ? 'on' : 'off'}"></span>
+            ${p.enabled ? '<span style="color:var(--proxy-text)">在线</span>' : '<span style="color:var(--text-dim)">离线</span>'}
+          </div>
+        </td>
+        <td>
+          <div class="actions">
+            <button class="btn-sm" onclick="openEditProxyPool(${p.id})">编辑</button>
+            <button class="btn-sm ${p.enabled ? 'warning' : 'success'}" onclick="toggleProxyPool(${p.id}, ${!p.enabled})">${p.enabled ? '禁用' : '启用'}</button>
+            <button class="btn-sm danger" onclick="deleteProxyPool(${p.id})">删除</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+
+  function openAddProxyPool() {
+    closeProxyDemo();
+    document.getElementById('modalProxyPoolFormTitle').textContent = '添加代理节点';
+    document.getElementById('ppId').value = '';
+    document.getElementById('ppName').value = '';
+    document.getElementById('ppUrl').value = '';
+    document.getElementById('ppEnabled').checked = true;
+    openModal('modalProxyPoolForm');
+  }
+
+  async function openEditProxyPool(id) {
+    const pools = await api('GET', '/proxy-pools');
+    const pool = pools && pools.find(p => p.id === id);
+    if (!pool) return toast('固定代理不存在', 'err');
+    document.getElementById('modalProxyPoolFormTitle').textContent = '编辑代理节点';
+    document.getElementById('ppId').value = pool.id;
+    document.getElementById('ppName').value = pool.name;
+    document.getElementById('ppUrl').value = pool.proxy_url;
+    document.getElementById('ppEnabled').checked = !!pool.enabled;
+    openModal('modalProxyPoolForm');
+  }
+
+  async function saveProxyPool() {
+    const id = document.getElementById('ppId').value;
+    const name = document.getElementById('ppName').value.trim();
+    const url = document.getElementById('ppUrl').value.trim();
+    if (!name || !url) { toast('名称和代理地址不能为空', 'err'); return; }
+    const body = {
+      name,
+      proxy_url: url,
+      enabled: document.getElementById('ppEnabled').checked,
+    };
+    let r;
+    if (id) {
+      r = await api('POST', `/proxy-pools/${id}/update`, body);
+    } else {
+      r = await api('POST', '/proxy-pools', body);
+    }
+    if (r.error) { toast(r.error || '保存失败', 'err'); return; }
+    toast(id ? '固定代理已更新' : '固定代理已添加', 'ok');
+    closeModal('modalProxyPoolForm');
+    await loadProxyPoolTable();
+    await refreshProxyPoolSelectors();
+  }
+
+  async function toggleProxyPool(id, enabled) {
+    const pools = await api('GET', '/proxy-pools');
+    const pool = pools && pools.find(p => p.id === id);
+    if (!pool) return;
+    const r = await api('POST', `/proxy-pools/${id}/update`, { enabled });
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast(enabled ? '固定代理已启用' : '固定代理已禁用', 'ok');
+    await loadProxyPoolTable();
+    await refreshProxyPoolSelectors();
+  }
+
+  async function deleteProxyPool(id) {
+    const pools = await api('GET', '/proxy-pools');
+    const pool = pools && pools.find(p => p.id === id);
+    if (!pool) return toast('固定代理不存在', 'err');
+    if (!confirm(`确定删除固定代理「${pool.name}」？\n\n关联的账户将停止使用此代理。`)) return;
+    const r = await api('DELETE', `/proxy-pools/${id}`);
+    if (r.error) { toast(r.error, 'err'); return; }
+    if (r.affected_accounts && r.affected_accounts.length > 0) {
+      toast(`已删除（${r.affected_accounts.length} 个账户已停止使用此代理）`, 'ok');
+    } else {
+      toast('已删除', 'ok');
+    }
+    await loadProxyPoolTable();
+    await refreshProxyPoolSelectors();
+  }
+
   async function openCache() {
     openModal('modalCache');
     await loadCacheList();
@@ -2490,7 +5403,676 @@
 
   // ── 启动 ───────────────────────────────────────────────────────
   refresh();
-  setInterval(refresh, 10000); // 每 10 秒刷新
+  setInterval(refresh, 18000); // 每 18 秒刷新，降低与弹窗/下载轮询叠加压力
+  // ── 动态代理提供方管理 ───────────────────────────────────────
+  async function openDynamicProviders() {
+    openModal('modalDynamicProviders');
+    await updateProviderSchedulerHint();
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function updateProviderSchedulerHint() {
+    const hint = document.getElementById('dynSchedulerHint');
+    const badge = document.getElementById('dynProviderSchedulerBadge');
+    const nextRun = document.getElementById('dynProviderNextRun');
+    const btn = document.getElementById('btnDynProviderSchedulerToggle');
+    if (!hint || !badge || !nextRun || !btn) return;
+
+    let status = null;
+    try {
+      status = await api('GET', '/provider-scheduler/status');
+    } catch (_) {
+      status = null;
+    }
+
+    const running = !!(status && status.running && !status.error);
+    const nextRuns = (status && Array.isArray(status.next_runs)) ? status.next_runs : [];
+    if (running) {
+      hint.textContent = 'Provider scheduler 运行中：将按下方各任务的下次时间执行列表拉取与候选清理';
+      hint.style.color = '#b0aea5';
+      badge.textContent = '运行中';
+      badge.style.background = 'rgba(34,197,94,0.12)';
+      badge.style.color = '#86efac';
+      badge.style.borderColor = 'rgba(34,197,94,0.18)';
+      if (nextRuns.length) {
+        const maxShow = 12;
+        const lines = nextRuns.slice(0, maxShow).map(j =>
+          '<div style="font-size:10px;color:#a8a29e;margin-top:3px;line-height:1.35">' +
+          esc(j.name || j.id || '') + ' · <span style="color:#d6d3d1">' + esc(j.next_run || '—') + '</span></div>'
+        ).join('');
+        const more = nextRuns.length > maxShow
+          ? '<div style="font-size:10px;color:#6b6a63;margin-top:4px">… 共 ' + nextRuns.length + ' 个已注册任务</div>'
+          : '';
+        nextRun.innerHTML = '<div style="font-size:11px;color:#87867f;margin-bottom:4px">已注册任务与下次执行</div>' + lines + more;
+      } else {
+        nextRun.textContent = '已启动，但未返回任务列表（可尝试重载动态代理任务）';
+      }
+      btn.textContent = '停止动态代理调度';
+    } else {
+      hint.textContent = 'Provider scheduler 未运行：不会按「刷新间隔」自动拉列表';
+      hint.style.color = '#b0aea5';
+      badge.textContent = '未启动';
+      badge.style.background = 'rgba(201,100,66,0.12)';
+      badge.style.color = '#d97757';
+      badge.style.borderColor = 'rgba(201,100,66,0.18)';
+      nextRun.innerHTML =
+        '<div style="font-size:11px;color:#87867f;line-height:1.55">请先点击右侧 <strong style="color:#d6d3d1">启动动态代理调度</strong>。</div>' +
+        '<div style="font-size:10px;color:#6b6a63;line-height:1.55;margin-top:8px">启用 list_api / public_feed 后，在编辑提供方里把 <strong style="color:#a8a29e">刷新间隔（分钟）</strong> 设为大于 0 并保存；启动后若仍无定时拉取，可点 <strong style="color:#a8a29e">重载动态代理任务</strong>。</div>';
+      btn.textContent = '启动动态代理调度';
+    }
+  }
+
+  async function loadProviderSchedulerLogs() {
+    const shell = document.getElementById('dynProviderSchedulerLogs');
+    const filter = document.getElementById('dynProviderLogFilter');
+    if (!shell) return;
+
+    let rows = [];
+    try {
+      rows = await api('GET', '/provider-scheduler/logs');
+    } catch (_) {
+      rows = [];
+    }
+    if (!Array.isArray(rows)) {
+      rows = [];
+    }
+
+    const mode = filter ? filter.value : 'all';
+    const filtered = rows.filter(r => {
+      if (mode === 'refresh') return r.job_type === 'refresh';
+      if (mode === 'cleanup') return r.job_type === 'cleanup';
+      if (mode === 'error') return r.status === 'error';
+      return true;
+    });
+    if (!filtered || filtered.length === 0) {
+      shell.innerHTML = '<div style="font-size:12px;color:#87867f">当前筛选条件下暂无 provider 调度记录</div>';
+      return;
+    }
+    shell.innerHTML = filtered.slice(0, 6).map(r => {
+      const tone = r.status === 'success' ? '#86efac' : r.status === 'error' ? '#fca5a5' : '#f5d0fe';
+      const bg = r.status === 'success' ? 'rgba(34,197,94,0.08)' : r.status === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(168,85,247,0.08)';
+      const title = r.provider_name ? `${r.provider_name} · ${r.job_type}` : `system · ${r.job_type}`;
+      const summary = r.job_type === 'refresh'
+        ? `raw ${r.raw_count || 0} / valid ${r.valid_count || 0}`
+        : (r.message || 'completed');
+      return `<div style="background:${bg};border:1px solid rgba(135,134,127,0.14);border-radius:14px;padding:10px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+          <div style="font-size:12px;color:#f5f4ed">${esc(title)}</div>
+          <div style="font-size:10px;color:${tone}">${esc(r.status || 'unknown')}</div>
+        </div>
+        <div style="font-size:11px;color:#b0aea5;line-height:1.55">${esc(summary)}</div>
+        <div style="font-size:10px;color:#87867f;margin-top:4px">${esc(r.started_at || '')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function loadDynamicProviderTable() {
+    const tbody = document.getElementById('dynProviderTableBody');
+    const empty = document.getElementById('dynEmptyState');
+    const shell = document.querySelector('#modalDynamicProviders .dyn-table-shell');
+
+    function showDynEmptyDefaults() {
+      if (!empty) return;
+      const titleEl = empty.querySelector('.dyn-empty-title');
+      const descEl = empty.querySelector('.dyn-empty-desc');
+      const ctaEl = empty.querySelector('.dyn-empty-cta');
+      if (titleEl) titleEl.textContent = '还没有配置动态代理提供方';
+      if (descEl) {
+        descEl.textContent =
+          '添加一个提供方后，它将参与系统动态代理路由决策。付费提供方优先，免费提供方兜底。';
+      }
+      if (ctaEl) ctaEl.style.display = '';
+    }
+
+    function showDynLoadError(errMsg) {
+      if (!empty) return;
+      const titleEl = empty.querySelector('.dyn-empty-title');
+      const descEl = empty.querySelector('.dyn-empty-desc');
+      const ctaEl = empty.querySelector('.dyn-empty-cta');
+      if (titleEl) titleEl.textContent = '加载失败';
+      if (descEl) descEl.textContent = errMsg;
+      if (ctaEl) ctaEl.style.display = 'none';
+    }
+
+    let providers;
+    try {
+      providers = await api('GET', '/dynamic-providers');
+    } catch (_) {
+      providers = null;
+    }
+
+    if (!Array.isArray(providers)) {
+      const raw =
+        providers && typeof providers === 'object' && providers !== null ? providers.error : undefined;
+      const errMsg =
+        raw != null && String(raw).trim()
+          ? String(raw).trim()
+          : '无法解析提供方列表（请检查网络或 Token）';
+      toast('加载动态代理提供方失败：' + errMsg, 'err');
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      if (shell) shell.style.display = 'none';
+      showDynLoadError(errMsg);
+      return;
+    }
+
+    if (!providers || providers.length === 0) {
+      showDynEmptyDefaults();
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      if (shell) shell.style.display = 'none';
+      return;
+    }
+
+    // 先显示主表格；调度状态/日志属于增强信息，失败时不应阻塞主数据渲染
+    if (shell) shell.style.display = '';
+    empty.style.display = 'none';
+
+    let sched = null;
+    let logs = [];
+    try {
+      [sched, logs] = await Promise.all([
+        api('GET', '/provider-scheduler/status'),
+        api('GET', '/provider-scheduler/logs'),
+      ]);
+    } catch (_) {
+      sched = null;
+      logs = [];
+    }
+    if (!Array.isArray(logs)) {
+      logs = [];
+    }
+    const nextRunsList = sched && Array.isArray(sched.next_runs) ? sched.next_runs : [];
+
+    const nextRunMap = {};
+    nextRunsList.forEach(j => {
+      const m = /^provider_refresh_(\d+)$/.exec(j.id || '');
+      if (m) nextRunMap[m[1]] = j.next_run;
+    });
+    const lastRefreshMap = {};
+    logs.forEach(r => {
+      if (r.job_type !== 'refresh' || !r.provider_id) return;
+      if (!lastRefreshMap[r.provider_id]) lastRefreshMap[r.provider_id] = r;
+    });
+
+    tbody.innerHTML = providers.map(p => {
+      const health = p.last_health_status || '';
+      const healthClass = health === 'healthy' ? 'dyn-status-healthy' : health === 'degraded' ? 'dyn-status-degraded' : health === 'down' ? 'dyn-status-down' : 'dyn-status-unknown';
+      const healthDotClass = health === 'healthy' ? 'on' : p.is_in_cooldown ? 'cooldown' : health === 'degraded' ? 'cooldown' : health === 'down' ? 'off' : 'off';
+      const healthLabel = health === 'healthy' ? '健康' : health === 'degraded' ? '降级' : health === 'down' ? '不可用' : '未知';
+      const tierChip = p.billing_tier === 'paid'
+        ? '<span class="dyn-chip dyn-chip-paid">付费</span>'
+        : '<span class="dyn-chip dyn-chip-free">免费</span>';
+      const caps = [];
+      if (p.supports_auto_download) caps.push('<span class="dyn-chip" style="background:rgba(34,197,94,0.08);border-color:rgba(34,197,94,0.2);color:#22c55e">自动下载</span>');
+      if (p.supports_cookies) caps.push('<span class="dyn-chip" style="background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.2);color:#3b82f6">Cookie</span>');
+      if (p.supports_sticky_session) caps.push('<span class="dyn-chip" style="background:rgba(168,85,247,0.08);border-color:rgba(168,85,247,0.2);color:#a855f7">粘性</span>');
+      const cooldownBadge = p.is_in_cooldown ? '<span class="dyn-badge">冷却中</span>' : '';
+      const nextRun = nextRunMap[String(p.id)] || null;
+      const lastRefresh = lastRefreshMap[p.id] || null;
+      const schedulerMeta = (nextRun || lastRefresh)
+        ? '<div style="margin-top:5px;font-size:10px;color:#87867f;line-height:1.5">' +
+            (nextRun ? ('下次: ' + esc(nextRun)) : '下次: —') +
+            (lastRefresh ? ('<br>上次刷新: ' + esc(lastRefresh.started_at || '') + ' · raw ' + (lastRefresh.raw_count || 0) + ' / valid ' + (lastRefresh.valid_count || 0)) : '') +
+          '</div>'
+        : '';
+      return '<tr>' +
+        '<td class="mono-cell" style="color:var(--dyn-text)">' + p.id + '</td>' +
+        '<td class="name-cell">' + esc(p.name) + schedulerMeta + '</td>' +
+        '<td>' + tierChip + '</td>' +
+        '<td class="mono-cell">' + esc(p.adapter_type) + '</td>' +
+        '<td>' +
+          '<div style="display:flex;align-items:center;gap:5px">' +
+            '<span class="dyn-dot ' + healthDotClass + '"></span>' +
+            '<span class="dyn-status-text ' + healthClass + '">' + healthLabel + cooldownBadge + '</span>' +
+          '</div>' +
+          (p.last_error_message ? '<div style="font-size:10px;color:#ef4444;margin-top:2px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.last_error_message) + '">' + esc(p.last_error_message) + '</div>' : '') +
+        '</td>' +
+        '<td class="mono-cell">' + p.priority + '</td>' +
+        '<td><div class="chip-cell">' + caps.join('') + '</div></td>' +
+        '<td>' +
+          '<div class="dyn-actions">' +
+            '<button class="btn-sm" onclick="openEditDynamicProvider(' + p.id + ')">编辑</button>' +
+            '<button class="btn-sm ' + (p.enabled ? 'warning' : 'success') + '" onclick="toggleDynamicProvider(' + p.id + ', ' + (!p.enabled) + ')">' + (p.enabled ? '禁用' : '启用') + '</button>' +
+            '<button class="btn-sm" onclick="healthCheckDynamicProvider(' + p.id + ')">检查</button>' +
+            '<button class="btn-sm" onclick="refreshDynamicProvider(' + p.id + ')">刷新</button>' +
+            '<button class="btn-sm" onclick="previewCandidatesDynamicProvider(' + p.id + ')">预览</button>' +
+            '<button class="btn-sm" onclick="openDynamicProviderDetail(' + p.id + ')">详情</button>' +
+            (p.is_in_cooldown ? '<button class="btn-sm success" onclick="clearCooldownDynamicProvider(' + p.id + ')">解除冷却</button>' : '') +
+            '<button class="btn-sm danger" onclick="deleteDynamicProvider(' + p.id + ')">删除</button>' +
+          '</div>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function onDynAdapterTypeChange() {
+    const type = document.getElementById('dynAdapterType').value;
+    document.getElementById('dynGatewayConfig').style.display = type === 'rotating_gateway' ? '' : 'none';
+    document.getElementById('dynLocalConfig').style.display = type === 'local_gateway' ? '' : 'none';
+    document.getElementById('dynListApiConfig').style.display =
+      (type === 'list_api' || type === 'public_feed') ? '' : 'none';
+  }
+
+  function onDynListApiAuthToggle() {
+    const show = document.getElementById('dynListApiHasAuth').checked;
+    document.getElementById('dynListApiAuthFields').style.display = show ? '' : 'none';
+  }
+
+  function onDynListApiAdvToggle() {
+    const adv = document.getElementById('dynListApiAdvFields');
+    const cur = adv.style.display;
+    adv.style.display = cur === 'none' ? '' : 'none';
+    const trigger = document.querySelector('#dynListApiAdvSection .dyn-adv-trigger');
+    if (trigger) trigger.textContent = cur === 'none' ? '高级字段映射 ▴' : '高级字段映射 ▾';
+  }
+
+  function onDynBillingTierChange() {
+    if (document.getElementById('dynBillingTier').value === 'free') {
+      document.getElementById('dynRiskLevel').value = 'medium';
+    }
+  }
+
+  function openAddDynamicProvider() {
+    document.getElementById('dynFormTitle').textContent = '添加动态代理提供方';
+    document.getElementById('dynId').value = '';
+    document.getElementById('dynName').value = '';
+    document.getElementById('dynBillingTier').value = 'paid';
+    document.getElementById('dynAdapterType').value = 'rotating_gateway';
+    document.getElementById('dynPriority').value = '100';
+    document.getElementById('dynRiskLevel').value = 'medium';
+    document.getElementById('dynGatewayHost').value = '';
+    document.getElementById('dynGatewayPort').value = '';
+    document.getElementById('dynProtocol').value = 'http';
+    document.getElementById('dynUsername').value = '';
+    document.getElementById('dynPassword').value = '';
+    document.getElementById('dynLocalProxyUrl').value = '';
+    document.getElementById('dynSupportsAutoDownload').checked = true;
+    document.getElementById('dynSupportsCookies').checked = false;
+    document.getElementById('dynSupportsCountryFilter').checked = false;
+    document.getElementById('dynSupportsStickySession').checked = true;
+    document.getElementById('dynEnabled').checked = true;
+    document.getElementById('dynNotes').value = '';
+    document.getElementById('dynListApiAdapterName').value = 'geonode';
+    onDynAdapterTypeChange();
+    openModal('modalDynamicProviderForm');
+  }
+
+  async function openEditDynamicProvider(id) {
+    const providers = await api('GET', '/dynamic-providers');
+    const p = providers && providers.find(x => x.id === id);
+    if (!p) return toast('提供方不存在', 'err');
+    document.getElementById('dynFormTitle').textContent = '编辑动态代理提供方';
+    document.getElementById('dynId').value = p.id;
+    document.getElementById('dynName').value = p.name || '';
+    document.getElementById('dynBillingTier').value = p.billing_tier || 'free';
+    document.getElementById('dynAdapterType').value = p.adapter_type || 'rotating_gateway';
+    document.getElementById('dynPriority').value = p.priority || 100;
+    document.getElementById('dynRiskLevel').value = p.risk_level || 'medium';
+    document.getElementById('dynSupportsAutoDownload').checked = !!p.supports_auto_download;
+    document.getElementById('dynSupportsCookies').checked = !!p.supports_cookies;
+    document.getElementById('dynSupportsCountryFilter').checked = !!p.supports_country_filter;
+    document.getElementById('dynSupportsStickySession').checked = !!p.supports_sticky_session;
+    document.getElementById('dynEnabled').checked = !!p.enabled;
+    document.getElementById('dynNotes').value = p.notes || '';
+    document.getElementById('dynRefreshInterval').value = p.refresh_interval_minutes || 0;
+    const cfg = p.config_json || {};
+    document.getElementById('dynListApiAdapterName').value = (cfg.adapter_name || '').trim();
+    document.getElementById('dynListApiBaseUrl').value = cfg.base_url || '';
+    document.getElementById('dynListApiLimit').value = cfg.limit || 50;
+    document.getElementById('dynListApiItemsPath').value = cfg.items_path || '';
+    document.getElementById('dynListApiCountry').value = cfg.country || '';
+    document.getElementById('dynListApiProtocol').value = cfg.protocol || '';
+    const hasAuth = !!(cfg.username);
+    document.getElementById('dynListApiHasAuth').checked = hasAuth;
+    document.getElementById('dynListApiAuthFields').style.display = hasAuth ? '' : 'none';
+    document.getElementById('dynListApiUsername').value = cfg.username || '';
+    const fm = cfg.field_mapping || {};
+    document.getElementById('dynListApiHostField').value = (fm.host && fm.host[0]) || 'ip';
+    document.getElementById('dynListApiPortField').value = (fm.port && fm.port[0]) || 'port';
+    document.getElementById('dynListApiProtocolField').value = (fm.protocol && fm.protocol.length)
+      ? fm.protocol.join(',')
+      : 'protocols';
+    document.getElementById('dynGatewayHost').value = cfg.gateway_host || '';
+    document.getElementById('dynGatewayPort').value = cfg.gateway_port || '';
+    document.getElementById('dynProtocol').value = cfg.protocol || 'http';
+    document.getElementById('dynUsername').value = cfg.username || '';
+    document.getElementById('dynPassword').value = cfg.password ? '***' : '';
+    document.getElementById('dynLocalProxyUrl').value = cfg.local_proxy_url || '';
+    onDynAdapterTypeChange();
+    openModal('modalDynamicProviderForm');
+  }
+
+  function _buildDynConfigJson() {
+    const adapter = document.getElementById('dynAdapterType').value;
+    const cfg = {};
+    if (adapter === 'rotating_gateway') {
+      const host = document.getElementById('dynGatewayHost').value.trim();
+      const port = document.getElementById('dynGatewayPort').value.trim();
+      if (!host || !port) { toast('网关地址和端口不能为空', 'err'); return null; }
+      cfg.gateway_host = host;
+      cfg.gateway_port = parseInt(port, 10);
+      cfg.protocol = document.getElementById('dynProtocol').value;
+      const uname = document.getElementById('dynUsername').value.trim();
+      const pwd = document.getElementById('dynPassword').value;
+      if (uname) cfg.username = uname;
+      if (pwd) cfg.password = pwd;
+    } else if (adapter === 'local_gateway') {
+      const url = document.getElementById('dynLocalProxyUrl').value.trim();
+      if (!url) { toast('本地代理地址不能为空', 'err'); return null; }
+      cfg.local_proxy_url = url;
+    } else if (adapter === 'list_api' || adapter === 'public_feed') {
+      const baseUrl = document.getElementById('dynListApiBaseUrl').value.trim();
+      if (!baseUrl) { toast('API 地址不能为空', 'err'); return null; }
+      cfg.base_url = baseUrl;
+      const listAdapter = document.getElementById('dynListApiAdapterName').value.trim();
+      if (listAdapter) cfg.adapter_name = listAdapter;
+      const limit = parseInt(document.getElementById('dynListApiLimit').value, 10) || 50;
+      if (limit > 0) cfg.limit = limit;
+      const itemsPath = document.getElementById('dynListApiItemsPath').value.trim();
+      if (itemsPath) cfg.items_path = itemsPath;
+      const country = document.getElementById('dynListApiCountry').value.trim();
+      if (country) cfg.country = country;
+      const proto = document.getElementById('dynListApiProtocol').value;
+      if (proto) cfg.protocol = proto;
+      if (document.getElementById('dynListApiHasAuth').checked) {
+        const u = document.getElementById('dynListApiUsername').value.trim();
+        const p = document.getElementById('dynListApiPassword').value;
+        if (u) cfg.username = u;
+        if (p) cfg.password = p;
+      }
+      cfg.field_mapping = {};
+      const hf = document.getElementById('dynListApiHostField').value.trim();
+      const pf = document.getElementById('dynListApiPortField').value.trim();
+      const rf = document.getElementById('dynListApiProtocolField').value.trim();
+      if (hf) cfg.field_mapping.host = [hf];
+      if (pf) cfg.field_mapping.port = [pf];
+      if (rf) {
+        cfg.field_mapping.protocol = rf.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    return cfg;
+  }
+
+  async function saveDynamicProvider() {
+    const id = document.getElementById('dynId').value;
+    const name = document.getElementById('dynName').value.trim();
+    if (!name) { toast('提供方名称不能为空', 'err'); return; }
+    const cfg = _buildDynConfigJson();
+    if (cfg === null) return;
+    const body = {
+      name,
+      billing_tier: document.getElementById('dynBillingTier').value,
+      adapter_type: document.getElementById('dynAdapterType').value,
+      priority: parseInt(document.getElementById('dynPriority').value, 10) || 100,
+      risk_level: document.getElementById('dynRiskLevel').value,
+      config_json: cfg,
+      supports_auto_download: document.getElementById('dynSupportsAutoDownload').checked,
+      supports_cookies: document.getElementById('dynSupportsCookies').checked,
+      supports_country_filter: document.getElementById('dynSupportsCountryFilter').checked,
+      supports_sticky_session: document.getElementById('dynSupportsStickySession').checked,
+      enabled: document.getElementById('dynEnabled').checked,
+      notes: document.getElementById('dynNotes').value.trim() || null,
+      refresh_interval_minutes: parseInt(document.getElementById('dynRefreshInterval').value, 10) || 0,
+    };
+    let r;
+    if (id) {
+      r = await api('POST', '/dynamic-providers/' + id + '/update', body);
+    } else {
+      r = await api('POST', '/dynamic-providers', body);
+    }
+    if (r.error) { toast(r.error || '保存失败', 'err'); return; }
+    toast(id ? '提供方已更新' : '提供方已添加', 'ok');
+    closeModal('modalDynamicProviderForm');
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function toggleDynamicProvider(id, enabled) {
+    const r = await api('POST', '/dynamic-providers/' + id + '/update', { enabled });
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast(enabled ? '提供方已启用' : '提供方已禁用', 'ok');
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function deleteDynamicProvider(id) {
+    const providers = await api('GET', '/dynamic-providers');
+    if (!Array.isArray(providers)) {
+      toast((providers && providers.error) ? String(providers.error) : '无法加载提供方列表', 'err');
+      return;
+    }
+    const p = providers.find(x => x.id === id);
+    if (!p) return toast('提供方不存在', 'err');
+    const ok = await showAppConfirm({
+      title: '确定删除提供方「' + p.name + '」？',
+      message: '删除后它将不再参与路由决策。',
+      confirmText: '删除',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    const r = await api('DELETE', '/dynamic-providers/' + id);
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast('已删除', 'ok');
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function healthCheckDynamicProvider(id) {
+    const r = await api('POST', '/dynamic-providers/' + id + '/health-check', {});
+    if (r.error) { toast(r.error, 'err'); }
+    else {
+      const latency = r.latency_ms >= 0 ? r.latency_ms + 'ms' : '-';
+      const err = r.error_message ? ' | ' + r.error_message : '';
+      toast('健康检查: ' + (r.status || 'healthy') + ' (' + latency + ')' + err, r.status === 'healthy' ? 'ok' : 'warn');
+    }
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function clearCooldownDynamicProvider(id) {
+    const r = await api('POST', '/dynamic-providers/' + id + '/cooldown/clear', {});
+    if (r.error) { toast(r.error, 'err'); return; }
+    toast('冷却已解除', 'ok');
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+  }
+
+  async function refreshDynamicProvider(id) {
+    const r = await api('POST', '/dynamic-providers/' + id + '/refresh', {});
+    if (r.error) { toast('刷新失败: ' + r.error, 'err'); return; }
+    const raw = r.raw_count || 0;
+    const valid = r.valid_count || 0;
+    const top = r.top_candidate;
+    const msg = top
+      ? '刷新完成，拉取' + raw + '个候选，入池' + valid + '个，健康=' + (top.last_probe_status || '-')
+      : '刷新完成，拉取' + raw + '个候选，入池' + valid + '个';
+    toast(msg, 'ok');
+    await Promise.all([loadDynamicProviderTable(), loadProviderSchedulerLogs()]);
+    await openDynamicProviderDetail(id);
+  }
+
+  async function previewCandidatesDynamicProvider(id) {
+    const r = await api('GET', '/dynamic-providers/' + id + '/candidates/preview');
+    if (!r || r.error || r._fetchFailed) { toast('预览失败: ' + (r.error || '未知'), 'err'); return; }
+    const total = r.total_count || 0;
+    const sc = r.status_counts || {};
+    const healthy = sc.healthy || 0;
+    const down = sc.down || 0;
+    const degraded = sc.degraded || 0;
+    const top = r.top_candidate;
+    const topInfo = top
+      ? ' | 当前最优: ' + (top.masked_proxy_endpoint || '-') + ' (' + (top.last_probe_status || '-') + ')'
+      : '';
+    toast('候选总计' + total + '个，健康=' + healthy + '|降级=' + degraded + '|不可用=' + down + topInfo, 'ok');
+  }
+
+  async function openDynamicProviderDetail(id) {
+    const drawer = document.getElementById('dynProviderDetailDrawer');
+    const body = document.getElementById('dynProviderDetailBody');
+    const errBox = document.getElementById('dynProviderDetailError');
+    const previewBox = document.getElementById('dynProviderDetailPreviewSummary');
+    const failureBox = document.getElementById('dynProviderDetailFailures');
+    if (!drawer || !body || !errBox || !previewBox || !failureBox) return;
+    // 与其它 modal-overlay 一致：必须加 .show，否则 opacity:0 且不可见
+    drawer.style.display = '';
+    drawer.classList.add('show');
+    errBox.style.display = 'none';
+    errBox.textContent = '';
+    previewBox.style.display = 'none';
+    previewBox.textContent = '';
+    failureBox.style.display = 'none';
+    failureBox.textContent = '';
+    body.innerHTML = '<div style="font-size:12px;color:#b0aea5">加载中...</div>';
+
+    const [providers, logs, preview] = await Promise.all([
+      api('GET', '/dynamic-providers'),
+      api('GET', '/provider-scheduler/logs'),
+      api('GET', '/dynamic-providers/' + id + '/candidates/preview'),
+    ]);
+    const netErr = [providers, logs, preview].find(x => x && x._fetchFailed);
+    if (netErr) {
+      body.innerHTML = '<div style="font-size:12px;color:#fca5a5;line-height:1.6">' + esc(netErr.error || '请求失败') + '</div>';
+      return;
+    }
+    const providerList = Array.isArray(providers) ? providers : [];
+    const logList = Array.isArray(logs) ? logs : [];
+    const p = providerList.find(x => String(x.id) === String(id));
+    if (!p) {
+      body.innerHTML = '<div style="font-size:12px;color:#fca5a5">提供方不存在</div>';
+      return;
+    }
+    const rows = logList.filter(r => String(r.provider_id) === String(id)).slice(0, 8);
+    const latest = rows.length ? rows[0] : null;
+    const failureRows = rows.filter(r => r.status === 'error' || (r.message && r.message !== 'ok')).slice(0, 5);
+    const latestError = failureRows.length ? failureRows[0] : null;
+    if (p.last_error_message || latestError) {
+      errBox.style.display = '';
+      errBox.innerHTML = '<strong style="display:block;margin-bottom:4px;color:#fda4af">最近错误</strong>' +
+        esc((latestError && latestError.message) || p.last_error_message || '未知错误');
+    }
+    if (failureRows.length) {
+      failureBox.style.display = '';
+      failureBox.dataset.expanded = 'false';
+      const toggle = document.getElementById('dynProviderDetailFailuresToggle');
+      if (toggle) toggle.textContent = failureRows.length > 2 ? '展开' : '收起';
+      const list = document.getElementById('dynProviderDetailFailuresList');
+      if (list) {
+        list.innerHTML = failureRows.slice(0, 2).map(r => '<div style="padding-top:6px;border-top:1px solid rgba(250,204,21,0.10)"><span style="color:#f5f4ed">' + esc(r.job_type || '-') + '</span> · ' + esc(r.started_at || '') + '<br>' + esc(r.message || r.status || 'error') + '</div>').join('');
+        list.dataset.full = JSON.stringify(failureRows.map(r => ({job_type: r.job_type || '-', started_at: r.started_at || '', message: r.message || r.status || 'error'})));
+      }
+    }
+    if (preview && !preview.error) {
+      const sc = preview.status_counts || {};
+      previewBox.style.display = '';
+      previewBox.innerHTML = '<strong style="display:block;margin-bottom:4px;color:#f5f4ed">候选预览摘要</strong>' +
+        '总数 ' + esc(preview.total_count || 0) +
+        ' · healthy ' + esc(sc.healthy || 0) +
+        ' · degraded ' + esc(sc.degraded || 0) +
+        ' · down ' + esc(sc.down || 0);
+    }
+    const actionBar = document.getElementById('dynProviderDetailActions');
+    if (actionBar) {
+      actionBar.innerHTML = `
+        <button class="btn-sm" onclick="refreshDynamicProviderDetail(${id})">刷新当前提供方</button>
+        <button class="btn-sm" onclick="previewCandidatesDynamicProvider(${id})">候选预览</button>
+        <button class="btn-sm" onclick="healthCheckDynamicProviderDetail(${id})">健康检查</button>
+        ${p.is_in_cooldown ? `<button class="btn-sm success" onclick="clearCooldownDynamicProviderDetail(${id})">解除冷却</button>` : ''}
+      `;
+    }
+    body.innerHTML = `
+      <div style="display:grid;gap:14px">
+        <div style="padding:14px 16px;border:1px solid rgba(232,230,220,0.10);border-radius:18px;background:rgba(18,21,35,0.58)">
+          <div style="font-family:Georgia,serif;font-size:22px;line-height:1.2;color:#f5f4ed;margin-bottom:6px">${esc(p.name || '-')}</div>
+          <div style="font-size:12px;color:#b0aea5;line-height:1.65">适配器 ${esc(p.adapter_type || '-')} · 优先级 ${esc(p.priority || '-')} · 刷新间隔 ${esc(p.refresh_interval_minutes || 0)} 分钟</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+          <div style="padding:12px 14px;border-radius:16px;background:rgba(18,21,35,0.58);border:1px solid rgba(232,230,220,0.10)">
+            <div style="font-size:11px;color:#87867f;text-transform:uppercase;letter-spacing:.06em">最新 raw</div>
+            <div style="font-family:Georgia,serif;font-size:24px;color:#f5f4ed;margin-top:4px">${latest ? esc(latest.raw_count || 0) : '—'}</div>
+          </div>
+          <div style="padding:12px 14px;border-radius:16px;background:rgba(18,21,35,0.58);border:1px solid rgba(232,230,220,0.10)">
+            <div style="font-size:11px;color:#87867f;text-transform:uppercase;letter-spacing:.06em">最新 valid</div>
+            <div style="font-family:Georgia,serif;font-size:24px;color:#f5f4ed;margin-top:4px">${latest ? esc(latest.valid_count || 0) : '—'}</div>
+          </div>
+          <div style="padding:12px 14px;border-radius:16px;background:rgba(18,21,35,0.58);border:1px solid rgba(232,230,220,0.10)">
+            <div style="font-size:11px;color:#87867f;text-transform:uppercase;letter-spacing:.06em">最新状态</div>
+            <div style="font-family:Georgia,serif;font-size:24px;color:#f5f4ed;margin-top:4px">${latest ? esc(latest.status || '-') : '—'}</div>
+          </div>
+        </div>
+        <div style="padding:14px 16px;border:1px solid rgba(232,230,220,0.10);border-radius:18px;background:rgba(18,21,35,0.58)">
+          <div style="font-family:Georgia,serif;font-size:18px;line-height:1.2;color:#f5f4ed;margin-bottom:10px">最近执行历史</div>
+          <div style="display:grid;gap:8px">
+            ${rows.length ? rows.map(r => `
+              <div style="border:1px solid rgba(232,230,220,0.08);border-radius:14px;padding:10px 12px;background:${r.status === 'success' ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)'}">
+                <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:4px">
+                  <div style="font-size:12px;color:#f5f4ed">${esc(r.job_type || '-')}</div>
+                  <div style="font-size:10px;color:${r.status === 'success' ? '#86efac' : '#fca5a5'}">${esc(r.status || '-')}</div>
+                </div>
+                <div style="font-size:11px;color:#b0aea5;line-height:1.55">raw ${esc(r.raw_count || 0)} / valid ${esc(r.valid_count || 0)} · ${esc(r.started_at || '')}</div>
+              </div>
+            `).join('') : '<div style="font-size:12px;color:#87867f">暂无该提供方的调度历史</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function refreshDynamicProviderDetail(id) {
+    try {
+      await refreshDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('刷新异常: ' + ((e && e.message) || e), 'err');
+    }
+  }
+
+  async function healthCheckDynamicProviderDetail(id) {
+    try {
+      await healthCheckDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('健康检查异常: ' + ((e && e.message) || e), 'err');
+    }
+  }
+
+  async function clearCooldownDynamicProviderDetail(id) {
+    try {
+      await clearCooldownDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('操作异常: ' + ((e && e.message) || e), 'err');
+    }
+  }
+
+  function toggleProviderFailureList() {
+    const box = document.getElementById('dynProviderDetailFailures');
+    const list = document.getElementById('dynProviderDetailFailuresList');
+    const toggle = document.getElementById('dynProviderDetailFailuresToggle');
+    if (!box || !list || !toggle) return;
+    const full = JSON.parse(list.dataset.full || '[]');
+    const expanded = box.dataset.expanded === 'true';
+    const rows = expanded ? full.slice(0, 2) : full;
+    list.innerHTML = rows.map(r => '<div style="padding-top:6px;border-top:1px solid rgba(250,204,21,0.10)"><span style="color:#f5f4ed">' + esc(r.job_type || '-') + '</span> · ' + esc(r.started_at || '') + '<br>' + esc(r.message || 'error') + '</div>').join('');
+    box.dataset.expanded = expanded ? 'false' : 'true';
+    toggle.textContent = expanded ? '展开' : '收起';
+  }
+
+  function closeDynamicProviderDetail() {
+    const drawer = document.getElementById('dynProviderDetailDrawer');
+    if (drawer) {
+      drawer.classList.remove('show');
+      drawer.style.display = 'none';
+    }
+  }
+
+  async function healthCheckAllProviders() {
+    const providers = await api('GET', '/dynamic-providers');
+    if (!providers || providers.length === 0) { toast('没有提供方', 'info'); return; }
+    toast('开始全量健康检查 (' + providers.length + ' 个)…', 'info');
+    for (let i = 0; i < providers.length; i++) {
+      await api('POST', '/dynamic-providers/' + providers[i].id + '/health-check', {});
+      if (i % 3 === 2 || i === providers.length - 1) {
+        await loadDynamicProviderTable();
+      }
+    }
+    toast('全量健康检查完成 (' + providers.length + ' 个)', 'ok');
+  }
+
 </script>
 </body>
 </html>

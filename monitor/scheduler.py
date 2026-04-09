@@ -5,6 +5,7 @@ monitor.scheduler — APScheduler 后台调度器
 import os
 import sys
 import threading
+import json
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -29,6 +30,7 @@ _log = logging_config.get_logger("monitor.scheduler")
 # 平台级全局 Webhook URL
 _GLOBAL_WEBHOOKS: dict[str, str | None] = {}
 _GLOBAL_WEBHOOKS_LOADED = False
+_GLOBAL_DINGTALK_SIGN_SECRET: str | None = None
 
 # 模块级配置缓存（避免每次扫描重复读取 config.json）
 _config_cache: dict | None = None
@@ -50,7 +52,7 @@ def _invalidate_config_cache() -> None:
 
 def _ensure_global_webhooks() -> None:
     """确保全局 Webhook 已加载（模块加载时 + 每次扫描前）"""
-    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED
+    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED, _GLOBAL_DINGTALK_SIGN_SECRET
     if _GLOBAL_WEBHOOKS_LOADED:
         return
     try:
@@ -58,6 +60,7 @@ def _ensure_global_webhooks() -> None:
         _GLOBAL_WEBHOOKS["feishu"] = cfg.get("global_feishu_url") or None
         _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url") or None
         _GLOBAL_WEBHOOKS["wecom"] = cfg.get("global_wecom_url") or None
+        _GLOBAL_DINGTALK_SIGN_SECRET = cfg.get("global_dingtalk_sign_secret") or None
     except Exception:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True
@@ -96,7 +99,15 @@ def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> 
     if not webhook_url:
         _log.warning(f"quota 报警无 Webhook URL，跳过: {account['name']}")
         return
-    _quota.send_alert(api_key, usage, budget, webhook_url)
+    use_global_dingtalk_secret = platform == "dingtalk" and not account.get("webhook_url")
+    _quota.send_alert(
+        api_key,
+        usage,
+        budget,
+        webhook_url,
+        platform=platform,
+        dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+    )
 
 
 def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
@@ -170,9 +181,167 @@ def set_global_dingtalk_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["dingtalk"] = url
     _log.info(f"全局钉钉 Webhook 已更新: {'已设置' if url else '未设置'}")
 
+
+def set_global_dingtalk_sign_secret(secret: str | None) -> None:
+    global _GLOBAL_DINGTALK_SIGN_SECRET
+    _GLOBAL_DINGTALK_SIGN_SECRET = secret
+    _log.info(f"全局钉钉加签密钥已更新: {'已设置' if secret else '未设置'}")
+
 def set_global_wecom_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["wecom"] = url
     _log.info(f"全局企微 Webhook 已更新: {'已设置' if url else '未设置'}")
+
+
+# provider refresh singleflight state
+_refresh_locks: dict[int, threading.Lock] = {}
+_refresh_locks_guard = threading.Lock()
+_refresh_results: dict[int, dict] = {}
+
+
+def _get_refresh_lock(provider_id: int) -> threading.Lock:
+    with _refresh_locks_guard:
+        lock = _refresh_locks.get(provider_id)
+        if lock is None:
+            lock = threading.Lock()
+            _refresh_locks[provider_id] = lock
+        return lock
+
+
+def refresh_dynamic_provider(provider_id: int) -> dict:
+    """Task 9: refresh one dynamic provider and persist normalized candidates."""
+    lock = _get_refresh_lock(provider_id)
+    if not lock.acquire(blocking=False):
+        with lock:
+            return dict(_refresh_results.get(provider_id, {
+                "ok": False,
+                "provider_id": provider_id,
+                "raw_count": 0,
+                "valid_count": 0,
+                "error": "refresh_in_progress",
+            }))
+
+    try:
+        provider = _db.get_dynamic_proxy_provider(provider_id)
+        if not provider:
+            result = {
+                "ok": False,
+                "provider_id": provider_id,
+                "raw_count": 0,
+                "valid_count": 0,
+                "error": "provider_not_found",
+            }
+            _refresh_results[provider_id] = result
+            return dict(result)
+
+        from monitor.candidate_probe_transport import UrllibCandidateTransport
+        from monitor.provider_templates import fetch_provider_candidates
+        from monitor.proxy_validator import CandidateProbeValidator
+
+        candidates = fetch_provider_candidates(provider, {})
+        validator = CandidateProbeValidator(transport=UrllibCandidateTransport())
+        status_counts: dict[str, int] = {}
+        latency_values: list[int] = []
+        score_values: list[float] = []
+        top_candidate: dict | None = None
+        top_healthy_key: tuple[int, int] | None = None
+        for candidate in candidates:
+            probe_result = None
+            try:
+                import asyncio
+                probe_result = asyncio.run(validator.probe_lightweight(candidate, timeout=8))
+            except Exception:
+                probe_result = None
+            probe_status = probe_result.status if probe_result is not None else getattr(candidate, "last_probe_status", "unknown")
+            probe_latency = probe_result.latency_ms if probe_result is not None else getattr(candidate, "latency_ms", None)
+            score = getattr(candidate, "score", 0.0)
+            score_value = float(score) if isinstance(score, (int, float)) else 0.0
+
+            status_counts[probe_status] = status_counts.get(probe_status, 0) + 1
+            if isinstance(probe_latency, int):
+                latency_values.append(probe_latency)
+            score_values.append(score_value)
+            if probe_status == "healthy":
+                if isinstance(probe_latency, int) and probe_latency >= 0:
+                    hkey = (0, probe_latency, -score_value)
+                else:
+                    hkey = (1, 0, -score_value)
+                # 与 db.pick_healthy_fastest_top_candidate 一致：latency_ms 升序取最小，并列 score 高者优先
+                if top_healthy_key is None or hkey < top_healthy_key:
+                    top_healthy_key = hkey
+                    top_candidate = {
+                        "masked_proxy_endpoint": getattr(candidate, "masked_proxy_endpoint", None),
+                        "last_probe_status": probe_status,
+                        "latency_ms": probe_latency,
+                        "score": score_value,
+                    }
+
+            _db.add_proxy_candidate(
+                provider_id=provider_id,
+                protocol=candidate.protocol,
+                host=candidate.host,
+                port=candidate.port,
+                username=getattr(candidate, "username", None),
+                auth_type=getattr(candidate, "auth_type", "none"),
+                country_code=getattr(candidate, "country_code", None),
+                region=getattr(candidate, "region", None),
+                city=getattr(candidate, "city", None),
+                anonymity=getattr(candidate, "anonymity", None),
+                risk_level=getattr(candidate, "risk_level", "medium"),
+                supports_https=getattr(candidate, "supports_https", True),
+                supports_cookies=getattr(candidate, "supports_cookies", False),
+                supports_auto_download=getattr(candidate, "supports_auto_download", True),
+                supports_sticky_session=getattr(candidate, "supports_sticky_session", False),
+                latency_ms=probe_latency,
+                last_probe_status=probe_status,
+                last_probe_at=getattr(candidate, "last_probe_at", None),
+                score=score_value,
+                provider_reference_id=getattr(candidate, "provider_reference_id", None),
+                ttl_expires_at=getattr(candidate, "ttl_expires_at", None),
+                masked_proxy_endpoint=None,
+            )
+
+        latency_summary = {
+            "count": len(latency_values),
+            "min_ms": min(latency_values) if latency_values else None,
+            "max_ms": max(latency_values) if latency_values else None,
+        }
+        score_summary = {
+            "count": len(score_values),
+            "min_score": min(score_values) if score_values else None,
+            "max_score": max(score_values) if score_values else None,
+        }
+
+        result = {
+            "ok": True,
+            "provider_id": provider_id,
+            "raw_count": len(candidates),
+            "valid_count": len(candidates),
+            "status_counts": status_counts,
+            "latency_summary": latency_summary,
+            "score_summary": score_summary,
+            "top_candidate": top_candidate,
+        }
+        _refresh_results[provider_id] = result
+        return dict(result)
+    finally:
+        lock.release()
+
+
+def _cleanup_stale_and_expired_candidates() -> None:
+    """每日清理任务：删除过期 TTL 候选 + 长期 down 候选。"""
+    try:
+        deleted_expired = _db.delete_expired_candidates()
+    except Exception:
+        deleted_expired = 0
+        _log.warning("delete_expired_candidates failed", exc_info=True)
+    try:
+        deleted_stale = _db.cleanup_stale_candidates(stale_days=7)
+    except Exception:
+        deleted_stale = 0
+        _log.warning("cleanup_stale_candidates failed", exc_info=True)
+    total = deleted_expired + deleted_stale
+    if total > 0:
+        _log.info(f"候选清理完成: 过期={deleted_expired} 长期down={deleted_stale} 总计={total}")
 
 
 # 共享调度器实例
@@ -186,12 +355,16 @@ _auto_dl_pool = ThreadPoolExecutor(max_workers=2)
 _auto_download_on_scan: bool = False
 
 
-def _auto_download_videos(video_records: list[dict]) -> None:
+def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -> None:
     """
     后台线程池执行：并发下载新视频（max_workers=2，每视频 2 分片）
     避免触发 YouTube 429 限流。
 
     字幕：始终不下载字幕（no_subs=True），不触发 WhisperX，专注快速下载视频。
+
+    Args:
+        video_records: 要下载的视频记录列表
+        proxy: 代理 URL（如 http://user:pass@host:port），无代理时传 None
     """
     if not video_records:
         return
@@ -221,6 +394,7 @@ def _auto_download_videos(video_records: list[dict]) -> None:
             f"自动下载批次 {i // BATCH_SIZE + 1}: "
             f"{len(chunk)} 个视频 (第 {i + 1}~{i + len(chunk)} 个，共 {len(urls)} 个)"
             f"{' [aria2]' if enable_aria2 else ''}"
+            f"{' [proxy]' if proxy else ''}"
         )
 
         def _dl_batch(batch_urls, batch_ids):
@@ -230,6 +404,7 @@ def _auto_download_videos(video_records: list[dict]) -> None:
                     batch_urls,
                     output_path,
                     "best",
+                    proxy=proxy,
                     cookies_file=cookies_file,
                     concurrent_fragments=2,
                     no_subs=True,  # 自动下载不下载字幕，避免触发 WhisperX CPU 推理
@@ -386,6 +561,10 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         )
         if account["notify_enabled"] and new_videos:
             webhook_url = account.get("webhook_url") or _GLOBAL_WEBHOOKS.get(account.get("notify_platform", "feishu"))
+            use_global_dingtalk_secret = (
+                account.get("notify_platform", "feishu") == "dingtalk"
+                and not account.get("webhook_url")
+            )
             channel_name = (channel_info or {}).get("channel_name") or account["name"]
             _notifier.notify(
                 event_id=event_id,
@@ -402,6 +581,7 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
                 feishu_message_mode=account.get("feishu_message_mode", "card_json"),
                 feishu_template_id=account.get("feishu_template_id"),
                 feishu_scan_template_id=account.get("feishu_scan_template_id"),
+                dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
             )
         elif account["notify_enabled"] and not new_videos:
             _log.info(f"无新视频，跳过通知推送: {account['name']}")
@@ -414,6 +594,18 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         # ── 新增：自动下载新视频 ───────────────────────────────
         # 显式参数（立即扫描）或全局开关（定时扫描）均可触发
         effective_auto_dl = auto_download or _auto_download_on_scan
+        # 解析代理（账户启用时从 proxy_pool 中获取）
+        proxy = _db.get_account_proxy(account)
+        if proxy:
+            # 仅记录已使用代理，不记录完整 URL（含认证信息）
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(proxy)
+                proxy_repr = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
+            except Exception:
+                proxy_repr = "[已启用]"
+            _log.info(f"自动下载将使用代理: {account['name']} → {proxy_repr}")
+
         if effective_auto_dl and inserted > 0:
             with _db.get_connection() as conn:
                 rows = conn.execute(
@@ -424,11 +616,11 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
 
             threading.Thread(
                 target=_auto_download_videos,
-                args=(new_video_records,),
+                args=(new_video_records, proxy),
                 daemon=True,
                 name=f"auto-dl-{event_id}",
             ).start()
-            _log.info(f"自动下载已触发: {inserted} 个新视频")
+            _log.info(f"自动下载已触发: {inserted} 个新视频{(' [proxy]' if proxy else '')}")
 
         # ── 5. Quota 预警检查 ────────────────────────────────
         _check_quota_alert(account, api_key, budget)
@@ -511,6 +703,42 @@ def start(auto_download: bool = False) -> bool:
                 f"模式={acc['fetch_mode']} 限制={acc['fetch_limit']}"
             )
 
+        # 注册动态代理 provider 周期性刷新任务
+        providers = _db.list_dynamic_proxy_providers()
+        for prov in providers:
+            if not prov.get("enabled"):
+                continue
+            interval = prov.get("refresh_interval_minutes", 0)
+            if interval <= 0:
+                continue
+            _scheduler.add_job(
+                func=refresh_dynamic_provider,
+                trigger=apscheduler.triggers.interval.IntervalTrigger(
+                    minutes=interval,
+                    start_date=datetime.now().astimezone(),
+                ),
+                args=[prov["id"]],
+                id=f"provider_refresh_{prov['id']}",
+                name=f"ProviderRefresh {prov['name']}",
+                replace_existing=True,
+            )
+            _log.info(
+                f"注册 Provider 刷新任务: {prov['name']} 间隔={interval}分钟"
+            )
+
+        # 注册每日候选清理任务
+        _scheduler.add_job(
+            func=_cleanup_stale_and_expired_candidates,
+            trigger=apscheduler.triggers.interval.IntervalTrigger(
+                hours=24,
+                start_date=datetime.now().astimezone(),
+            ),
+            id="cleanup_stale_candidates",
+            name="CleanupStaleCandidates",
+            replace_existing=True,
+        )
+        _log.info("注册候选清理任务: 每24小时清理一次")
+
         _scheduler.start()
 
         # 持久化运行状态
@@ -581,6 +809,40 @@ def reload_jobs() -> int:
         else:
             _scheduler.add_job(**job_kwargs)
         _log.info(f"{'更新' if job_id in current_job_ids else '添加'}任务: {acc['name']} @ {acc['scan_interval']}min")
+
+    # Provider refresh jobs
+    providers = _db.list_dynamic_proxy_providers()
+    target_provider_job_ids = set()
+    for prov in providers:
+        if not prov.get("enabled"):
+            continue
+        interval = prov.get("refresh_interval_minutes", 0)
+        if interval <= 0:
+            continue
+        job_id = f"provider_refresh_{prov['id']}"
+        target_provider_job_ids.add(job_id)
+        job_kwargs = {
+            "func": refresh_dynamic_provider,
+            "trigger": apscheduler.triggers.interval.IntervalTrigger(
+                minutes=interval,
+                start_date=datetime.now().astimezone(),
+            ),
+            "args": [prov["id"]],
+            "name": f"ProviderRefresh {prov['name']}",
+            "replace_existing": True,
+        }
+        if job_id in current_job_ids:
+            _scheduler.reschedule_job(job_id, **job_kwargs)
+        else:
+            _scheduler.add_job(**job_kwargs)
+        _log.info(f"{'更新' if job_id in current_job_ids else '添加'}Provider刷新: {prov['name']} @ {interval}min")
+
+    # 移除不再需要的 provider refresh jobs
+    all_current_ids = {_j.id for _j in _scheduler.get_jobs()}
+    for job_id in all_current_ids:
+        if job_id.startswith("provider_refresh_") and job_id not in target_provider_job_ids:
+            _scheduler.remove_job(job_id)
+            _log.info(f"移除失效 Provider 刷新任务: {job_id}")
 
     active_count = len(_scheduler.get_jobs())
     _log.info(f"任务重载完成，当前活跃: {active_count}")

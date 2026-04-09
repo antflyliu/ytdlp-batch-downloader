@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 import logging_config
@@ -31,9 +31,13 @@ _SCHEMA_PATH = os.path.join(_PKG_DIR, "schema.sql")
 # config.json: 优先用户可写位置(exe_dir)，回退到只读资源(_PKG_DIR)
 _CONFIG_PATH = os.path.join(_EXE_DIR, "config.json")
 
+# 动态代理候选与全局协议优先级默认（与固定代理 URL 解析支持的协议一致，含 SOCKS4）
+DEFAULT_PROXY_PROTOCOL_ORDER = ("http", "https", "socks5", "socks4")
+
 _GLOBAL_WEBHOOK_KEYS = (
     "global_feishu_url",
     "global_dingtalk_url",
+    "global_dingtalk_sign_secret",
     "global_wecom_url",
 )
 
@@ -63,6 +67,7 @@ def _config_default() -> dict:
     return {
         "global_feishu_url": "",
         "global_dingtalk_url": "",
+        "global_dingtalk_sign_secret": "",
         "global_wecom_url": "",
         "default_fetch_mode": "playlist",
         "default_fetch_limit": 5,
@@ -72,6 +77,27 @@ def _config_default() -> dict:
         "download_output_path": "",
         "default_sub_langs": "zh-Hans,en",
         "default_api_key_id": None,   # 系统默认 API Key（账户未指定时使用）
+        # ── 系统默认动态代理配置 ────────────────────────────────
+        "system_dynamic_proxy_enabled": False,
+        "apply_dynamic_proxy_to_new_accounts": True,
+        "apply_dynamic_proxy_to_existing_accounts": False,
+        "manual_download_route_policy": "balanced",
+        "auto_download_route_policy": "strict",
+        "allow_free_proxy": True,
+        "allow_free_proxy_for_auto_download": False,
+        "allow_free_proxy_with_cookies": False,
+        "manual_direct_fallback": True,
+        "auto_direct_fallback": False,
+        "default_proxy_country_codes": [],
+        "default_proxy_protocol_order": list(DEFAULT_PROXY_PROTOCOL_ORDER),
+        "default_session_mode": "sticky",
+        "default_sticky_minutes": 10,
+        "candidate_prefetch_count": 5,
+        "candidate_validate_count": 3,
+        "validated_pool_ttl_seconds": 300,
+        "provider_cooldown_seconds": 600,
+        "proxy_probe_timeout_seconds": 8,
+        "mask_proxy_in_logs": True,
     }
 
 
@@ -110,6 +136,12 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     """保存全局配置，Webhook URL 落盘时加密。"""
+    from monitor.validators import normalize_dingtalk_sign_secret
+
+    cfg = {**_config_default(), **(cfg or {})}
+    cfg["global_dingtalk_sign_secret"] = (
+        normalize_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret")) or ""
+    )
     _write_config(_CONFIG_PATH, _encrypt_config_webhooks(cfg))
 
 
@@ -204,6 +236,32 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v4_webhook_encrypt", today),
         )
 
+    if "v6_proxy_pool" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS proxy_pools (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                proxy_url   TEXT    NOT NULL,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL,
+                updated_at  TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_proxy_pools_enabled ON proxy_pools(enabled)"
+        )
+        # 为 monitor_accounts 添加 proxy_pool_id 和 proxy_enabled 列
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "proxy_pool_id" not in cols:
+            conn.execute("ALTER TABLE monitor_accounts ADD COLUMN proxy_pool_id INTEGER DEFAULT NULL")
+        if "proxy_enabled" not in cols:
+            conn.execute("ALTER TABLE monitor_accounts ADD COLUMN proxy_enabled INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v6_proxy_pool", today),
+        )
+
     # v5: 添加分页覆盖索引（account_id + published_at 排序优化）
     if "v5_video_pagination_index" not in applied:
         conn.execute(
@@ -213,6 +271,185 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v5_video_pagination_index", today),
+        )
+
+    # v7: 动态代理提供方 + 账户 download_proxy_mode + 下载决策日志
+    if "v7_dynamic_proxy" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS dynamic_proxy_providers (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                billing_tier    TEXT    NOT NULL DEFAULT 'free',
+                adapter_type    TEXT    NOT NULL DEFAULT 'public_feed',
+                priority        INTEGER NOT NULL DEFAULT 100,
+                supports_cookies         INTEGER NOT NULL DEFAULT 0,
+                supports_auto_download   INTEGER NOT NULL DEFAULT 1,
+                supports_country_filter INTEGER NOT NULL DEFAULT 0,
+                supports_sticky_session INTEGER NOT NULL DEFAULT 0,
+                risk_level      TEXT    NOT NULL DEFAULT 'medium',
+                notes           TEXT    DEFAULT NULL,
+                config_json     TEXT    NOT NULL DEFAULT '{}',
+                last_health_status TEXT DEFAULT NULL,
+                last_health_checked_at TEXT DEFAULT NULL,
+                last_error_message     TEXT    DEFAULT NULL,
+                cooldown_until  TEXT    DEFAULT NULL,
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dpp_enabled_priority "
+            "ON dynamic_proxy_providers(enabled, priority)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dpp_health "
+            "ON dynamic_proxy_providers(last_health_status, cooldown_until)"
+        )
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "download_proxy_mode" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN download_proxy_mode TEXT NOT NULL DEFAULT 'auto'"
+            )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS download_decision_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id      INTEGER,
+                account_name    TEXT,
+                video_count     INTEGER,
+                is_auto_download INTEGER DEFAULT 0,
+                cookies_present INTEGER DEFAULT 0,
+                resolved_proxy_source TEXT,
+                resolved_provider_name TEXT,
+                resolved_provider_tier TEXT,
+                resolved_country TEXT,
+                resolved_session_mode TEXT,
+                fallback_depth  INTEGER DEFAULT 0,
+                masked_proxy_endpoint TEXT,
+                decision_reason TEXT,
+                warnings        TEXT,
+                created_at      TEXT    NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ddl_account ON download_decision_logs(account_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ddl_created ON download_decision_logs(created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v7_dynamic_proxy", today),
+        )
+
+    # v8: 动态代理候选节点表
+    if "v8_dynamic_proxy_candidates" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS dynamic_proxy_candidates (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_key               TEXT    NOT NULL UNIQUE,
+                provider_id                 INTEGER NOT NULL,
+                protocol                    TEXT    NOT NULL,
+                host                        TEXT    NOT NULL,
+                port                        INTEGER NOT NULL,
+                username                    TEXT    DEFAULT NULL,
+                password_enc                TEXT    DEFAULT NULL,
+                auth_type                   TEXT    NOT NULL DEFAULT 'none',
+                masked_proxy_endpoint       TEXT    NOT NULL,
+                country_code                TEXT    DEFAULT NULL,
+                region                      TEXT    DEFAULT NULL,
+                city                        TEXT    DEFAULT NULL,
+                anonymity                   TEXT    DEFAULT NULL,
+                risk_level                  TEXT    NOT NULL DEFAULT 'medium',
+                supports_https              INTEGER NOT NULL DEFAULT 1,
+                supports_cookies            INTEGER NOT NULL DEFAULT 0,
+                supports_auto_download      INTEGER NOT NULL DEFAULT 1,
+                supports_sticky_session     INTEGER NOT NULL DEFAULT 0,
+                latency_ms                  INTEGER DEFAULT NULL,
+                last_probe_status           TEXT    NOT NULL DEFAULT 'unknown',
+                last_probe_at               TEXT    DEFAULT NULL,
+                score                       REAL    NOT NULL DEFAULT 0.0,
+                success_count               INTEGER NOT NULL DEFAULT 0,
+                failure_count               INTEGER NOT NULL DEFAULT 0,
+                consecutive_failures        INTEGER NOT NULL DEFAULT 0,
+                last_success_at             TEXT    DEFAULT NULL,
+                last_failure_at             TEXT    DEFAULT NULL,
+                last_error_message          TEXT    DEFAULT NULL,
+                failure_category            TEXT    DEFAULT NULL,
+                provider_reference_id       TEXT    DEFAULT NULL,
+                ttl_expires_at              TEXT    DEFAULT NULL,
+                last_seen_at                TEXT    NOT NULL,
+                created_at                  TEXT    NOT NULL,
+                updated_at                  TEXT    NOT NULL,
+                FOREIGN KEY (provider_id) REFERENCES dynamic_proxy_providers(id) ON DELETE CASCADE
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_provider_ttl "
+            "ON dynamic_proxy_candidates(provider_id, ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_score "
+            "ON dynamic_proxy_candidates(score DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_probe "
+            "ON dynamic_proxy_candidates(last_probe_status, ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_ttl "
+            "ON dynamic_proxy_candidates(ttl_expires_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_key "
+            "ON dynamic_proxy_candidates(candidate_key)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v8_dynamic_proxy_candidates", today),
+        )
+
+    # v9: provider refresh_interval_minutes
+    if "v9_provider_refresh_interval" not in applied:
+        cur = conn.execute("PRAGMA table_info(dynamic_proxy_providers)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "refresh_interval_minutes" not in cols:
+            conn.execute(
+                "ALTER TABLE dynamic_proxy_providers ADD COLUMN refresh_interval_minutes INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v9_provider_refresh_interval", today),
+        )
+
+    # v10: provider scheduler run logs
+    if "v10_provider_scheduler_runs" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS provider_scheduler_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id INTEGER,
+                provider_name TEXT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                raw_count INTEGER DEFAULT 0,
+                valid_count INTEGER DEFAULT 0,
+                message TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                FOREIGN KEY (provider_id) REFERENCES dynamic_proxy_providers(id) ON DELETE SET NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_started_at ON provider_scheduler_runs(started_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_provider_id ON provider_scheduler_runs(provider_id, started_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v10_provider_scheduler_runs", today),
         )
 
 
@@ -237,7 +474,7 @@ def _migrate_legacy_api_keys(conn) -> None:
                 )
             except sqlite3.IntegrityError:
                 pass  # Key 已存在，忽略
-            except Exception:
+            except Exception as e:
                 _log.warning(f"Migration: 迁移 api_key_env={env_name} 失败: {e}")
 
 
@@ -335,12 +572,21 @@ def update_api_key(
 ) -> None:
     """更新 API Key"""
     fields, values = [], []
-    if name is not None:        fields.append("name=?");          values.append(name)
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
     # 空字符串表示"不修改"（前端留空时发送空字符串）
-    if key_value:               fields.append("key_value=?");     values.append(key_value)
-    if daily_quota is not None: fields.append("daily_quota=?"); values.append(daily_quota)
-    if is_active is not None:  fields.append("is_active=?");    values.append(int(is_active))
-    fields.append("updated_at=?"); values.append(now_iso())
+    if key_value:
+        fields.append("key_value=?")
+        values.append(key_value)
+    if daily_quota is not None:
+        fields.append("daily_quota=?")
+        values.append(daily_quota)
+    if is_active is not None:
+        fields.append("is_active=?")
+        values.append(int(is_active))
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(key_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE api_keys SET {','.join(fields)} WHERE id=?", values)
@@ -403,6 +649,9 @@ def add_account(
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
     api_key_id: int | None = None,
+    proxy_pool_id: int | None = None,
+    proxy_enabled: bool = False,
+    download_proxy_mode: str = "auto",
 ) -> int:
     with get_connection() as conn:
         cur = conn.execute(
@@ -410,13 +659,14 @@ def add_account(
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-                api_key_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+                api_key_id, proxy_pool_id, proxy_enabled, download_proxy_mode, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform,
              _encrypt_webhook(webhook_url),
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
-             api_key_id, now_iso(), now_iso()),
+             api_key_id, proxy_pool_id, int(proxy_enabled), download_proxy_mode,
+             now_iso(), now_iso()),
         )
         return cur.lastrowid
 
@@ -437,28 +687,69 @@ def update_account(
     feishu_template_id=_UNSET,
     feishu_scan_template_id=_UNSET,
     api_key_id=_UNSET,
+    proxy_pool_id=_UNSET,
+    proxy_enabled=None,
+    download_proxy_mode=_UNSET,
 ) -> None:
     """更新账户字段。
 
-    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id），
+    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id / proxy_pool_id），
     使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
     """
     fields, values = [], []
-    if name             is not None: fields.append("name=?");             values.append(name)
-    if channel_url      is not None: fields.append("channel_url=?");      values.append(channel_url)
-    if api_key_env      is not None: fields.append("api_key_env=?");      values.append(api_key_env)
-    if fetch_mode       is not None: fields.append("fetch_mode=?");       values.append(fetch_mode)
-    if fetch_limit      is not None: fields.append("fetch_limit=?");      values.append(fetch_limit)
-    if scan_interval    is not None: fields.append("scan_interval=?");   values.append(scan_interval)
-    if enabled          is not None: fields.append("enabled=?");          values.append(int(enabled))
-    if notify_enabled   is not None: fields.append("notify_enabled=?");   values.append(int(notify_enabled))
-    if notify_platform  is not None: fields.append("notify_platform=?");  values.append(notify_platform)
-    if webhook_url     is not _UNSET: fields.append("webhook_url=?");     values.append(_encrypt_webhook(webhook_url))
-    if feishu_message_mode is not None: fields.append("feishu_message_mode=?"); values.append(feishu_message_mode)
-    if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
-    if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
-    if api_key_id is not _UNSET: fields.append("api_key_id=?");            values.append(api_key_id)
-    fields.append("updated_at=?"); values.append(now_iso())
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if channel_url is not None:
+        fields.append("channel_url=?")
+        values.append(channel_url)
+    if api_key_env is not None:
+        fields.append("api_key_env=?")
+        values.append(api_key_env)
+    if fetch_mode is not None:
+        fields.append("fetch_mode=?")
+        values.append(fetch_mode)
+    if fetch_limit is not None:
+        fields.append("fetch_limit=?")
+        values.append(fetch_limit)
+    if scan_interval is not None:
+        fields.append("scan_interval=?")
+        values.append(scan_interval)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
+    if notify_enabled is not None:
+        fields.append("notify_enabled=?")
+        values.append(int(notify_enabled))
+    if notify_platform is not None:
+        fields.append("notify_platform=?")
+        values.append(notify_platform)
+    if webhook_url is not _UNSET:
+        fields.append("webhook_url=?")
+        values.append(_encrypt_webhook(webhook_url))
+    if feishu_message_mode is not None:
+        fields.append("feishu_message_mode=?")
+        values.append(feishu_message_mode)
+    if feishu_template_id is not _UNSET:
+        fields.append("feishu_template_id=?")
+        values.append(feishu_template_id)
+    if feishu_scan_template_id is not _UNSET:
+        fields.append("feishu_scan_template_id=?")
+        values.append(feishu_scan_template_id)
+    if api_key_id is not _UNSET:
+        fields.append("api_key_id=?")
+        values.append(api_key_id)
+    if proxy_pool_id is not _UNSET:
+        fields.append("proxy_pool_id=?")
+        values.append(proxy_pool_id)
+    if proxy_enabled is not None:
+        fields.append("proxy_enabled=?")
+        values.append(int(proxy_enabled))
+    if download_proxy_mode is not _UNSET:
+        fields.append("download_proxy_mode=?")
+        values.append(download_proxy_mode)
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE monitor_accounts SET {','.join(fields)} WHERE id=?", values)
@@ -469,7 +760,702 @@ def delete_account(account_id: int) -> None:
         conn.execute("DELETE FROM monitor_accounts WHERE id=?", (account_id,))
 
 
+# ── proxy_pools CRUD ───────────────────────────────────────
+
+def list_proxy_pools() -> list[dict]:
+    """列出所有代理池（含启用状态）"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM proxy_pools ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_proxy_pool(pool_id: int) -> dict | None:
+    """获取单个代理池"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM proxy_pools WHERE id=?", (pool_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def _validate_proxy_url(url: str) -> str:
+    """
+    验证代理 URL 格式。
+    支持：http://, https://, socks5://, socks4://
+    返回规范化后的 URL，失败抛出 ValueError。
+    """
+    from urllib.parse import urlparse
+    if not url:
+        raise ValueError("代理地址不能为空")
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https", "socks5", "socks4", "socks"):
+        raise ValueError(f"不支持的协议: {scheme}，支持 http/https/socks5/socks4")
+    if not parsed.hostname:
+        raise ValueError("代理地址缺少主机名")
+    return url.strip()
+
+
+def add_proxy_pool(name: str, proxy_url: str) -> int:
+    """新增代理池（URL 格式已验证）"""
+    proxy_url = _validate_proxy_url(proxy_url)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO proxy_pools (name, proxy_url, enabled, created_at, updated_at)
+               VALUES (?, ?, 1, ?, ?)""",
+            (name, proxy_url, now_iso(), now_iso()),
+        )
+        return cur.lastrowid
+
+
+def update_proxy_pool(
+    pool_id: int,
+    name: str | None = None,
+    proxy_url: str | None = None,
+    enabled: bool | None = None,
+) -> None:
+    """更新代理池字段（URL 格式已验证）"""
+    if proxy_url is not None:
+        proxy_url = _validate_proxy_url(proxy_url)
+    fields, values = [], []
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if proxy_url is not None:
+        fields.append("proxy_url=?")
+        values.append(proxy_url)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
+    if not fields:
+        return  # 无实际变更，只更新 updated_at 无意义
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(pool_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE proxy_pools SET {','.join(fields)} WHERE id=?", values)
+
+
+def delete_proxy_pool(pool_id: int) -> None:
+    """删除代理池（关联账户的 proxy_pool_id 会被清空，proxy_enabled 置为 0）"""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE monitor_accounts SET proxy_pool_id=NULL, proxy_enabled=0 WHERE proxy_pool_id=?",
+            (pool_id,),
+        )
+        conn.execute("DELETE FROM proxy_pools WHERE id=?", (pool_id,))
+
+
+# ── dynamic_proxy_providers CRUD ─────────────────────────────
+
+def list_dynamic_proxy_providers() -> list[dict]:
+    """列出所有动态代理提供方"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM dynamic_proxy_providers ORDER BY priority ASC, id ASC"
+        ).fetchall()
+        return [_parse_provider_json(dict(r)) for r in rows]
+
+
+def _parse_provider_json(provider: dict) -> dict:
+    """解析 config_json 字段为 dict，并解密敏感字段"""
+    if provider and provider.get("config_json"):
+        try:
+            import json
+            provider = dict(provider)
+            provider["config_json"] = _decrypt_config_secrets(json.loads(provider["config_json"]))
+        except Exception:
+            provider["config_json"] = {}
+    return provider
+
+
+def get_dynamic_proxy_provider(provider_id: int) -> dict | None:
+    """获取单个动态代理提供方"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM dynamic_proxy_providers WHERE id=?", (provider_id,)
+        ).fetchone()
+        return _parse_provider_json(dict(row)) if row else None
+
+
+def add_dynamic_proxy_provider(
+    name: str,
+    billing_tier: str = "free",
+    adapter_type: str = "public_feed",
+    config_json: dict | None = None,
+    enabled: bool = True,
+    priority: int = 100,
+    supports_cookies: bool = False,
+    supports_auto_download: bool = True,
+    supports_country_filter: bool = False,
+    supports_sticky_session: bool = False,
+    risk_level: str = "medium",
+    notes: str | None = None,
+    refresh_interval_minutes: int = 0,
+) -> int:
+    """新增动态代理提供方（config_json 敏感字段自动加密）"""
+    import json
+    cfg_encrypted = _encrypt_config_secrets(config_json or {})
+    cfg_str = json.dumps(cfg_encrypted)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO dynamic_proxy_providers
+               (name, enabled, billing_tier, adapter_type, priority,
+                supports_cookies, supports_auto_download, supports_country_filter,
+                supports_sticky_session, risk_level, notes, config_json,
+                created_at, updated_at, refresh_interval_minutes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (name, int(enabled), billing_tier, adapter_type, priority,
+             int(supports_cookies), int(supports_auto_download),
+             int(supports_country_filter), int(supports_sticky_session),
+             risk_level, notes, cfg_str, now_iso(), now_iso(),
+             int(refresh_interval_minutes)),
+        )
+        return cur.lastrowid
+
+
+def update_dynamic_proxy_provider(
+    provider_id: int,
+    name: str | None = None,
+    enabled: bool | None = None,
+    billing_tier: str | None = None,
+    adapter_type: str | None = None,
+    priority: int | None = None,
+    supports_cookies: bool | None = None,
+    supports_auto_download: bool | None = None,
+    supports_country_filter: bool | None = None,
+    supports_sticky_session: bool | None = None,
+    risk_level: str | None = None,
+    notes: str | None = None,
+    config_json: dict | None = None,
+    last_health_status: str | None = None,
+    last_health_checked_at: str | None = None,
+    last_error_message: str | None = _UNSET,
+    cooldown_until: str | None = None,
+    refresh_interval_minutes: int | None = None,
+) -> None:
+    """更新动态代理提供方"""
+    import json
+    fields, values = [], []
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
+    if billing_tier is not None:
+        fields.append("billing_tier=?")
+        values.append(billing_tier)
+    if adapter_type is not None:
+        fields.append("adapter_type=?")
+        values.append(adapter_type)
+    if priority is not None:
+        fields.append("priority=?")
+        values.append(priority)
+    if supports_cookies is not None:
+        fields.append("supports_cookies=?")
+        values.append(int(supports_cookies))
+    if supports_auto_download is not None:
+        fields.append("supports_auto_download=?")
+        values.append(int(supports_auto_download))
+    if supports_country_filter is not None:
+        fields.append("supports_country_filter=?")
+        values.append(int(supports_country_filter))
+    if supports_sticky_session is not None:
+        fields.append("supports_sticky_session=?")
+        values.append(int(supports_sticky_session))
+    if risk_level is not None:
+        fields.append("risk_level=?")
+        values.append(risk_level)
+    if notes is not None:
+        fields.append("notes=?")
+        values.append(notes)
+    if config_json is not None:
+        existing = get_dynamic_proxy_provider(provider_id) or {}
+        merged_config = _merge_masked_config_secrets(
+            config_json,
+            existing.get("config_json") or {},
+        )
+        fields.append("config_json=?")
+        values.append(json.dumps(_encrypt_config_secrets(merged_config)))
+    if last_health_status is not None:
+        fields.append("last_health_status=?")
+        values.append(last_health_status)
+    if last_health_checked_at is not None:
+        fields.append("last_health_checked_at=?")
+        values.append(last_health_checked_at)
+    # None 表示显式清空 last_error_message；省略参数（_UNSET）表示不修改该列
+    if last_error_message is not _UNSET:
+        fields.append("last_error_message=?")
+        values.append(last_error_message)
+    if cooldown_until is not None:
+        fields.append("cooldown_until=?")
+        values.append(cooldown_until)
+    if refresh_interval_minutes is not None:
+        fields.append("refresh_interval_minutes=?")
+        values.append(int(refresh_interval_minutes))
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(provider_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE dynamic_proxy_providers SET {','.join(fields)} WHERE id=?",
+            values,
+        )
+
+
+def delete_dynamic_proxy_provider(provider_id: int) -> None:
+    """删除动态代理提供方"""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM dynamic_proxy_providers WHERE id=?", (provider_id,))
+
+
+def get_enabled_providers(billing_tier: str | None = None) -> list[dict]:
+    """获取已启用的动态代理提供方（按优先级排序）"""
+    with get_connection() as conn:
+        if billing_tier is None:
+            rows = conn.execute(
+                "SELECT * FROM dynamic_proxy_providers WHERE enabled=1 ORDER BY priority ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM dynamic_proxy_providers WHERE enabled=1 AND billing_tier=? ORDER BY priority ASC",
+                (billing_tier,),
+            ).fetchall()
+        return [_parse_provider_json(dict(r)) for r in rows]
+
+
+# ── dynamic_proxy_candidates helpers ───────────────────────────
+
+def _encrypt_candidate_secret(value: str | None) -> str | None:
+    """Fernet 加密候选密码，返回 'enc:<base64>' 格式。"""
+    if not value:
+        return None
+    if value.startswith("enc:"):
+        return value
+    return _encrypt_config_value(value)
+
+
+def _decrypt_candidate_secret(encrypted: str | None) -> str | None:
+    """Fernet 解密候选密码，非加密值或解密失败原样返回。"""
+    if not encrypted:
+        return None
+    if not encrypted.startswith("enc:"):
+        return encrypted
+    return _decrypt_config_value(encrypted)
+
+
+def _build_runtime_proxy_url(
+    protocol: str,
+    host: str,
+    port: int,
+    username: str | None = None,
+    password: str | None = None,
+) -> str:
+    """按独立字段构造运行时可用的代理 URL。"""
+    if username and password:
+        from urllib.parse import quote
+        user_part = f"{quote(username)}:{quote(password)}"
+        return f"{protocol}://{user_part}@{host}:{port}"
+    return f"{protocol}://{host}:{port}"
+
+
+def _iso_future(seconds: int) -> str:
+    """返回从现在起 N 秒后的 ISO 8601 时间字符串。"""
+    from datetime import timedelta
+    return (datetime.now() + timedelta(seconds=seconds)).astimezone().isoformat(timespec="seconds")
+
+
+# ── dynamic_proxy_candidates CRUD ──────────────────────────────
+
+def add_proxy_candidate(
+    provider_id: int,
+    protocol: str,
+    host: str,
+    port: int,
+    username: str | None = None,
+    password: str | None = None,
+    auth_type: str = "none",
+    country_code: str | None = None,
+    region: str | None = None,
+    city: str | None = None,
+    anonymity: str | None = None,
+    risk_level: str = "medium",
+    supports_https: bool = True,
+    supports_cookies: bool = False,
+    supports_auto_download: bool = True,
+    supports_sticky_session: bool = False,
+    latency_ms: int | None = None,
+    last_probe_status: str = "unknown",
+    last_probe_at: str | None = None,
+    score: float = 0.0,
+    provider_reference_id: str | None = None,
+    ttl_expires_at: str | None = None,
+    masked_proxy_endpoint: str | None = None,
+) -> int:
+    """
+    新增或刷新代理候选节点（幂等：按派生 candidate_key 去重）。
+    返回候选节点 ID（新增或已存在）。
+    """
+    candidate_key = f"{provider_id}:{protocol}:{host}:{port}:{username or ''}"
+    password_enc = _encrypt_candidate_secret(password)
+    if masked_proxy_endpoint is None:
+        masked_ep = f"{protocol}://***:****@{host}:{port}" if username or password else f"{protocol}://{host}:{port}"
+    else:
+        masked_ep = masked_proxy_endpoint
+
+    now = now_iso()
+
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM dynamic_proxy_candidates WHERE candidate_key=?",
+            (candidate_key,),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    provider_id=?, protocol=?, host=?, port=?,
+                    username=?, password_enc=?, auth_type=?,
+                    masked_proxy_endpoint=?, country_code=?, region=?, city=?,
+                    anonymity=?, risk_level=?, supports_https=?,
+                    supports_cookies=?, supports_auto_download=?,
+                    supports_sticky_session=?, latency_ms=?,
+                    last_probe_status=?, last_probe_at=?, score=?,
+                    provider_reference_id=?, ttl_expires_at=?,
+                    last_seen_at=?, updated_at=?
+                   WHERE candidate_key=?""",
+                (
+                    provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_ep, country_code, region, city,
+                    anonymity, risk_level, int(supports_https),
+                    int(supports_cookies), int(supports_auto_download),
+                    int(supports_sticky_session), latency_ms,
+                    last_probe_status, last_probe_at or None, score,
+                    provider_reference_id, ttl_expires_at,
+                    now, now,
+                    candidate_key,
+                ),
+            )
+            return existing[0]
+        else:
+            cur = conn.execute(
+                """INSERT INTO dynamic_proxy_candidates
+                   (candidate_key, provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_proxy_endpoint, country_code, region, city,
+                    anonymity, risk_level, supports_https,
+                    supports_cookies, supports_auto_download, supports_sticky_session,
+                    latency_ms, last_probe_status, last_probe_at,
+                    score, provider_reference_id, ttl_expires_at,
+                    last_seen_at, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    candidate_key, provider_id, protocol, host, port,
+                    username, password_enc, auth_type,
+                    masked_ep, country_code, region, city,
+                    anonymity, risk_level, int(supports_https),
+                    int(supports_cookies), int(supports_auto_download), int(supports_sticky_session),
+                    latency_ms, last_probe_status, last_probe_at,
+                    score, provider_reference_id, ttl_expires_at,
+                    now, now, now,
+                ),
+            )
+            return cur.lastrowid
+
+
+def get_proxy_candidate(candidate_id: int) -> dict | None:
+    """获取单个代理候选节点"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM dynamic_proxy_candidates WHERE id=?",
+            (candidate_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_proxy_candidate_by_provider(
+    provider_id: int, valid_only: bool = True, order_by_score_desc: bool = True
+) -> list[dict]:
+    """
+    按 provider_id 获取候选节点列表。
+    valid_only=True 时过滤 ttl_expires_at > now。
+    order_by_score_desc=True（默认）：按 score DESC（展示、兼容旧逻辑）。
+    order_by_score_desc=False：按 id ASC，供下载选路拉全量后再做与预览一致的排序，避免高分非 healthy 占满截取窗口。
+    """
+    now = now_iso()
+    order_clause = "ORDER BY score DESC" if order_by_score_desc else "ORDER BY id ASC"
+    with get_connection() as conn:
+        if valid_only:
+            rows = conn.execute(
+                f"""SELECT * FROM dynamic_proxy_candidates
+                   WHERE provider_id=? AND (ttl_expires_at IS NULL OR ttl_expires_at > ?)
+                   {order_clause}""",
+                (provider_id, now),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""SELECT * FROM dynamic_proxy_candidates
+                   WHERE provider_id=?
+                   {order_clause}""",
+                (provider_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def _healthy_preview_sort_key_row(r: dict) -> tuple[int, int, float]:
+    """与候选预览「当前最优」一致：有效 latency 优先，升序；再按 score 降序。"""
+    lm = r.get("latency_ms")
+    if isinstance(lm, int) and lm >= 0:
+        tier = 0
+        lat = lm
+    else:
+        tier = 1
+        lat = 0
+    sc = r.get("score", 0.0)
+    score_f = float(sc) if isinstance(sc, (int, float)) else 0.0
+    return (tier, lat, -score_f)
+
+
+def rank_healthy_candidates_preview_aligned(rows: list[dict]) -> list[dict]:
+    """
+    仅 last_probe_status == healthy 的条目，按预览同款规则排序（latency → score）。
+    供下载选路与预览共用，保证「当前最优」与首轮代理一致。
+    """
+    healthy = [
+        r
+        for r in rows
+        if str(r.get("last_probe_status") or "").strip().lower() == "healthy"
+    ]
+    if not healthy:
+        return []
+    return sorted(healthy, key=_healthy_preview_sort_key_row)
+
+
+def pick_healthy_fastest_top_candidate(rows: list[dict]) -> dict | None:
+    """
+    预览/摘要用「当前最优」：last_probe_status == healthy，
+    再按 latency_ms 升序（正序）排序，取延迟最小的一条；并列时 score 高者优先。
+    无 healthy 时返回 None。无有效 latency 的 healthy 排在有数值者之后。
+    """
+    ranked = rank_healthy_candidates_preview_aligned(rows)
+    if not ranked:
+        return None
+    best = ranked[0]
+    sc = best.get("score", 0.0)
+    score_f = float(sc) if isinstance(sc, (int, float)) else 0.0
+    return {
+        "masked_proxy_endpoint": best.get("masked_proxy_endpoint"),
+        "last_probe_status": best.get("last_probe_status"),
+        "latency_ms": best.get("latency_ms"),
+        "score": score_f,
+    }
+
+
+def build_runtime_proxy_url(candidate: dict) -> str:
+    """公开接口：从候选记录还原运行时可用的代理 URL（解密密码）。"""
+    password_enc = candidate.get("password_enc")
+    password = _decrypt_candidate_secret(password_enc) if password_enc else None
+    return _build_runtime_proxy_url(
+        candidate.get("protocol", "http"),
+        candidate.get("host", ""),
+        candidate.get("port", ""),
+        candidate.get("username") or None,
+        password,
+    )
+
+
+def delete_expired_candidates() -> int:
+    """删除所有已过期的候选节点，返回删除数量。"""
+    now = now_iso()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM dynamic_proxy_candidates WHERE ttl_expires_at IS NOT NULL AND ttl_expires_at <= ?",
+            (now,),
+        )
+        return cur.rowcount
+
+
+def cleanup_stale_candidates(stale_days: int = 7) -> int:
+    """删除长期处于 down 状态的候选节点（last_probe_status='down' 且超过 stale_days 未恢复），返回删除数量。"""
+    cutoff = (datetime.now().astimezone() - timedelta(days=stale_days)).isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            """DELETE FROM dynamic_proxy_candidates
+               WHERE last_probe_status = 'down'
+                 AND last_probe_at IS NOT NULL
+                 AND last_probe_at <= ?""",
+            (cutoff,),
+        )
+        return cur.rowcount
+
+
+def update_candidate_quality(
+    candidate_id: int,
+    success: bool,
+    latency_ms: int | None = None,
+    error_message: str | None = None,
+    failure_category: str | None = None,
+) -> None:
+    """更新候选节点质量指标（成功/失败）。"""
+    now = now_iso()
+    with get_connection() as conn:
+        if success:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    success_count = success_count + 1,
+                    consecutive_failures = 0,
+                    last_success_at = ?,
+                    latency_ms = COALESCE(?, latency_ms),
+                    last_error_message = NULL,
+                    failure_category = NULL,
+                    updated_at = ?
+                   WHERE id=?""",
+                (now, latency_ms, now, candidate_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE dynamic_proxy_candidates SET
+                    failure_count = failure_count + 1,
+                    consecutive_failures = consecutive_failures + 1,
+                    last_failure_at = ?,
+                    latency_ms = COALESCE(?, latency_ms),
+                    last_error_message = ?,
+                    failure_category = ?,
+                    updated_at = ?
+                   WHERE id=?""",
+                (now, latency_ms, error_message, failure_category, now, candidate_id),
+            )
+
+
+# ── download_decision_logs CRUD ─────────────────────────────
+
+def log_download_decision(
+    account_id: int | None,
+    account_name: str | None,
+    video_count: int,
+    is_auto_download: bool,
+    cookies_present: bool,
+    resolved_proxy_source: str,
+    resolved_provider_name: str | None,
+    resolved_provider_tier: str | None,
+    resolved_country: str | None = None,
+    resolved_session_mode: str | None = None,
+    fallback_depth: int = 0,
+    masked_proxy_endpoint: str | None = None,
+    decision_reason: str = "",
+    warnings: str | None = None,
+) -> None:
+    """记录一次下载的路由决策"""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO download_decision_logs
+               (account_id, account_name, video_count, is_auto_download,
+                cookies_present, resolved_proxy_source, resolved_provider_name,
+                resolved_provider_tier, resolved_country, resolved_session_mode,
+                fallback_depth, masked_proxy_endpoint, decision_reason, warnings, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (account_id, account_name, video_count, int(is_auto_download),
+             int(cookies_present), resolved_proxy_source, resolved_provider_name,
+             resolved_provider_tier, resolved_country, resolved_session_mode,
+             fallback_depth, masked_proxy_endpoint, decision_reason, warnings,
+             now_iso()),
+        )
+
+
+def get_download_decision_logs(account_id: int | None = None, limit: int = 100) -> list[dict]:
+    """获取下载决策日志"""
+    with get_connection() as conn:
+        if account_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM download_decision_logs WHERE account_id=? ORDER BY created_at DESC LIMIT ?",
+                (account_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM download_decision_logs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── 工具函数 ─────────────────────────────────────────────────
+
+def mask_proxy_url(url: str | None) -> str | None:
+    """掩码代理 URL，返回安全可日志输出的格式。"""
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        # 掩码 user:pass@host:port 部分
+        masked_netloc = "***:****@***:****"
+        masked = urlunparse((
+            parsed.scheme,
+            masked_netloc,
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        ))
+        return masked
+    except Exception:
+        return "***:****@***:****"
+
+
+def get_account_proxy(account: dict) -> str | None:
+    """
+    获取账户启用的代理 URL。
+    仅当 account['proxy_enabled'] == 1 且 proxy_pool_id 存在且代理池 enabled==1 时返回。
+    """
+    if not account.get("proxy_enabled"):
+        return None
+    pool_id = account.get("proxy_pool_id")
+    if not pool_id:
+        return None
+    pool = get_proxy_pool(pool_id)
+    if pool and pool.get("enabled"):
+        return pool.get("proxy_url")
+    return None
+
+
 # ── monitor_events CRUD ───────────────────────────────────
+
+def add_provider_scheduler_run(
+    provider_id: int | None,
+    provider_name: str | None,
+    job_type: str,
+    status: str,
+    raw_count: int = 0,
+    valid_count: int = 0,
+    message: str | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    duration_ms: int | None = None,
+) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO provider_scheduler_runs
+               (provider_id, provider_name, job_type, status, raw_count, valid_count, message, started_at, finished_at, duration_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (provider_id, provider_name, job_type, status, raw_count, valid_count, message, started_at or now_iso(), finished_at, duration_ms),
+        )
+        return cur.lastrowid
+
+
+def list_provider_scheduler_runs(limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM provider_scheduler_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 def create_event(account_id: int, account_name: str) -> int:
     with get_connection() as conn:
@@ -851,6 +1837,100 @@ def _decrypt_webhook(encrypted: str | None) -> str | None:
         return encrypted  # 解密失败时返回原始值（可能已损坏）
 
 
+# ── config_json 敏感字段加密 ─────────────────────────────────
+
+# 已知敏感字段名列表（匹配测试期望）
+_SECRET_FIELD_NAMES = frozenset(["password", "auth_secret", "api_key", "secret", "token"])
+
+
+def _encrypt_config_value(value: str) -> str:
+    """Fernet 加密单个字符串值，返回 'enc:<base64>' 格式。"""
+    if not value:
+        return value
+    if value.startswith("enc:"):
+        return value
+    key = _get_webhook_enc_key()
+    from cryptography.fernet import Fernet
+    return "enc:" + Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_config_value(value: str) -> str:
+    """Fernet 解密单个字符串值，非加密值或解密失败原样返回。"""
+    if not value:
+        return value
+    if not value.startswith("enc:"):
+        return value
+    try:
+        key = _get_webhook_enc_key()
+        from cryptography.fernet import Fernet
+        return Fernet(key).decrypt(value[4:].encode("utf-8")).decode("utf-8")
+    except Exception:
+        return value
+
+
+def _encrypt_config_secrets(cfg: dict) -> dict:
+    """递归加密 config_json 中的敏感字符串字段（不修改非字符串值）。"""
+    if not isinstance(cfg, dict):
+        return cfg
+    result = {}
+    for k, v in cfg.items():
+        if isinstance(v, str) and k.lower() in _SECRET_FIELD_NAMES:
+            result[k] = _encrypt_config_value(v)
+        elif isinstance(v, dict):
+            result[k] = _encrypt_config_secrets(v)
+        elif isinstance(v, list):
+            result[k] = [
+                _encrypt_config_value(item) if isinstance(item, str) and k.lower() in _SECRET_FIELD_NAMES else item
+                for item in v
+            ]
+        else:
+            result[k] = v
+    return result
+
+
+def _decrypt_config_secrets(cfg: dict) -> dict:
+    """递归解密 config_json 中的敏感字符串字段。"""
+    if not isinstance(cfg, dict):
+        return cfg
+    result = {}
+    for k, v in cfg.items():
+        if isinstance(v, str) and (v.startswith("enc:") or k.lower() in _SECRET_FIELD_NAMES):
+            result[k] = _decrypt_config_value(v)
+        elif isinstance(v, dict):
+            result[k] = _decrypt_config_secrets(v)
+        elif isinstance(v, list):
+            result[k] = [_decrypt_config_value(item) if isinstance(item, str) else item for item in v]
+        else:
+            result[k] = v
+    return result
+
+
+def _merge_masked_config_secrets(new_cfg, old_cfg):
+    """将前端回传的 '***' 敏感占位符替换为旧配置中的真实值。"""
+    if isinstance(new_cfg, dict):
+        old_map = old_cfg if isinstance(old_cfg, dict) else {}
+        result = {}
+        for k, v in new_cfg.items():
+            old_v = old_map.get(k)
+            if (
+                isinstance(v, str)
+                and v == "***"
+                and k.lower() in _SECRET_FIELD_NAMES
+                and old_v is not None
+            ):
+                result[k] = old_v
+            else:
+                result[k] = _merge_masked_config_secrets(v, old_v)
+        return result
+    if isinstance(new_cfg, list):
+        old_list = old_cfg if isinstance(old_cfg, list) else []
+        return [
+            _merge_masked_config_secrets(item, old_list[idx] if idx < len(old_list) else None)
+            for idx, item in enumerate(new_cfg)
+        ]
+    return new_cfg
+
+
 # 确保 app_state 表存在（懒创建）
 def ensure_app_state_table() -> None:
     """兼容旧代码：app_state 表已移入 schema.sql，此函数无操作"""
@@ -872,7 +1952,6 @@ def backup_db() -> str | None:
     backup_path = os.path.join(backup_dir, f"monitor_{ts}.db")
 
     try:
-        import shutil
         # 备份时排除 api_keys 表以防明文 Key 泄露
         conn_backup = sqlite3.connect(backup_path)
         conn_src = sqlite3.connect(_DB_PATH)

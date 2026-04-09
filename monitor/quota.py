@@ -174,29 +174,58 @@ def _mask_key(key: str) -> str:
     return key[:4] + "••••••••" + key[-4:]
 
 
-def send_alert(api_key_value: str, usage: dict, budget: int, webhook_url: str | None) -> None:
-    """发送 quota 耗尽报警"""
+def build_quota_alert_payload(
+    platform: str,
+    api_key_value: str,
+    usage: dict,
+    budget: int,
+) -> dict:
+    """
+    按通知平台构造 Quota 告警 JSON 体（与 notifier 各机器人协议一致）。
+    platform: feishu | dingtalk | wecom
+    """
+    percent = int(usage["api_calls"] / budget * 100) if budget > 0 else 100
+    text = (
+        f"[预警] YouTube API Quota\n\n"
+        f"API Key: `{_mask_key(api_key_value)}`\n"
+        f"今日已用: {usage['api_calls']} / {budget} ({percent}%)\n"
+        f"扫描次数: {usage['scans_done']} 次\n"
+        f"已阻止: {usage['blocked_scans']} 次\n"
+        f"时间: {usage.get('updated_at', 'N/A')}"
+    )
+    if platform == "dingtalk":
+        return {"msgtype": "text", "text": {"content": text}}
+    if platform == "wecom":
+        return {"msgtype": "text", "text": {"content": text}}
+    # feishu 及未知平台：飞书 webhook v2 文本
+    return {"msg_type": "text", "content": {"text": text}}
+
+
+def send_alert(
+    api_key_value: str,
+    usage: dict,
+    budget: int,
+    webhook_url: str | None,
+    *,
+    platform: str = "feishu",
+    dingtalk_sign_secret: str | None = None,
+) -> None:
+    """发送 Quota 预警/耗尽告警。消息体按 platform 区分；钉钉 URL 支持加签。"""
     if not webhook_url:
         return
     import json
-    percent = int(usage["api_calls"] / budget * 100) if budget > 0 else 100
-    msg = {
-        "msg_type": "text",
-        "content": {
-            "text": (
-                f"⚠️ YouTube API Quota 预警\n\n"
-                f"API Key: `{_mask_key(api_key_value)}`\n"
-                f"今日已用: {usage['api_calls']} / {budget} ({percent}%)\n"
-                f"扫描次数: {usage['scans_done']} 次\n"
-                f"已阻止: {usage['blocked_scans']} 次\n"
-                f"时间: {usage.get('updated_at', 'N/A')}"
-            )
-        }
-    }
+
+    from monitor import notifier as _notifier
+
+    post_url = webhook_url
+    if platform == "dingtalk":
+        post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+
+    msg = build_quota_alert_payload(platform, api_key_value, usage, budget)
     try:
         import urllib.request
         req = urllib.request.Request(
-            webhook_url,
+            post_url,
             data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",

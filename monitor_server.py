@@ -6,6 +6,7 @@ REST API 后端 + 静态文件服务
     python monitor_server.py              # 启动 Web UI
     python monitor_server.py --port 8765  # 指定端口
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 from pathlib import Path
@@ -32,16 +33,18 @@ if _PROJECT_ROOT not in sys.path:
 
 import monitor.db as _db
 import monitor.scheduler as _scheduler
+import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
 from Youtube_Downloader import batch_download, build_aria2_opts
+from monitor.dynamic_provider_resolver import resolve_for_manual_download, log_download_decision
 
 _log = logging_config.get_logger("monitor_server")
 
-# ── 速率限制器（每 IP 每分钟 60 次请求）─────────────────────────
+# ── 速率限制器（每 IP 每分钟 N 次请求；本机回环默认豁免，见 _check_rate_limit）──
 _RATE_LIMIT_WINDOW = 60  # 秒
-_RATE_LIMIT_MAX = 60     # 每窗口最大请求数
+_RATE_LIMIT_MAX = 600    # 非回环客户端每窗口上限（仪表盘 + 多弹窗轮询仍可能触顶）
 _rate_limiter: dict[str, collections.deque] = {}
 _rate_limiter_lock = threading.Lock()
 
@@ -142,18 +145,23 @@ else:
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 
-import re
-
 _YOUTUBE_URL_RE = re.compile(
     r"^https://(www\.)?(youtube\.com|youtu\.be)/"
 )
+_YOUTUBE_HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{3,100}$")
+_YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{20,40}$")
 
 
 def _is_valid_youtube_url(url: str) -> bool:
-    """验证 URL 是否为合法的 YouTube URL（防 javascript: 等伪协议注入）"""
+    """验证频道输入是否合法：支持 @handle、UC 频道 ID 或完整 YouTube URL（防 javascript: 等伪协议注入）"""
     if not url:
         return False
-    return _YOUTUBE_URL_RE.match(url) is not None
+    value = url.strip()
+    return (
+        _YOUTUBE_URL_RE.match(value) is not None
+        or _YOUTUBE_HANDLE_RE.match(value) is not None
+        or _YOUTUBE_CHANNEL_ID_RE.match(value) is not None
+    )
 
 
 class MonitorHandler(SimpleHTTPRequestHandler):
@@ -173,14 +181,32 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return origin
         return None
 
+    def _rate_limit_client_ip(self) -> str:
+        """客户端 IP（优先 X-Forwarded-For 首段）。"""
+        xff = self.headers.get("X-Forwarded-For", "")
+        return (xff.split(",")[0].strip() if xff else self.client_address[0]) or ""
+
+    def _rate_limit_exempt_loopback(self, ip: str) -> bool:
+        """本机访问不做全局限流（单用户监控台易与轮询叠加导致误伤 429）。"""
+        if not ip:
+            return False
+        ip = ip.strip()
+        if ip in ("127.0.0.1", "::1"):
+            return True
+        if ip.startswith("127."):
+            return True
+        if ip.startswith("::ffff:127."):
+            return True
+        return False
+
     def _check_rate_limit(self) -> bool:
         """
         速率限制：每 IP 每分钟最多 _RATE_LIMIT_MAX 次请求。
         返回 True 表示通过，False 表示触发限流（已发送 429）。
         """
-        # 获取真实 IP（优先 X-Forwarded-For）
-        xff = self.headers.get("X-Forwarded-For", "")
-        ip = xff.split(",")[0].strip() if xff else self.client_address[0]
+        ip = self._rate_limit_client_ip()
+        if self._rate_limit_exempt_loopback(ip):
+            return True
         now = time.time()
         with _rate_limiter_lock:
             if ip not in _rate_limiter:
@@ -204,6 +230,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 return False
             times.append(now)
         return True
+
+    def _path_skips_rate_limit(self, path: str) -> bool:
+        """不参与全局限流的路径（高频只读轮询；仅 do_GET 调用）。"""
+        if path.startswith("/api/download-tasks/"):
+            return True
+        if path in ("/api/provider-scheduler/logs", "/api/provider-scheduler/status"):
+            return True
+        return False
 
     def _send_json(self, data, status=200):
         """发送 JSON 响应（含 CORS headers）"""
@@ -253,22 +287,46 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return key_value[:4] + "••••••"
         return key_value[:4] + "••••••••" + key_value[-4:]
 
+    def _mask_proxy_url(self, url: str) -> str:
+        """返回代理 URL 的掩码版本（隐藏认证信息）"""
+        if not url:
+            return url
+        # 处理 user:pass@host:port 格式
+        try:
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(url)
+            if parsed.username:
+                netloc = f"***@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+        except Exception:
+            pass
+        # 回退：包含 @ 则说明有认证信息，掩码
+        if '@' in url:
+            scheme, rest = url.split('://', 1)
+            return f"{scheme}://***@{rest.split('@', 1)[1]}"
+        return url
+
     # ── HTTP 方法 ────────────────────────────────────────────
 
     def do_GET(self):
         path = self._path_only()
+        # 非 API 路径视为静态资源，匿名访问；路径安全由 translate_path() + resolve 边界保证
+        if not path.startswith("/api/"):
+            try:
+                super().do_GET()
+            except (ConnectionAbortedError, BrokenPipeError):
+                _log.warning("静态响应期间客户端中断连接: %s", path)
+            return
         # /api/status 是健康检查，跳过认证和限流
         if path == "/api/status":
             self._api_status()
             return
-        # 首页静态文件跳过认证
-        if path == "/" or path == "/index.html":
-            super().do_GET()
-            return
         # 其余所有 /api/* 均需认证和限流
         if not self._require_auth():
             return
-        if not self._check_rate_limit():
+        if not self._path_skips_rate_limit(path) and not self._check_rate_limit():
             return
         if path == "/api/accounts":
             self._api_accounts()
@@ -286,6 +344,22 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_quota()
         elif path == "/api/api-keys":
             self._api_api_keys_list()
+        elif path == "/api/proxy-pools":
+            self._api_proxy_pools_list()
+        elif path == "/api/dynamic-providers":
+            self._api_dynamic_providers_list()
+        elif path == "/api/provider-scheduler/status":
+            self._api_provider_scheduler_status()
+        elif path == "/api/provider-scheduler/logs":
+            self._api_provider_scheduler_logs()
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/candidates/preview"):
+            pid = path.split("/")[-3]
+            if pid.isdigit():
+                self._api_dynamic_provider_candidates_preview(int(pid))
+            else:
+                self._send_json({"error": "无效的提供方 ID"}, 400)
+        elif path == "/api/routing-preview":
+            self._api_routing_preview()
         elif path.startswith("/api/api-keys/"):
             parts = path.split("/")
             action = parts[-1]
@@ -304,7 +378,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         path = self._path_only()
-        if path == "/" or path == "/index.html":
+        # 非 API 路径视为静态资源，匿名访问
+        if not path.startswith("/api/"):
             super().do_HEAD()
             return
         if not self._require_auth():
@@ -338,6 +413,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_scheduler_stop()
         elif path == "/api/scheduler/reload":
             self._api_scheduler_reload()
+        elif path == "/api/provider-scheduler/start":
+            self._api_provider_scheduler_start()
+        elif path == "/api/provider-scheduler/stop":
+            self._api_provider_scheduler_stop()
+        elif path == "/api/provider-scheduler/reload":
+            self._api_provider_scheduler_reload()
+        elif path == "/api/provider-scheduler/run-once":
+            self._api_provider_scheduler_run_once()
         elif path == "/api/accounts":
             self._api_account_add(body)
         elif path == "/api/accounts/scan":
@@ -359,6 +442,32 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_cache_refresh(body)
         elif path == "/api/cache/clear":
             self._api_cache_clear()
+        elif path == "/api/proxy-pools":
+            self._api_proxy_pool_add(body)
+        elif path == "/api/dynamic-providers":
+            self._api_dynamic_provider_add(body)
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/update"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_update(int(pid), body)
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/health-check"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_health_check(int(pid))
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/refresh"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_dynamic_provider_refresh(int(pid))
+        elif path.startswith("/api/dynamic-providers/") and path.endswith("/cooldown/clear"):
+            pid = path.split("/")[-3]
+            if pid.isdigit():
+                self._api_dynamic_provider_cooldown_clear(int(pid))
+        elif path == "/api/system/shutdown":
+            self._api_system_shutdown()
+        elif path.startswith("/api/proxy-pools/") and path.endswith("/update"):
+            pid = path.split("/")[-2]
+            if pid.isdigit():
+                self._api_proxy_pool_update(int(pid), body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -387,6 +496,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/cache/"):
             handle = path.split("/api/cache/", 1)[-1]
             self._api_cache_delete(handle)
+        elif path.startswith("/api/proxy-pools/"):
+            pid = path.split("/")[-1]
+            if pid.isdigit():
+                self._api_proxy_pool_delete(int(pid))
+        elif path.startswith("/api/dynamic-providers/"):
+            pid = path.split("/")[-1]
+            if pid.isdigit():
+                self._api_dynamic_provider_delete(int(pid))
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -406,6 +523,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         next_runs = _scheduler.get_next_run_times() if is_running else []
         self._send_json({"running": is_running, "next_runs": next_runs})
 
+    def _api_system_shutdown(self):
+        """POST /api/system/shutdown — 安全关闭当前 Web UI 进程（需 Bearer token）"""
+        self._send_json({"ok": True, "message": "server shutting down"})
+        threading.Thread(target=self.server.shutdown, daemon=True, name="monitor-server-shutdown").start()
+
     def _api_accounts(self):
         accounts = _db.list_accounts()
         result = [{
@@ -413,7 +535,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "name": a["name"],
             "channel_url": a["channel_url"],
             "api_key_env": a["api_key_env"],
-            "api_key_id": a.get("api_key_id"),   # 新增
+            "api_key_id": a.get("api_key_id"),
             "fetch_mode": a["fetch_mode"],
             "fetch_limit": a["fetch_limit"],
             "scan_interval": a["scan_interval"],
@@ -424,6 +546,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "feishu_message_mode": a.get("feishu_message_mode", "card_json"),
             "feishu_template_id": a.get("feishu_template_id") or "",
             "feishu_scan_template_id": a.get("feishu_scan_template_id") or "",
+            "proxy_pool_id": a.get("proxy_pool_id"),
+            "proxy_enabled": bool(a.get("proxy_enabled", 0)),
+            "download_proxy_mode": a.get("download_proxy_mode", "auto"),
         } for a in accounts]
         self._send_json(result)
 
@@ -479,9 +604,22 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                enable_aria2, default_sub_langs, default_api_key_id
         """
         cfg = _db.load_config()
-        for key in ["global_feishu_url", "global_dingtalk_url", "global_wecom_url",
-                    "quota_budget_per_day", "download_cookies_file", "download_output_path",
-                    "enable_aria2", "default_sub_langs", "default_api_key_id"]:
+        for key in [
+            "global_feishu_url", "global_dingtalk_url", "global_dingtalk_sign_secret", "global_wecom_url",
+            "quota_budget_per_day", "download_cookies_file", "download_output_path",
+            "enable_aria2", "default_sub_langs", "default_api_key_id",
+            # 系统默认动态代理配置
+            "system_dynamic_proxy_enabled", "apply_dynamic_proxy_to_new_accounts",
+            "apply_dynamic_proxy_to_existing_accounts", "manual_download_route_policy",
+            "auto_download_route_policy", "allow_free_proxy",
+            "allow_free_proxy_for_auto_download", "allow_free_proxy_with_cookies",
+            "manual_direct_fallback", "auto_direct_fallback",
+            "default_proxy_country_codes", "default_proxy_protocol_order",
+            "default_session_mode", "default_sticky_minutes",
+            "candidate_prefetch_count", "candidate_validate_count",
+            "validated_pool_ttl_seconds", "provider_cooldown_seconds",
+            "proxy_probe_timeout_seconds", "mask_proxy_in_logs",
+        ]:
             if key in body:
                 cfg[key] = body[key]
         # 校验 default_api_key_id 引用有效性
@@ -491,9 +629,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not ak:
                 self._send_json({"error": f"指定的默认 API Key (id={default_key_id}) 不存在"}, 400)
                 return
-        _db.save_config(cfg)
+        try:
+            _db.save_config(cfg)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
         _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
+        _scheduler.set_global_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret") or None)
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
         _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})
@@ -511,6 +654,30 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         n = _scheduler.reload_jobs()
         self._send_json({"ok": True, "active_jobs": n})
 
+    def _api_provider_scheduler_status(self):
+        running = _provider_scheduler.is_running()
+        next_runs = _provider_scheduler.get_next_run_times() if running else []
+        self._send_json({"running": running, "next_runs": next_runs})
+
+    def _api_provider_scheduler_logs(self):
+        self._send_json(_db.list_provider_scheduler_runs())
+
+    def _api_provider_scheduler_start(self):
+        ok = _provider_scheduler.start()
+        self._send_json({"ok": ok})
+
+    def _api_provider_scheduler_stop(self):
+        ok = _provider_scheduler.stop()
+        self._send_json({"ok": ok})
+
+    def _api_provider_scheduler_reload(self):
+        n = _provider_scheduler.reload_jobs()
+        self._send_json({"ok": True, "active_jobs": n})
+
+    def _api_provider_scheduler_run_once(self):
+        result = _provider_scheduler.run_once()
+        self._send_json(result)
+
     def _api_account_add(self, body):
         try:
             # 基础验证
@@ -522,7 +689,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "频道 URL 不能为空"}, 400)
                 return
             if not _is_valid_youtube_url(channel_url):
-                self._send_json({"error": "频道 URL 必须为合法的 YouTube URL（以 https://www.youtube.com/ 或 https://youtu.be/ 开头）"}, 400)
+                self._send_json({"error": "频道 URL 必须为合法的 YouTube URL、@handle 或 UC 频道 ID"}, 400)
                 return
 
             account_id = body.get("id")
@@ -531,6 +698,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             api_key_id_param = None  # None = _UNSET (不修改)
             if api_key_id_val is not None:
                 api_key_id_param = int(api_key_id_val) if api_key_id_val else None
+
+            # proxy_pool_id: None=清空, 0=清空, >0=指定池, absent=_UNSET(不修改)
+            proxy_pool_id_val = body.get("proxy_pool_id")
+            proxy_pool_id_param = None
+            if proxy_pool_id_val is not None:
+                proxy_pool_id_param = int(proxy_pool_id_val) if proxy_pool_id_val else None
 
             if account_id:
                 # 编辑模式 → UPDATE
@@ -550,6 +723,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
                     api_key_id=api_key_id_param,
+                    proxy_pool_id=proxy_pool_id_param,
+                    proxy_enabled=bool(body.get("proxy_enabled")) if "proxy_enabled" in body else None,
+                    download_proxy_mode=body.get("download_proxy_mode", "auto"),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -570,6 +746,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
                     api_key_id=api_key_id_param,
+                    proxy_pool_id=proxy_pool_id_param,
+                    proxy_enabled=bool(body.get("proxy_enabled", False)),
+                    download_proxy_mode=body.get("download_proxy_mode", "auto"),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -709,6 +888,437 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             _log.error("API Key 删除异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
 
+    # ── 代理池 CRUD ──────────────────────────────────────────
+
+    def _api_proxy_pools_list(self):
+        """GET /api/proxy-pools — 列出所有代理池（URL 已掩码，不含认证信息）"""
+        pools = _db.list_proxy_pools()
+        result = [{
+            "id": p["id"],
+            "name": p["name"],
+            "proxy_url": self._mask_proxy_url(p["proxy_url"]),
+            "enabled": bool(p["enabled"]),
+            "created_at": p["created_at"],
+        } for p in pools]
+        self._send_json(result)
+
+    def _api_proxy_pool_add(self, body):
+        """POST /api/proxy-pools — 新增代理池"""
+        try:
+            name = body.get("name", "").strip()
+            proxy_url = body.get("proxy_url", "").strip()
+            if not name or not proxy_url:
+                self._send_json({"error": "名称和代理地址均不能为空"}, 400)
+                return
+            pool_id = _db.add_proxy_pool(name, proxy_url)
+            self._send_json({"ok": True, "id": pool_id})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("代理池操作异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_proxy_pool_update(self, pool_id: int, body):
+        """PUT /api/proxy-pools/{id}/update — 更新代理池"""
+        try:
+            name = body.get("name", "").strip() or None
+            proxy_url = body.get("proxy_url", "").strip() or None
+            enabled = bool(body.get("enabled")) if "enabled" in body else None
+            if proxy_url is not None and not proxy_url:
+                self._send_json({"error": "代理地址不能为空"}, 400)
+                return
+            _db.update_proxy_pool(pool_id, name=name, proxy_url=proxy_url, enabled=enabled)
+            self._send_json({"ok": True})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception:
+            _log.error("代理池更新异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_proxy_pool_delete(self, pool_id: int):
+        """DELETE /api/proxy-pools/{id} — 删除代理池"""
+        try:
+            accounts = [a for a in _db.list_accounts() if a.get("proxy_pool_id") == pool_id]
+            affected = [{"id": a["id"], "name": a["name"]} for a in accounts]
+            _db.delete_proxy_pool(pool_id)
+            self._send_json({"ok": True, "affected_accounts": affected})
+        except Exception:
+            _log.error("代理池删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    # ── Dynamic Proxy Provider API ──────────────────────────────
+
+    def _api_dynamic_providers_list(self):
+        """GET /api/dynamic-providers — 列出所有动态代理提供方"""
+        providers = _db.list_dynamic_proxy_providers()
+        result = []
+        for p in providers:
+            cfg = p.get("config_json", {}) or {}
+            preview = dict(cfg)
+            if "password" in preview:
+                preview["password"] = "***"
+            if "auth_secret" in preview:
+                preview["auth_secret"] = "***"
+            if "api_key" in preview:
+                preview["api_key"] = "***"
+
+            cooldown_until = p.get("cooldown_until")
+            is_in_cooldown = False
+            if cooldown_until:
+                try:
+                    cooldown_dt = datetime.fromisoformat(cooldown_until)
+                    now_dt = datetime.now(cooldown_dt.tzinfo) if cooldown_dt.tzinfo else datetime.now()
+                    is_in_cooldown = cooldown_dt > now_dt
+                except Exception:
+                    is_in_cooldown = False
+
+            status_map = {
+                "healthy": "可用",
+                "degraded": "降级",
+                "auth_error": "认证失败",
+                "down": "不可用",
+                "not_started": "未启动",
+            }
+            status_text = "冷却中" if is_in_cooldown else status_map.get(p.get("last_health_status") or "", "未知")
+
+            capabilities = []
+            if p.get("supports_cookies"):
+                capabilities.append("Cookie 下载可用")
+            if p.get("supports_auto_download"):
+                capabilities.append("自动下载可用")
+            if p.get("supports_country_filter"):
+                capabilities.append("支持国家筛选")
+            if p.get("supports_sticky_session"):
+                capabilities.append("支持粘性会话")
+
+            masked_preview = None
+            if p.get("adapter_type") == "rotating_gateway":
+                protocol = cfg.get("protocol", "http")
+                gateway_host = cfg.get("gateway_host")
+                gateway_port = cfg.get("gateway_port")
+                username = cfg.get("username", "")
+                if gateway_host and gateway_port:
+                    raw_url = f"{protocol}://{username + ':***@' if username else ''}{gateway_host}:{gateway_port}"
+                    masked_preview = _db.mask_proxy_url(raw_url)
+            elif p.get("adapter_type") == "local_gateway":
+                local_proxy = cfg.get("local_proxy_url")
+                masked_preview = _db.mask_proxy_url(local_proxy) if local_proxy else None
+
+            result.append({
+                "id": p["id"],
+                "name": p["name"],
+                "enabled": bool(p["enabled"]),
+                "billing_tier": p.get("billing_tier", "free"),
+                "adapter_type": p.get("adapter_type", "public_feed"),
+                "priority": p.get("priority", 100),
+                "refresh_interval_minutes": p.get("refresh_interval_minutes", 0),
+                "supports_cookies": bool(p.get("supports_cookies")),
+                "supports_auto_download": bool(p.get("supports_auto_download")),
+                "supports_country_filter": bool(p.get("supports_country_filter")),
+                "supports_sticky_session": bool(p.get("supports_sticky_session")),
+                "risk_level": p.get("risk_level", "medium"),
+                "notes": p.get("notes") or "",
+                "config_json": preview,
+                "masked_preview": masked_preview,
+                "status_text": status_text,
+                "capabilities": capabilities,
+                "last_health_status": p.get("last_health_status") or "",
+                "last_health_checked_at": p.get("last_health_checked_at") or "",
+                "last_error_message": p.get("last_error_message") or "",
+                "is_in_cooldown": is_in_cooldown,
+                "created_at": p.get("created_at"),
+                "updated_at": p.get("updated_at"),
+            })
+        self._send_json(result)
+
+    def _api_dynamic_provider_add(self, body: dict):
+        """POST /api/dynamic-providers — 新增动态代理提供方"""
+        try:
+            name = body.get("name", "").strip()
+            if not name:
+                self._send_json({"error": "名称不能为空"}, 400)
+                return
+            provider_id = _db.add_dynamic_proxy_provider(
+                name=name,
+                billing_tier=body.get("billing_tier", "free"),
+                adapter_type=body.get("adapter_type", "public_feed"),
+                config_json=body.get("config_json") or {},
+                enabled=bool(body.get("enabled", True)),
+                priority=int(body.get("priority", 100)),
+                supports_cookies=bool(body.get("supports_cookies", False)),
+                supports_auto_download=bool(body.get("supports_auto_download", True)),
+                supports_country_filter=bool(body.get("supports_country_filter", False)),
+                supports_sticky_session=bool(body.get("supports_sticky_session", False)),
+                risk_level=body.get("risk_level", "medium"),
+                notes=body.get("notes") or None,
+                refresh_interval_minutes=int(body.get("refresh_interval_minutes") or 0),
+            )
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
+            self._send_json({"ok": True, "id": provider_id})
+        except Exception:
+            _log.error("动态代理提供方新增异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_update(self, provider_id: int, body: dict):
+        """POST /api/dynamic-providers/{id}/update — 更新动态代理提供方"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            update_kwargs = {}
+            if "name" in body:
+                update_kwargs["name"] = body["name"].strip()
+            if "enabled" in body:
+                update_kwargs["enabled"] = bool(body["enabled"])
+            if "billing_tier" in body:
+                update_kwargs["billing_tier"] = body["billing_tier"]
+            if "adapter_type" in body:
+                update_kwargs["adapter_type"] = body["adapter_type"]
+            if "priority" in body:
+                update_kwargs["priority"] = int(body["priority"])
+            if "supports_cookies" in body:
+                update_kwargs["supports_cookies"] = bool(body["supports_cookies"])
+            if "supports_auto_download" in body:
+                update_kwargs["supports_auto_download"] = bool(body["supports_auto_download"])
+            if "supports_country_filter" in body:
+                update_kwargs["supports_country_filter"] = bool(body["supports_country_filter"])
+            if "supports_sticky_session" in body:
+                update_kwargs["supports_sticky_session"] = bool(body["supports_sticky_session"])
+            if "refresh_interval_minutes" in body:
+                update_kwargs["refresh_interval_minutes"] = int(body["refresh_interval_minutes"])
+            if "risk_level" in body:
+                update_kwargs["risk_level"] = body["risk_level"]
+            if "notes" in body:
+                update_kwargs["notes"] = body["notes"] or None
+            if "config_json" in body:
+                update_kwargs["config_json"] = body["config_json"]
+            _db.update_dynamic_proxy_provider(provider_id, **update_kwargs)
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("动态代理提供方更新异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_delete(self, provider_id: int):
+        """DELETE /api/dynamic-providers/{id} — 删除动态代理提供方"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            _db.delete_dynamic_proxy_provider(provider_id)
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("动态代理提供方删除异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_health_check(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/health-check — 触发健康检查"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+
+            from monitor.provider_health import check_provider_health
+            result = check_provider_health(provider_id)
+
+            cfg = _db.load_config()
+            cooldown_seconds = cfg.get("provider_cooldown_seconds", 600)
+            cooldown_until: str | None = None
+            if result.status in ("down", "degraded"):
+                from datetime import timedelta
+                cooldown_until = (
+                    datetime.now().astimezone() + timedelta(seconds=cooldown_seconds)
+                ).isoformat(timespec="seconds")
+
+            _db.update_dynamic_proxy_provider(
+                provider_id,
+                last_health_status=result.status,
+                last_health_checked_at=_db.now_iso(),
+                last_error_message=result.error_message,
+                cooldown_until=cooldown_until,
+            )
+
+            self._send_json({
+                "ok": True,
+                "status": result.status,
+                "latency_ms": result.latency_ms,
+                "error_message": result.error_message,
+                "response_code": result.response_code,
+                "cooldown_until": cooldown_until,
+            })
+        except Exception:
+            _log.error("动态代理健康检查异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_candidates_preview(self, provider_id: int):
+        """GET /api/dynamic-providers/{id}/candidates/preview — 返回候选预览（掩码）"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            rows = _db.get_proxy_candidate_by_provider(provider_id, valid_only=False)
+            preview = []
+            status_counts: dict[str, int] = {}
+            latency_values: list[int] = []
+            score_values: list[float] = []
+            for row in rows[:10]:
+                preview.append({
+                    "id": row.get("id"),
+                    "candidate_key": row.get("candidate_key"),
+                    "protocol": row.get("protocol"),
+                    "host": row.get("host"),
+                    "port": row.get("port"),
+                    "masked_proxy_endpoint": row.get("masked_proxy_endpoint"),
+                    "last_probe_status": row.get("last_probe_status"),
+                    "score": row.get("score", 0.0),
+                })
+            for row in rows:
+                status = row.get("last_probe_status") or "unknown"
+                status_counts[status] = status_counts.get(status, 0) + 1
+                latency = row.get("latency_ms")
+                if isinstance(latency, int):
+                    latency_values.append(latency)
+                score = row.get("score")
+                if isinstance(score, (int, float)):
+                    score_values.append(float(score))
+            latency_summary = {
+                "count": len(latency_values),
+                "min_ms": min(latency_values) if latency_values else None,
+                "max_ms": max(latency_values) if latency_values else None,
+            }
+            score_summary = {
+                "count": len(score_values),
+                "min_score": min(score_values) if score_values else None,
+                "max_score": max(score_values) if score_values else None,
+            }
+            top_candidate = _db.pick_healthy_fastest_top_candidate(rows)
+            self._send_json({
+                "provider_id": provider_id,
+                "provider_name": existing.get("name", ""),
+                "preview": preview,
+                "total_count": len(rows),
+                "status_counts": status_counts,
+                "latency_summary": latency_summary,
+                "score_summary": score_summary,
+                "top_candidate": top_candidate,
+            })
+        except Exception:
+            _log.error("动态代理候选预览异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_refresh(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/refresh — 手动刷新 provider 候选"""
+        try:
+            existing = _db.get_dynamic_proxy_provider(provider_id)
+            if not existing:
+                self._send_json({"error": "提供方不存在"}, 404)
+                return
+            result = _scheduler.refresh_dynamic_provider(provider_id)
+            self._send_json(result)
+        except Exception:
+            _log.error("动态代理提供方手动刷新异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_dynamic_provider_cooldown_clear(self, provider_id: int):
+        """POST /api/dynamic-providers/{id}/cooldown/clear — 清除冷却"""
+        try:
+            _db.update_dynamic_proxy_provider(
+                provider_id,
+                cooldown_until=None,
+                last_health_status="healthy",
+                last_health_checked_at=_db.now_iso(),
+                last_error_message=None,
+            )
+            self._send_json({"ok": True})
+        except Exception:
+            _log.error("清除代理提供方冷却异常", exc_info=True)
+            self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_routing_preview(self):
+        """
+        GET /api/routing-preview — 预览下载路由决策（不触发实际下载）
+
+        Query params:
+            account_id   (int)   必填，账户 ID
+            auto         (0|1)   可选，默认 0（0=手动下载, 1=自动下载）
+            cookies      (0|1)   可选，默认 0（0=无cookie, 1=有cookie）
+            direct       (0|1)   可选，默认 0（0=正常路由, 1=强制直连）
+
+        Returns the ProxyRouteResult fields so the caller can preview
+        what proxy will be used before triggering a download.
+        """
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+
+        try:
+            raw_account_id = params.get("account_id", [None])[0]
+            if raw_account_id in (None, "", "0"):
+                raise ValueError("missing")
+            account_id = int(raw_account_id)
+        except (ValueError, TypeError):
+            self._send_json({"error": "account_id 必填且必须为整数"}, 400)
+            return
+
+        is_auto_download = params.get("auto", ["0"])[0] in ("1", "true")
+        cookies_present = params.get("cookies", ["0"])[0] in ("1", "true")
+        user_forced_direct = params.get("direct", ["0"])[0] in ("1", "true")
+
+        account = _db.get_account(account_id)
+        if not account:
+            self._send_json({"error": "账户不存在"}, 404)
+            return
+
+        if user_forced_direct:
+            from monitor.proxy_router import ProxyRouteResult
+            route = ProxyRouteResult(
+                resolved_mode="direct",
+                proxy=None,
+                proxy_pool=None,
+                provider_name=None,
+                provider_tier=None,
+                resolved_proxy_source="direct",
+                reason="用户显式指定直连",
+                warnings=[],
+                fallback_depth=0,
+                masked_proxy_endpoint=None,
+                session_mode=None,
+                cookies_file_present=cookies_present,
+            )
+        else:
+            from monitor.dynamic_provider_resolver import resolve_for_manual_download, resolve_for_auto_download
+            if is_auto_download:
+                route = resolve_for_auto_download(account_id)
+            else:
+                route = resolve_for_manual_download(account_id, cookies_present)
+
+        self._send_json({
+            "account_id": account_id,
+            "account_name": account.get("name", ""),
+            "download_proxy_mode": account.get("download_proxy_mode", "auto"),
+            "is_auto_download": is_auto_download,
+            "cookies_present": cookies_present,
+            "user_forced_direct": user_forced_direct,
+            "routing": {
+                "resolved_mode": route.resolved_mode,
+                "resolved_proxy_source": route.resolved_proxy_source,
+                "provider_name": route.provider_name,
+                "provider_tier": route.provider_tier,
+                "masked_proxy_endpoint": route.masked_proxy_endpoint,
+                "session_mode": route.session_mode,
+                "fallback_depth": route.fallback_depth,
+                "reason": route.reason,
+                "warnings": route.warnings,
+            },
+        })
+
     def _api_account_videos(self, acc_id: str):
         """GET /api/accounts/{id}/videos — 分页查询账户视频"""
         try:
@@ -806,20 +1416,105 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "视频记录中无有效 URL"}, 400)
             return
 
+        # ── 统一代理解析（替换旧的 proxy = _db.get_account_proxy()）───
+        account = _db.get_account(int(acc_id))
+        if not account:
+            self._send_json({"error": "账户不存在"}, 404)
+            return
+
+        # user_forced_direct: 允许请求体传 direct=true 强制直连
+        user_forced_direct = bool(body.get("direct", False))
+
+        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
+        if cookies_file and not os.path.isfile(cookies_file):
+            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
+            cookies_file = None
+        cookies_present = bool(cookies_file)
+
+        # Resolve proxy using unified routing
+        route = resolve_for_manual_download(int(acc_id), cookies_present)
+
+        # Override with user_forced_direct if specified
+        if user_forced_direct:
+            from monitor.proxy_router import ProxyRouteResult
+            route = ProxyRouteResult(
+                resolved_mode="direct",
+                proxy=None,
+                proxy_pool=None,
+                provider_name=None,
+                provider_tier=None,
+                resolved_proxy_source="direct",
+                reason="用户显式指定直连",
+                warnings=[],
+                fallback_depth=0,
+                masked_proxy_endpoint=None,
+                session_mode=None,
+                cookies_file_present=cookies_present,
+            )
+
+        # 手动下载：代理池/单代理试完后是否允许直连（与全局「手动下载直连兜底」一致）
+        direct_fallback_after_proxies = bool(cfg.get("manual_direct_fallback", True)) and not user_forced_direct
+
+        # Log the decision
+        log_download_decision(
+            route_result=route,
+            account_id=int(acc_id),
+            account_name=account.get("name", ""),
+            video_count=len(urls),
+            is_auto_download=False,
+        )
+
+        _log.info(
+            f"[Manual Download] account={acc_id} route={route.resolved_proxy_source} "
+            f"provider={route.provider_name or 'N/A'} reason={route.reason} "
+            f"proxy={route.masked_proxy_endpoint or 'direct'}"
+        )
+
+        # Handle routing failure
+        if route.resolved_mode == "failed":
+            self._send_json({
+                "ok": False,
+                "error": route.reason,
+                "routing": {
+                    "source": route.resolved_proxy_source,
+                    "provider": route.provider_name,
+                    "masked_endpoint": route.masked_proxy_endpoint,
+                    "reason": route.reason,
+                    "warnings": route.warnings,
+                    "session_mode": route.session_mode,
+                },
+            }, 400)
+            return
+
+        # Determine what to pass to batch_download
+        resolved_proxy: str | None = None
+        resolved_proxy_pool: list[str] | None = None
+        if route.resolved_proxy_source == "direct":
+            resolved_proxy = None
+        elif route.resolved_proxy_source == "account_static":
+            resolved_proxy = route.proxy
+        elif route.resolved_proxy_source in ("system_paid", "system_free"):
+            # proxy_pool takes priority over proxy for dynamic providers
+            if route.proxy_pool:
+                resolved_proxy_pool = route.proxy_pool
+            else:
+                resolved_proxy = route.proxy
+
         task_id = _task_mgr.create_task(video_records, abs_output)
-        _log.info(f"创建下载任务: task_id={task_id} 视频数={len(urls)} 输出={abs_output}")
+        _log.info(
+            f"创建下载任务: task_id={task_id} 视频数={len(urls)} "
+            f"输出={abs_output} 路由={route.resolved_proxy_source}"
+            f"{' [proxy]' if resolved_proxy else ''}"
+            f"{' [proxy_pool]' if resolved_proxy_pool else ''}"
+        )
 
         _db.update_videos_download_status(video_ids, "downloading")
 
         sub_langs = body.get("sub_langs")   # Web UI 显式传入，未传则不下载字幕
         no_subs = body.get("no_subs", True)  # 默认不下载字幕（避免 WhisperX 拖慢）
-        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
-        # cookies_file 存在性校验（不存在时 yt-dlp 静默跳过，但给出提示）
-        if cookies_file and not os.path.isfile(cookies_file):
-            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
-            cookies_file = None
         enable_aria2 = bool(cfg.get("enable_aria2", False))
-        extra_ydl_opts = build_aria2_opts() if enable_aria2 else None
+        # 代理由 batch_download 每轮注入；此处仅用占位构建 aria2 骨架，避免与动态池首包不一致
+        extra_ydl_opts = build_aria2_opts(None) if enable_aria2 else None
 
         def _bg_download():
             try:
@@ -831,11 +1526,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     urls,
                     abs_output,
                     'best',
+                    proxy=resolved_proxy,
+                    proxy_pool=resolved_proxy_pool,
                     progress_callback=progress_cb,
                     sub_langs=sub_langs if not no_subs else None,
                     no_subs=no_subs,
                     cookies_file=cookies_file,
                     extra_ydl_opts=extra_ydl_opts,
+                    direct_fallback_after_proxies_exhausted=direct_fallback_after_proxies,
                 )
 
                 _task_mgr.finish_task(task_id, results)
@@ -878,7 +1576,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "ok": True,
             "task_id": task_id,
             "queued": len(urls),
+            "total": len(urls),
             "message": f"{len(urls)} 个视频已开始下载",
+            "routing": {
+                "source": route.resolved_proxy_source,
+                "provider": route.provider_name,
+                "provider_tier": route.provider_tier,
+                "masked_endpoint": route.masked_proxy_endpoint,
+                "reason": route.reason,
+                "warnings": route.warnings,
+                "session_mode": route.session_mode,
+            },
         })
 
     def _api_download_task_status(self, task_id: str):
