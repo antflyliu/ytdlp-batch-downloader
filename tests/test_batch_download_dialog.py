@@ -11,16 +11,16 @@ sys.path.insert(0, str(_ROOT))
 class TestBatchDownloadDialogImports(unittest.TestCase):
     """验证 monitor_ui 导入不报错（含新增类）。"""
 
-    @patch("tkinter.Toplevel")
-    @patch("tkinter.Entry")
-    @patch("tkinter.Label")
-    @patch("tkinter.Frame")
-    @patch("tkinter.Canvas")
-    @patch("tkinter.Text")
-    @patch("tkinter.StringVar")
-    @patch("tkinter.BooleanVar")
-    @patch("tkinter.filedialog.askopenfilename")
-    @patch("tkinter.filedialog.askdirectory")
+    @patch("monitor_ui.tk.Toplevel")
+    @patch("monitor_ui.tk.Entry")
+    @patch("monitor_ui.tk.Label")
+    @patch("monitor_ui.tk.Frame")
+    @patch("monitor_ui.tk.Canvas")
+    @patch("monitor_ui.tk.Text")
+    @patch("monitor_ui.tk.StringVar")
+    @patch("monitor_ui.tk.BooleanVar")
+    @patch("monitor_ui.tk.filedialog.askopenfilename")
+    @patch("monitor_ui.tk.filedialog.askdirectory")
     def test_monitor_ui_imports_without_error(self, *args):
         # 重置模块以支持 re-import，确保 patches 生效后再 reload
         import importlib

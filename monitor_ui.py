@@ -19,9 +19,10 @@ import threading
 import time
 import webbrowser
 from datetime import datetime
+from pathlib import Path
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 # 添加项目根目录
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -673,6 +674,7 @@ class MonitorPage:
         for btn_text, cmd, color in [
             ("全局设置", self._open_global_config, c["surface2"]),
             ("代理池", self._open_proxy_pools, c["surface2"]),
+            ("批量下载", self._open_batch_download, c["surface2"]),
             ("+ 添加账户", self._add_account, c["accent"]),
         ]:
             b = tk.Label(btn_frame, text=btn_text, bg=color, fg=c["text"] if color != c["accent"] else "#ffffff",
@@ -1042,6 +1044,9 @@ class MonitorPage:
     def _open_proxy_pools(self):
         ProxyPoolDialog(self.parent)
 
+    def _open_batch_download(self):
+        BatchDownloadDialog(self.parent, self.c)
+
     def _append_log(self, msg: str):
         line = f"[{_now_str()}] {msg}"
         self._log_lines.append(line)
@@ -1141,3 +1146,46 @@ if __name__ == "__main__":
     parser.add_argument("--force-restart", action="store_true", help="关闭旧的 Web UI 进程并重启")
     args = parser.parse_args()
     run_standalone(force_restart=args.force_restart)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  批量下载弹窗
+# ═══════════════════════════════════════════════════════════════
+
+class BatchDownloadDialog(tk.Toplevel):
+    """
+    批量下载视频弹窗。
+
+    用法：
+        dialog = BatchDownloadDialog(parent, colors)
+        # 弹窗阻塞打开，关闭后返回
+    """
+
+    def __init__(self, parent, colors: dict | None = None):
+        super().__init__(parent)
+        self.c = colors or _COLORS
+        self.parent = parent
+        self._urls: list[str] = []
+        self._selected_file: str | None = None
+        self._state = "idle"  # idle | downloading | completed
+        self._completed = 0
+        self._failed = 0
+        self._total = 0
+        self._current_title = ""
+        self._log_entries: list[str] = []
+
+        self._build_ui()
+        self._populate_proxy_pools()
+        self._load_defaults()
+
+    def _build_ui(self):
+        """构建 UI。子类可 override 各子区域以实现细节。"""
+        raise NotImplementedError
+
+    def _populate_proxy_pools(self):
+        """填充代理池下拉列表。"""
+        raise NotImplementedError
+
+    def _load_defaults(self):
+        """从 config.json 加载默认值。"""
+        raise NotImplementedError
