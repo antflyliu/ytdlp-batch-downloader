@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YouTube 视频监控</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -1295,6 +1296,31 @@
     gap: 8px;
   }
 
+  /* 应用内确认框：z-index 高于其他业务模态（如在「动态代理」抽屉内触发） */
+  #modalAppConfirm.modal-overlay { z-index: 1100; }
+  /* 正文节奏参考 DESIGN.md：宽松行高、次要色层次（映射到深色主题的 --text-muted） */
+  #modalAppConfirm .modal-confirm-desc {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    white-space: pre-line;
+  }
+  /* DESIGN.md：Focus Blue 仅用于焦点环，与深色页上的 --accent 并存 */
+  #modalAppConfirm .btn:focus-visible,
+  #modalAppConfirm .modal-close:focus-visible {
+    outline: 2px solid #3898ec;
+    outline-offset: 2px;
+  }
+  /* 危险操作确认：与表格「删除」红色语义一致，略加强边框层次（DESIGN.md Error Crimson 映射） */
+  #modalAppConfirm.modal-app-confirm--danger > .modal {
+    border-color: rgba(239, 68, 68, 0.38);
+    box-shadow: var(--shadow), inset 0 0 0 1px rgba(239, 68, 68, 0.08);
+  }
+  #modalAppConfirm.modal-app-confirm--danger .modal-title {
+    color: #fecaca;
+  }
+
   /* ── 表单 ─────────────────────────────────────────────────── */
   .form-group {
     margin-bottom: 18px;
@@ -2048,6 +2074,103 @@
     background:
       radial-gradient(circle at top right, rgba(99,102,241,0.04), transparent 30%),
       linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
+    gap: 0;
+  }
+  /* 工作台主体：工具条 + 固定高度调度区 + 可滚动表格区（避免日志撑版） */
+  #modalDynamicProviders .modal-body > .dyn-toolbar-row {
+    flex-shrink: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-scheduler-split {
+    flex-shrink: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-table-shell {
+    flex: 1 1 0;
+    min-height: 140px;
+    overflow: auto;
+    margin-top: 0;
+  }
+  #modalDynamicProviders .modal-body > .dyn-empty {
+    flex: 1 1 auto;
+    min-height: 120px;
+  }
+  /* 最近调度执行 + 调度说明：等高、内部滚动（DESIGN.md 暖灰层次 → #b0aea5 / #f5f4ed） */
+  .dyn-scheduler-split {
+    margin: 14px 0 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.85fr);
+    gap: 14px;
+    align-items: stretch;
+    min-height: 220px;
+    height: min(340px, 38vh);
+    max-height: 420px;
+  }
+  .dyn-scheduler-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: rgba(18, 21, 35, 0.58);
+    border: 1px solid rgba(135, 134, 127, 0.16);
+    border-radius: 18px;
+    padding: 14px 16px;
+    box-shadow: 0 0 0 1px rgba(232, 230, 220, 0.04) inset;
+  }
+  .dyn-scheduler-card-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .dyn-scheduler-card-head--simple {
+    justify-content: flex-start;
+    margin-bottom: 0;
+  }
+  .dyn-scheduler-card-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
+  }
+  .dyn-scheduler-card-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .dyn-scheduler-card-scroll::-webkit-scrollbar-thumb {
+    background: rgba(135, 134, 127, 0.35);
+    border-radius: 999px;
+  }
+  #dynProviderSchedulerLogs.dyn-scheduler-card-scroll {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+  .dyn-scheduler-help-body {
+    padding-top: 8px;
+    font-size: 12px;
+    color: #b0aea5;
+    line-height: 1.65;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .dyn-scheduler-help-body strong {
+    color: #d6d3d1;
+    font-weight: 600;
+  }
+  @media (max-width: 640px) {
+    .dyn-scheduler-split {
+      grid-template-columns: 1fr;
+      height: auto;
+      max-height: none;
+      min-height: 0;
+    }
+    .dyn-scheduler-card {
+      max-height: min(280px, 42vh);
+    }
   }
   .dyn-section-title {
     font-size: 12px;
@@ -2897,6 +3020,23 @@
   </div>
 </div>
 
+<!-- 模态: 通用确认（替代原生 confirm，与现有 modal 组件一致） -->
+<div class="modal-overlay" id="modalAppConfirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" id="appConfirmTitle"></div>
+      <button type="button" class="modal-close" onclick="closeAppConfirm(false)" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body" style="padding-top:12px">
+      <p class="modal-confirm-desc" id="appConfirmBody"></p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="appConfirmCancelBtn" onclick="closeAppConfirm(false)">取消</button>
+      <button type="button" class="btn btn-primary" id="appConfirmPrimaryBtn" onclick="closeAppConfirm(true)">确定</button>
+    </div>
+  </div>
+</div>
+
 <!-- 模态: API Key 管理 -->
 <div class="modal-overlay" id="modalApiKeys">
   <div class="modal" style="max-width:760px">
@@ -3181,9 +3321,12 @@
                 协议优先级
                 <span class="setting-desc">按顺序尝试代理协议</span>
               </label>
-              <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="width:200px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+              <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="min-width:280px;max-width:100%;width:auto;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
+                <option value="http,https,socks5,socks4">HTTP → HTTPS → SOCKS5 → SOCKS4（推荐）</option>
                 <option value="http,https,socks5">HTTP → HTTPS → SOCKS5</option>
+                <option value="https,http,socks5,socks4">HTTPS → HTTP → SOCKS5 → SOCKS4</option>
                 <option value="https,http,socks5">HTTPS → HTTP → SOCKS5</option>
+                <option value="socks5,https,http,socks4">SOCKS5 → HTTPS → HTTP → SOCKS4</option>
                 <option value="socks5,https,http">SOCKS5 → HTTPS → HTTP</option>
               </select>
             </div>
@@ -3252,7 +3395,7 @@
       <div class="dyn-toolbar-row" style="align-items:stretch;gap:14px;flex-wrap:wrap">
         <div class="dyn-toolbar-left" style="flex:1 1 320px;display:block">
           <div style="font-family:Georgia,serif;font-size:18px;color:#f5f4ed;line-height:1.15;margin-bottom:6px">动态代理调度工作台</div>
-          <div style="font-size:12px;color:#9b9bb2;line-height:1.6;max-width:520px">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。</div>
+          <div style="font-size:12px;color:#9b9bb2;line-height:1.6;max-width:520px">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。<strong style="color:#c4c2bd;font-weight:600">Provider Scheduler 不会随页面打开自动启动</strong>，需点击「启动动态代理调度」。</div>
         </div>
         <div style="flex:1 1 260px;background:rgba(18,21,35,0.74);border:1px solid rgba(135,134,127,0.18);border-radius:18px;padding:14px 16px;box-shadow:0 0 0 1px rgba(232,230,220,0.04) inset">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
@@ -3274,9 +3417,9 @@
         </div>
       </div>
 
-      <div style="margin:14px 0 16px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:14px;align-items:start">
-        <div style="background:rgba(18,21,35,0.58);border:1px solid rgba(135,134,127,0.16);border-radius:18px;padding:14px 16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <div class="dyn-scheduler-split" role="region" aria-label="调度执行记录与说明">
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head">
             <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">最近调度执行</div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <div style="font-size:11px;color:#87867f">独立于 monitor_events</div>
@@ -3288,15 +3431,18 @@
               </select>
             </div>
           </div>
-          <div id="dynProviderSchedulerLogs" style="display:grid;gap:8px;max-height:320px;overflow-y:auto"></div>
+          <div id="dynProviderSchedulerLogs" class="dyn-scheduler-card-scroll"></div>
         </div>
-        <div style="background:rgba(18,21,35,0.58);border:1px solid rgba(135,134,127,0.16);border-radius:18px;padding:14px 16px">
-          <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed;margin-bottom:8px">调度说明</div>
-          <div style="font-size:12px;color:#b0aea5;line-height:1.65">
-            <div>• 仅 <strong>list_api / public_feed</strong> 等拉列表型提供方参与自动调度。</div>
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head dyn-scheduler-card-head--simple">
+            <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">调度说明</div>
+          </div>
+          <div class="dyn-scheduler-card-scroll dyn-scheduler-help-body">
+            <div>• 进程内只有 <strong>一个</strong> Provider Scheduler；各提供方以「定时任务」形式挂在上面，没有单独的「多个 Scheduler」列表。</div>
+            <div>• 仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）&gt; 0</strong> 的提供方会注册定时拉列表；否则启动后也只有每日 cleanup 等任务。</div>
             <div>• <strong>重载动态代理任务</strong> 只重建任务，不会立即调用外部 API。</div>
             <div>• <strong>立即刷新全部列表 API</strong> 会立刻执行一次批量 refresh。</div>
-            <div>• cleanup 会独立记录，不再混入账号监控事件。</div>
+            <div>• cleanup 会独立记录，不再混入账号监控事件；左侧「最近调度执行」即各任务运行历史。</div>
           </div>
         </div>
       </div>
@@ -3428,6 +3574,7 @@
               <option value="http">HTTP</option>
               <option value="https">HTTPS</option>
               <option value="socks5">SOCKS5</option>
+              <option value="socks4">SOCKS4</option>
             </select>
           </div>
         </div>
@@ -3456,6 +3603,14 @@
       <!-- 列表API配置（list_api / public_feed） -->
       <div id="dynListApiConfig" class="dyn-config-section" style="display:none">
         <div class="dyn-config-title">列表 API 配置</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label class="form-label" for="dynListApiAdapterName">列表解析适配器</label>
+          <select class="form-input" id="dynListApiAdapterName" title="持久化为 config_json.adapter_name">
+            <option value="">通用 JSON（GET + 结果路径/字段映射）</option>
+            <option value="geonode">Geonode 列表 API</option>
+          </select>
+          <div class="form-hint" style="margin-top:4px">Geonode 官方接口请选择「Geonode」；其它 JSON 接口可留空并配置结果路径。</div>
+        </div>
         <div class="dyn-form-row" style="margin-bottom:8px">
           <div class="form-group" style="margin-bottom:0;flex:1">
             <label class="form-label" for="dynListApiBaseUrl">API 地址</label>
@@ -3482,6 +3637,7 @@
               <option value="http">HTTP</option>
               <option value="https">HTTPS</option>
               <option value="socks5">SOCKS5</option>
+              <option value="socks4">SOCKS4</option>
             </select>
           </div>
         </div>
@@ -3674,13 +3830,28 @@
       },
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
-    const r = await fetch(API + path, opts);
+    let r;
+    try {
+      r = await fetch(API + path, opts);
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      return { error: '网络错误: ' + msg + '（若正在「刷新提供方」，可稍后再试；或确认本机监控服务已启动）', _fetchFailed: true };
+    }
     if (r.status === 401 && !_retry) {
       await ensureReauthAfter401();
       return api(method, path, body, true);
     }
     const text = await r.text();
-    try { return JSON.parse(text); } catch { return { error: text || '请求失败' }; }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { error: text || '请求失败', _httpStatus: r.status };
+    }
+    if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+      data._httpStatus = r.status;
+    }
+    return data;
   }
 
   // ── Toast ────────────────────────────────────────────────────
@@ -3725,6 +3896,9 @@
     }
   }
 
+  let _appConfirmResolve = null;
+  let _appConfirmEscHandler = null;
+
   function openModal(id) {
     document.getElementById(id).classList.add('show');
   }
@@ -3734,6 +3908,66 @@
       _vdEscHandler = null;
     }
     document.getElementById(id).classList.remove('show');
+  }
+
+  /**
+   * Promise 版确认框，替代 alert/confirm，样式与 .modal-overlay 一致。
+   * @param {{ title: string, message: string, confirmText?: string, cancelText?: string, variant?: 'primary'|'danger' }} options
+   */
+  function showAppConfirm(options) {
+    return new Promise((resolve) => {
+      if (_appConfirmResolve) {
+        const prev = _appConfirmResolve;
+        _appConfirmResolve = null;
+        prev(false);
+      }
+      _appConfirmResolve = resolve;
+      const titleEl = document.getElementById('appConfirmTitle');
+      const bodyEl = document.getElementById('appConfirmBody');
+      const primaryBtn = document.getElementById('appConfirmPrimaryBtn');
+      const cancelBtn = document.getElementById('appConfirmCancelBtn');
+      titleEl.textContent = options.title || '确认';
+      bodyEl.textContent = options.message || '';
+      primaryBtn.textContent = options.confirmText || '确定';
+      cancelBtn.textContent = options.cancelText || '取消';
+      const danger = options.variant === 'danger';
+      primaryBtn.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+      const appConfirmOverlay = document.getElementById('modalAppConfirm');
+      if (appConfirmOverlay) {
+        appConfirmOverlay.classList.toggle('modal-app-confirm--danger', danger);
+      }
+      if (_appConfirmEscHandler) {
+        document.removeEventListener('keydown', _appConfirmEscHandler);
+        _appConfirmEscHandler = null;
+      }
+      _appConfirmEscHandler = (e) => {
+        if (e.key === 'Escape') {
+          closeAppConfirm(false);
+        }
+      };
+      document.addEventListener('keydown', _appConfirmEscHandler);
+      openModal('modalAppConfirm');
+      requestAnimationFrame(() => {
+        try {
+          primaryBtn.focus();
+        } catch (e) { /* ignore */ }
+      });
+    });
+  }
+
+  function closeAppConfirm(confirmed) {
+    if (_appConfirmEscHandler) {
+      document.removeEventListener('keydown', _appConfirmEscHandler);
+      _appConfirmEscHandler = null;
+    }
+    const fn = _appConfirmResolve;
+    _appConfirmResolve = null;
+    const appConfirmEl = document.getElementById('modalAppConfirm');
+    if (appConfirmEl) appConfirmEl.classList.remove('modal-app-confirm--danger');
+    closeModal('modalAppConfirm');
+    if (fn) {
+      fn(!!confirmed);
+    }
   }
 
   function _resetScanNowState() {
@@ -3754,6 +3988,8 @@
       if (e.target === el && el.id !== 'modalVideoDetail') {
         if (el.id === 'modalScanConfirm') {
           closeScanConfirm();
+        } else if (el.id === 'modalAppConfirm') {
+          closeAppConfirm(false);
         } else {
           el.classList.remove('show');
         }
@@ -3815,6 +4051,21 @@
     const empty = document.getElementById('emptyAccounts');
     const tableWrap = document.querySelector('.table-wrap');
 
+    if (!Array.isArray(accounts)) {
+      const msg = (accounts && accounts.error) ? String(accounts.error) : '加载失败';
+      if (accounts && accounts._httpStatus === 429) {
+        toast('账户列表请求被限流，将随下次刷新重试', 'warning');
+      } else {
+        toast(msg, 'err');
+      }
+      tbody.innerHTML =
+        '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:20px">' +
+        esc(msg) + '</td></tr>';
+      empty.style.display = 'none';
+      tableWrap.style.display = 'block';
+      return;
+    }
+
     if (!accounts || accounts.length === 0) {
       tbody.innerHTML = '';
       empty.style.display = 'block';
@@ -3870,9 +4121,12 @@
 
   // ── 加载统计 ───────────────────────────────────────────────────
   async function loadStats() {
-    const stats = await api('GET', '/stats');
+    const [stats, quota] = await Promise.all([
+      api('GET', '/stats'),
+      api('GET', '/quota').catch(() => null),
+    ]);
     let totalScans = 0, totalNew = 0, lastScan = '—';
-    if (stats && stats.length > 0) {
+    if (Array.isArray(stats) && stats.length > 0) {
       totalScans = stats.reduce((s, r) => s + (r.total_scans || 0), 0);
       totalNew = stats.reduce((s, r) => s + (r.total_new_videos || 0), 0);
       const latest = stats.find(r => r.last_scan_at);
@@ -3880,13 +4134,12 @@
         ? fmtTime(latest.last_scan_at)
         : '从未';
     }
-    document.getElementById('statAccounts').textContent = stats ? stats.length : '0';
+    document.getElementById('statAccounts').textContent = Array.isArray(stats) ? String(stats.length) : '—';
     document.getElementById('statScans').textContent = totalScans;
     document.getElementById('statNew').textContent = totalNew;
     document.getElementById('statLast').textContent = lastScan;
 
     // ── Quota 展示 ────────────────────────────────────────────
-    const quota = await api('GET', '/quota').catch(() => null);
     if (quota && quota.items && quota.items.length > 0) {
       let totalUsed = 0, totalBudget = 0, totalScans = 0, blockedScans = 0;
       quota.items.forEach(q => {
@@ -3916,6 +4169,13 @@
   async function loadEvents() {
     const events = await api('GET', '/events?limit=20');
     const area = document.getElementById('logArea');
+    if (!Array.isArray(events)) {
+      area.innerHTML =
+        '<div class="log-line"><span class="log-time">—</span><span class="log-msg err">' +
+        esc((events && events.error) ? String(events.error) : '事件加载失败') +
+        '</span></div>';
+      return;
+    }
     if (!events || events.length === 0) {
       area.innerHTML = '<div class="log-line"><span class="log-time">—</span><span class="log-msg">暂无扫描记录</span></div>';
       return;
@@ -3935,7 +4195,7 @@
 
   // ── 刷新 ───────────────────────────────────────────────────────
   /**
-   * 串行队列：重叠的 refresh()（如 10s 定时与手动操作同时触发）依次执行，不丢弃后续周期。
+   * 串行队列：重叠的 refresh()（如定时与手动操作同时触发）依次执行，不丢弃后续周期。
    * 前一链 rejected 时仍用 .then(run, run) 接上下一次刷新。
    */
   let _refreshChain = Promise.resolve();
@@ -3997,7 +4257,12 @@
     const running = !!(status && status.running);
 
     if (running) {
-      const ok = confirm('停止动态代理调度？\n\n停止后，仅提供方 refresh / cleanup 任务会暂停；账号监控扫描不会受到影响。');
+      const ok = await showAppConfirm({
+        title: '停止动态代理调度？',
+        message: '停止后，仅提供方 refresh / cleanup 任务会暂停；账号监控扫描不会受到影响。',
+        confirmText: '停止',
+        variant: 'danger',
+      });
       if (!ok) return;
       const r = await api('POST', '/provider-scheduler/stop', {});
       if (r.ok !== false) {
@@ -4009,7 +4274,11 @@
       return;
     }
 
-    const ok = confirm('启动动态代理调度？\n\n启动后，将按提供方配置的刷新间隔执行列表拉取与候选清理。');
+    const ok = await showAppConfirm({
+      title: '启动动态代理调度？',
+      message: '启动后，将按提供方配置的刷新间隔执行列表拉取与候选清理。',
+      confirmText: '启动',
+    });
     if (!ok) return;
     const r = await api('POST', '/provider-scheduler/start', {});
     if (r.ok !== false) {
@@ -4027,7 +4296,11 @@
   }
 
   async function runDynamicProviderJobsOnce() {
-    const ok = confirm('立即刷新全部列表 API 提供方？\n\n这会立刻对所有启用的列表拉取型提供方执行一次 refresh。');
+    const ok = await showAppConfirm({
+      title: '立即刷新全部列表 API？',
+      message: '这会立刻对所有启用的列表拉取型提供方执行一次 refresh。',
+      confirmText: '立即刷新',
+    });
     if (!ok) return;
     const r = await api('POST', '/provider-scheduler/run-once', {});
     if (!r || r.error) {
@@ -4317,7 +4590,7 @@
     document.getElementById('vdSubToggle').checked = false;
     _updateVdSubLabelText();
     const accounts = await api('GET', '/accounts');
-    const acc = accounts && accounts.find(a => a.id === accId);
+    const acc = Array.isArray(accounts) ? accounts.find(a => a.id === accId) : null;
     document.getElementById('vdAccountName').textContent = acc ? '— ' + acc.name : '';
     // ESC 键关闭全屏视频详情
     _vdEscHandler = (e) => { if (e.key === 'Escape') closeModal('modalVideoDetail'); };
@@ -4333,11 +4606,27 @@
     const sortDir = document.getElementById('vdSortDir').value;
     const pageSize = parseInt(document.getElementById('vdPageSize').value, 10) || 20;
     const res = await api('GET', '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) + '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir + '&page=' + _vdPage + '&page_size=' + pageSize);
+    const tbody = document.getElementById('vdTbody');
+    if (!res || res.error || !Array.isArray(res.videos)) {
+      const msg = (res && res.error) ? String(res.error) : '加载失败';
+      if (res && res._httpStatus === 429) {
+        toast('请求过于频繁，请稍后再试或点击「搜索」重试', 'warning');
+      } else {
+        toast(msg, 'err');
+      }
+      document.getElementById('vdTotal').textContent = '共 — 条';
+      document.getElementById('vdPageInfo').textContent = '— / — 页';
+      document.getElementById('vdPrevBtn').disabled = true;
+      document.getElementById('vdNextBtn').disabled = true;
+      tbody.innerHTML =
+        '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px;line-height:1.6">' +
+        esc(msg) + '<br><span style="font-size:12px;opacity:.85">若为限流，等待约 1 分钟后点击「搜索」刷新。</span></td></tr>';
+      return;
+    }
     document.getElementById('vdTotal').textContent = '共 ' + res.total + ' 条';
     document.getElementById('vdPageInfo').textContent = res.page + ' / ' + res.pages + ' 页';
     document.getElementById('vdPrevBtn').disabled = res.page <= 1;
     document.getElementById('vdNextBtn').disabled = res.page >= res.pages;
-    const tbody = document.getElementById('vdTbody');
     if (!res.videos || res.videos.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
       return;
@@ -4428,8 +4717,10 @@
     _updateVdSelCount();
   }
   function _updateVdSelCount() {
-    document.getElementById('vdSelCount').textContent = _vdSel.size;
-    document.getElementById('vdBatchBtn').disabled = _vdSel.size === 0;
+    const n = document.getElementById('vdSelCount');
+    const b = document.getElementById('vdBatchBtn');
+    if (n) n.textContent = _vdSel.size;
+    if (b) b.disabled = _vdSel.size === 0;
   }
   let _vdDlPollTimer = null;
 
@@ -4448,7 +4739,7 @@
     if (_vdSel.size === 0) return;
     const btn = document.getElementById('vdBatchBtn');
     btn.disabled = true;
-    btn.textContent = '提交中...';
+    btn.innerHTML = '<span class="spinner"></span><span>提交中...</span>';
 
     const payload = Object.assign({ video_ids: Array.from(_vdSel) }, _getVdSubPayload());
     const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', payload);
@@ -4483,6 +4774,8 @@
     }
 
     _vdShowDlBar(r.task_id, r.queued);
+    btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+    btn.disabled = true;
     await vdLoad();
   }
 
@@ -4495,13 +4788,20 @@
     document.getElementById('vdDlStatus').textContent = '';
 
     if (_vdDlPollTimer) clearInterval(_vdDlPollTimer);
-    _vdDlPollTimer = setInterval(() => _vdPollDlTask(taskId, total), 2000);
+    _vdDlPollTimer = setInterval(() => _vdPollDlTask(taskId, total), 3000);
   }
 
   async function _vdPollDlTask(taskId, total) {
     try {
       const t = await api('GET', '/download-tasks/' + taskId);
-      if (t.error) { _vdDlDone('查询失败: ' + t.error); return; }
+      if (t.error) {
+        // 全局限流时不要结束任务：后台仍在下载，仅跳过本次 UI 更新
+        if (t._httpStatus === 429) {
+          return;
+        }
+        _vdDlDone('查询失败: ' + t.error);
+        return;
+      }
 
       const pct = total > 0 ? Math.round((t.completed / total) * 100) : 0;
       document.getElementById('vdDlLabel').textContent =
@@ -4616,7 +4916,7 @@
     if (Array.isArray(protoOrder)) {
       document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder.join(',');
     } else {
-      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder || 'http,https,socks5';
+      document.getElementById('cfg_default_proxy_protocol_order').value = protoOrder || 'http,https,socks5,socks4';
     }
     document.getElementById('cfg_default_session_mode').value = cfg.default_session_mode || 'sticky';
     document.getElementById('cfg_default_sticky_minutes').value = cfg.default_sticky_minutes || 10;
@@ -4647,7 +4947,7 @@
       allow_free_proxy_with_cookies: document.getElementById('cfg_allow_free_proxy_with_cookies').checked,
       manual_direct_fallback: document.getElementById('cfg_manual_direct_fallback').checked,
       auto_direct_fallback: document.getElementById('cfg_auto_direct_fallback').checked,
-      default_proxy_protocol_order: document.getElementById('cfg_default_proxy_protocol_order').value.split(','),
+      default_proxy_protocol_order: document.getElementById('cfg_default_proxy_protocol_order').value.split(',').map(s => s.trim()).filter(Boolean),
       default_session_mode: document.getElementById('cfg_default_session_mode').value,
       default_sticky_minutes: parseInt(document.getElementById('cfg_default_sticky_minutes').value) || 10,
       mask_proxy_in_logs: document.getElementById('cfg_mask_proxy_in_logs').checked,
@@ -5103,7 +5403,7 @@
 
   // ── 启动 ───────────────────────────────────────────────────────
   refresh();
-  setInterval(refresh, 10000); // 每 10 秒刷新
+  setInterval(refresh, 18000); // 每 18 秒刷新，降低与弹窗/下载轮询叠加压力
   // ── 动态代理提供方管理 ───────────────────────────────────────
   async function openDynamicProviders() {
     openModal('modalDynamicProviders');
@@ -5125,25 +5425,39 @@
       status = null;
     }
 
-    const running = !!(status && status.running);
-    const firstRun = running && status.next_runs && status.next_runs.length ? status.next_runs[0] : null;
+    const running = !!(status && status.running && !status.error);
+    const nextRuns = (status && Array.isArray(status.next_runs)) ? status.next_runs : [];
     if (running) {
-      hint.textContent = 'Provider scheduler 运行中：将按刷新间隔执行列表拉取与候选清理';
+      hint.textContent = 'Provider scheduler 运行中：将按下方各任务的下次时间执行列表拉取与候选清理';
       hint.style.color = '#b0aea5';
       badge.textContent = '运行中';
       badge.style.background = 'rgba(34,197,94,0.12)';
       badge.style.color = '#86efac';
       badge.style.borderColor = 'rgba(34,197,94,0.18)';
-      nextRun.textContent = '下一次执行：' + (firstRun ? `${firstRun.name} · ${firstRun.next_run}` : '等待任务注册');
+      if (nextRuns.length) {
+        const maxShow = 12;
+        const lines = nextRuns.slice(0, maxShow).map(j =>
+          '<div style="font-size:10px;color:#a8a29e;margin-top:3px;line-height:1.35">' +
+          esc(j.name || j.id || '') + ' · <span style="color:#d6d3d1">' + esc(j.next_run || '—') + '</span></div>'
+        ).join('');
+        const more = nextRuns.length > maxShow
+          ? '<div style="font-size:10px;color:#6b6a63;margin-top:4px">… 共 ' + nextRuns.length + ' 个已注册任务</div>'
+          : '';
+        nextRun.innerHTML = '<div style="font-size:11px;color:#87867f;margin-bottom:4px">已注册任务与下次执行</div>' + lines + more;
+      } else {
+        nextRun.textContent = '已启动，但未返回任务列表（可尝试重载动态代理任务）';
+      }
       btn.textContent = '停止动态代理调度';
     } else {
-      hint.textContent = 'Provider scheduler 未运行：刷新间隔不会自动生效';
+      hint.textContent = 'Provider scheduler 未运行：不会按「刷新间隔」自动拉列表';
       hint.style.color = '#b0aea5';
       badge.textContent = '未启动';
       badge.style.background = 'rgba(201,100,66,0.12)';
       badge.style.color = '#d97757';
       badge.style.borderColor = 'rgba(201,100,66,0.18)';
-      nextRun.textContent = '下一次执行：—';
+      nextRun.innerHTML =
+        '<div style="font-size:11px;color:#87867f;line-height:1.55">请先点击右侧 <strong style="color:#d6d3d1">启动动态代理调度</strong>。</div>' +
+        '<div style="font-size:10px;color:#6b6a63;line-height:1.55;margin-top:8px">启用 list_api / public_feed 后，在编辑提供方里把 <strong style="color:#a8a29e">刷新间隔（分钟）</strong> 设为大于 0 并保存；启动后若仍无定时拉取，可点 <strong style="color:#a8a29e">重载动态代理任务</strong>。</div>';
       btn.textContent = '启动动态代理调度';
     }
   }
@@ -5159,9 +5473,12 @@
     } catch (_) {
       rows = [];
     }
+    if (!Array.isArray(rows)) {
+      rows = [];
+    }
 
     const mode = filter ? filter.value : 'all';
-    const filtered = (rows || []).filter(r => {
+    const filtered = rows.filter(r => {
       if (mode === 'refresh') return r.job_type === 'refresh';
       if (mode === 'cleanup') return r.job_type === 'cleanup';
       if (mode === 'error') return r.status === 'error';
@@ -5262,14 +5579,18 @@
       sched = null;
       logs = [];
     }
+    if (!Array.isArray(logs)) {
+      logs = [];
+    }
+    const nextRunsList = sched && Array.isArray(sched.next_runs) ? sched.next_runs : [];
 
     const nextRunMap = {};
-    (sched && sched.next_runs || []).forEach(j => {
+    nextRunsList.forEach(j => {
       const m = /^provider_refresh_(\d+)$/.exec(j.id || '');
       if (m) nextRunMap[m[1]] = j.next_run;
     });
     const lastRefreshMap = {};
-    (logs || []).forEach(r => {
+    logs.forEach(r => {
       if (r.job_type !== 'refresh' || !r.provider_id) return;
       if (!lastRefreshMap[r.provider_id]) lastRefreshMap[r.provider_id] = r;
     });
@@ -5372,6 +5693,7 @@
     document.getElementById('dynSupportsStickySession').checked = true;
     document.getElementById('dynEnabled').checked = true;
     document.getElementById('dynNotes').value = '';
+    document.getElementById('dynListApiAdapterName').value = 'geonode';
     onDynAdapterTypeChange();
     openModal('modalDynamicProviderForm');
   }
@@ -5395,6 +5717,7 @@
     document.getElementById('dynNotes').value = p.notes || '';
     document.getElementById('dynRefreshInterval').value = p.refresh_interval_minutes || 0;
     const cfg = p.config_json || {};
+    document.getElementById('dynListApiAdapterName').value = (cfg.adapter_name || '').trim();
     document.getElementById('dynListApiBaseUrl').value = cfg.base_url || '';
     document.getElementById('dynListApiLimit').value = cfg.limit || 50;
     document.getElementById('dynListApiItemsPath').value = cfg.items_path || '';
@@ -5442,6 +5765,8 @@
       const baseUrl = document.getElementById('dynListApiBaseUrl').value.trim();
       if (!baseUrl) { toast('API 地址不能为空', 'err'); return null; }
       cfg.base_url = baseUrl;
+      const listAdapter = document.getElementById('dynListApiAdapterName').value.trim();
+      if (listAdapter) cfg.adapter_name = listAdapter;
       const limit = parseInt(document.getElementById('dynListApiLimit').value, 10) || 50;
       if (limit > 0) cfg.limit = limit;
       const itemsPath = document.getElementById('dynListApiItemsPath').value.trim();
@@ -5511,9 +5836,19 @@
 
   async function deleteDynamicProvider(id) {
     const providers = await api('GET', '/dynamic-providers');
-    const p = providers && providers.find(x => x.id === id);
+    if (!Array.isArray(providers)) {
+      toast((providers && providers.error) ? String(providers.error) : '无法加载提供方列表', 'err');
+      return;
+    }
+    const p = providers.find(x => x.id === id);
     if (!p) return toast('提供方不存在', 'err');
-    if (!confirm('确定删除提供方「' + p.name + '」？\n\n删除后它将不再参与路由决策。')) return;
+    const ok = await showAppConfirm({
+      title: '确定删除提供方「' + p.name + '」？',
+      message: '删除后它将不再参与路由决策。',
+      confirmText: '删除',
+      variant: 'danger',
+    });
+    if (!ok) return;
     const r = await api('DELETE', '/dynamic-providers/' + id);
     if (r.error) { toast(r.error, 'err'); return; }
     toast('已删除', 'ok');
@@ -5554,7 +5889,7 @@
 
   async function previewCandidatesDynamicProvider(id) {
     const r = await api('GET', '/dynamic-providers/' + id + '/candidates/preview');
-    if (!r || r.error) { toast('预览失败: ' + (r.error || '未知'), 'err'); return; }
+    if (!r || r.error || r._fetchFailed) { toast('预览失败: ' + (r.error || '未知'), 'err'); return; }
     const total = r.total_count || 0;
     const sc = r.status_counts || {};
     const healthy = sc.healthy || 0;
@@ -5590,12 +5925,19 @@
       api('GET', '/provider-scheduler/logs'),
       api('GET', '/dynamic-providers/' + id + '/candidates/preview'),
     ]);
-    const p = (providers || []).find(x => String(x.id) === String(id));
+    const netErr = [providers, logs, preview].find(x => x && x._fetchFailed);
+    if (netErr) {
+      body.innerHTML = '<div style="font-size:12px;color:#fca5a5;line-height:1.6">' + esc(netErr.error || '请求失败') + '</div>';
+      return;
+    }
+    const providerList = Array.isArray(providers) ? providers : [];
+    const logList = Array.isArray(logs) ? logs : [];
+    const p = providerList.find(x => String(x.id) === String(id));
     if (!p) {
       body.innerHTML = '<div style="font-size:12px;color:#fca5a5">提供方不存在</div>';
       return;
     }
-    const rows = (logs || []).filter(r => String(r.provider_id) === String(id)).slice(0, 8);
+    const rows = logList.filter(r => String(r.provider_id) === String(id)).slice(0, 8);
     const latest = rows.length ? rows[0] : null;
     const failureRows = rows.filter(r => r.status === 'error' || (r.message && r.message !== 'ok')).slice(0, 5);
     const latestError = failureRows.length ? failureRows[0] : null;
@@ -5671,18 +6013,30 @@
   }
 
   async function refreshDynamicProviderDetail(id) {
-    await refreshDynamicProvider(id);
-    await openDynamicProviderDetail(id);
+    try {
+      await refreshDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('刷新异常: ' + ((e && e.message) || e), 'err');
+    }
   }
 
   async function healthCheckDynamicProviderDetail(id) {
-    await healthCheckDynamicProvider(id);
-    await openDynamicProviderDetail(id);
+    try {
+      await healthCheckDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('健康检查异常: ' + ((e && e.message) || e), 'err');
+    }
   }
 
   async function clearCooldownDynamicProviderDetail(id) {
-    await clearCooldownDynamicProvider(id);
-    await openDynamicProviderDetail(id);
+    try {
+      await clearCooldownDynamicProvider(id);
+      await openDynamicProviderDetail(id);
+    } catch (e) {
+      toast('操作异常: ' + ((e && e.message) || e), 'err');
+    }
   }
 
   function toggleProviderFailureList() {

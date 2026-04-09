@@ -52,7 +52,7 @@ class TestDynamicProxyConfigFields(unittest.TestCase):
 
         # Advanced settings
         self.assertIn('default_proxy_protocol_order', defaults)
-        self.assertEqual(defaults['default_proxy_protocol_order'], ['http', 'https', 'socks5'])
+        self.assertEqual(defaults['default_proxy_protocol_order'], ['http', 'https', 'socks5', 'socks4'])
         self.assertIn('default_session_mode', defaults)
         self.assertEqual(defaults['default_session_mode'], 'sticky')
         self.assertIn('default_sticky_minutes', defaults)

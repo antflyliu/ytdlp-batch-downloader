@@ -1107,9 +1107,16 @@ def run_standalone(force_restart: bool = False):
     if not already_running:
         import threading
         import http.server as _http
+        import socketserver
 
         from monitor_server import MonitorHandler
-        server = _http.HTTPServer(("127.0.0.1", port), MonitorHandler)
+
+        class ThreadedHTTPServer(socketserver.ThreadingMixIn, _http.HTTPServer):
+            """与 monitor_server.serve() 一致：每请求一线程，避免长时间 refresh 阻塞整站 API。"""
+
+            daemon_threads = True
+
+        server = ThreadedHTTPServer(("127.0.0.1", port), MonitorHandler)
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         time.sleep(0.8)

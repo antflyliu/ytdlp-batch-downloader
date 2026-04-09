@@ -13,6 +13,7 @@ from unittest import mock
 _ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(_ROOT))
 
+import monitor.db as monitor_db
 import monitor_server
 
 
@@ -550,6 +551,123 @@ class TestDynamicProviderApi(unittest.TestCase):
             "latency_ms": 120,
             "score": 12.5,
         })
+
+    def test_scheduler_refresh_top_candidate_skips_down_picks_fastest_healthy(self):
+        """首个候选为 down 时，当前最优应为后续 healthy 中延迟最低者。"""
+        provider = {
+            "id": 8,
+            "name": "Order Provider",
+            "adapter_type": "list_api",
+            "config_json": {
+                "response": {
+                    "items_path": "data",
+                    "field_mapping": {
+                        "host": ["ip"],
+                        "port": ["port"],
+                        "protocol": ["protocol"],
+                    },
+                },
+            },
+        }
+        candidate_down = mock.Mock(
+            host="1.1.1.1", port=80, protocol="http", username=None, auth_type="none",
+            country_code=None, region=None, city=None, anonymity=None, risk_level="medium",
+            supports_https=True, supports_cookies=False, supports_auto_download=True,
+            supports_sticky_session=False, score=99.0, provider_reference_id=None, ttl_expires_at=None,
+            masked_proxy_endpoint="http://1.1.1.1:80",
+        )
+        candidate_slow = mock.Mock(
+            host="8.8.8.8", port=8080, protocol="http", username=None, auth_type="none",
+            country_code=None, region=None, city=None, anonymity=None, risk_level="medium",
+            supports_https=True, supports_cookies=False, supports_auto_download=True,
+            supports_sticky_session=False, score=10.0, provider_reference_id=None, ttl_expires_at=None,
+            masked_proxy_endpoint="http://8.8.8.8:8080",
+        )
+        candidate_fast = mock.Mock(
+            host="9.9.9.9", port=8081, protocol="http", username=None, auth_type="none",
+            country_code=None, region=None, city=None, anonymity=None, risk_level="medium",
+            supports_https=True, supports_cookies=False, supports_auto_download=True,
+            supports_sticky_session=False, score=1.0, provider_reference_id=None, ttl_expires_at=None,
+            masked_proxy_endpoint="http://9.9.9.9:8081",
+        )
+        probe_results = [
+            mock.Mock(status="down", latency_ms=None, error_message="x"),
+            mock.Mock(status="healthy", latency_ms=500, error_message=None),
+            mock.Mock(status="healthy", latency_ms=80, error_message=None),
+        ]
+        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+            mock_db.get_dynamic_proxy_provider.return_value = provider
+            with mock.patch(
+                "monitor.provider_templates.fetch_provider_candidates",
+                return_value=[candidate_down, candidate_slow, candidate_fast],
+            ):
+                with mock.patch("monitor.proxy_validator.CandidateProbeValidator") as mock_validator_cls:
+                    mock_validator = mock_validator_cls.return_value
+
+                    async def fake_probe(candidate_arg, timeout=8):
+                        return probe_results.pop(0)
+
+                    mock_validator.probe_lightweight.side_effect = fake_probe
+                    with mock.patch.object(mock_db, "add_proxy_candidate", return_value=101):
+                        result = monitor_server._scheduler.refresh_dynamic_provider(8)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["top_candidate"]["masked_proxy_endpoint"], "http://9.9.9.9:8081")
+        self.assertEqual(result["top_candidate"]["last_probe_status"], "healthy")
+        self.assertEqual(result["top_candidate"]["latency_ms"], 80)
+
+    def test_pick_healthy_fastest_top_candidate_prefers_lowest_latency(self):
+        rows = [
+            {
+                "last_probe_status": "down",
+                "latency_ms": 10,
+                "masked_proxy_endpoint": "socks4://bad:1",
+                "score": 100.0,
+            },
+            {
+                "last_probe_status": "healthy",
+                "latency_ms": 200,
+                "masked_proxy_endpoint": "http://slow:2",
+                "score": 5.0,
+            },
+            {
+                "last_probe_status": "healthy",
+                "latency_ms": 50,
+                "masked_proxy_endpoint": "http://fast:3",
+                "score": 1.0,
+            },
+        ]
+        top = monitor_db.pick_healthy_fastest_top_candidate(rows)
+        self.assertIsNotNone(top)
+        self.assertEqual(top["masked_proxy_endpoint"], "http://fast:3")
+        self.assertEqual(top["latency_ms"], 50)
+        self.assertEqual(top["last_probe_status"], "healthy")
+
+    def test_pick_healthy_fastest_top_candidate_same_latency_prefers_higher_score(self):
+        rows = [
+            {
+                "last_probe_status": "healthy",
+                "latency_ms": 100,
+                "masked_proxy_endpoint": "http://a",
+                "score": 1.0,
+            },
+            {
+                "last_probe_status": "healthy",
+                "latency_ms": 100,
+                "masked_proxy_endpoint": "http://b",
+                "score": 9.0,
+            },
+        ]
+        top = monitor_db.pick_healthy_fastest_top_candidate(rows)
+        self.assertEqual(top["masked_proxy_endpoint"], "http://b")
+        self.assertEqual(top["score"], 9.0)
+
+    def test_pick_healthy_fastest_top_candidate_none_when_all_down(self):
+        rows = [
+            {"last_probe_status": "down", "latency_ms": 10, "masked_proxy_endpoint": "x", "score": 1},
+        ]
+        self.assertIsNone(monitor_db.pick_healthy_fastest_top_candidate(rows))
+
 
 if __name__ == "__main__":
     unittest.main()

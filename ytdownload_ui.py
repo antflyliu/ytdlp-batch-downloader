@@ -3,7 +3,12 @@ from tkinter import ttk, filedialog, messagebox
 import json
 import os
 import webbrowser
-from Youtube_Downloader import read_urls_from_file, batch_download, load_proxy_pool
+from Youtube_Downloader import (
+    read_urls_from_file,
+    batch_download,
+    load_proxy_pool,
+    build_aria2_opts,
+)
 from yt_channel_fetch import (
     fetch_channel_videos as _fetch_channel_videos,
     export_to_csv,
@@ -1916,6 +1921,18 @@ class YoutubeDownloaderUI:
         self.download_btn.unbind("<Leave>")
         Thread(target=self.download_thread, daemon=True).start()
 
+    def _monitor_config_for_download(self) -> dict:
+        """与 monitor 共用 config.json（若存在），用于 enable_aria2 等与 Web 一致。"""
+        try:
+            root = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(root, "monitor", "config.json")
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
     def download_thread(self):
         try:
             count = len(self.urls)
@@ -1923,14 +1940,26 @@ class YoutubeDownloaderUI:
             def progress_callback(progress, status):
                 self.root.after(0, self.update_progress, progress, status)
 
+            mcfg = self._monitor_config_for_download()
+            enable_aria2 = bool(mcfg.get("enable_aria2", False))
+            extra_ydl = build_aria2_opts(None) if enable_aria2 else None
+
+            pf = self.proxy_file_path.get().strip()
+            proxy_pool = load_proxy_pool(pf) if pf and os.path.isfile(pf) else None
+            single_proxy = (self.proxy.get() or "").strip() or None
+
             results = batch_download(
                 self.urls[:count],
                 self.save_path.get(),
                 'best',  # 最高画质
+                proxy=None if proxy_pool else single_proxy,
+                proxy_pool=proxy_pool,
                 progress_callback=progress_callback,
                 sub_langs=self.sub_lang.get() if self.download_subtitles.get() else None,
                 no_subs=not self.download_subtitles.get(),
                 cookies_file=self.cookie_file_path.get().strip() or None,
+                extra_ydl_opts=extra_ydl,
+                direct_fallback_after_proxies_exhausted=True,
             )
 
             success_count = sum(1 for r in results if r["状态"] == "成功")

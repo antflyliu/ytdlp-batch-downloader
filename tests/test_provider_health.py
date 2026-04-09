@@ -121,6 +121,11 @@ class TestProviderHealthCore(unittest.TestCase):
         url = _build_gateway_proxy_url("socks5", "user", "pass", "proxy.example.com", 1080)
         self.assertEqual(url, "socks5://user:pass@proxy.example.com:1080")
 
+    def test_build_gateway_proxy_url_socks4(self):
+        from monitor.provider_health import _build_gateway_proxy_url
+        url = _build_gateway_proxy_url("socks4", "", "", "proxy.example.com", 1080)
+        self.assertEqual(url, "socks4://proxy.example.com:1080")
+
 
 class TestProviderHealthHttpProbe(unittest.TestCase):
     """Test HTTP probe behavior via mocking."""

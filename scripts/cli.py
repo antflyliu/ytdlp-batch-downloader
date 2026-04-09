@@ -253,6 +253,7 @@ def cmd_download(args: argparse.Namespace, json_output: bool = False) -> int:
             cookies_file=args.cookies,
             concurrent_fragments=args.concurrent_fragments,
             extra_ydl_opts=extra_opts if extra_opts else None,
+            direct_fallback_after_proxies_exhausted=True,
         )
     except Exception as e:
         if json_output:

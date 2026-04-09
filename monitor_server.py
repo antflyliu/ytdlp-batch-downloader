@@ -41,9 +41,9 @@ from monitor.dynamic_provider_resolver import resolve_for_manual_download, log_d
 
 _log = logging_config.get_logger("monitor_server")
 
-# ── 速率限制器（每 IP 每分钟 60 次请求）─────────────────────────
+# ── 速率限制器（每 IP 每分钟 N 次请求；本机回环默认豁免，见 _check_rate_limit）──
 _RATE_LIMIT_WINDOW = 60  # 秒
-_RATE_LIMIT_MAX = 60     # 每窗口最大请求数
+_RATE_LIMIT_MAX = 600    # 非回环客户端每窗口上限（仪表盘 + 多弹窗轮询仍可能触顶）
 _rate_limiter: dict[str, collections.deque] = {}
 _rate_limiter_lock = threading.Lock()
 
@@ -180,14 +180,32 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return origin
         return None
 
+    def _rate_limit_client_ip(self) -> str:
+        """客户端 IP（优先 X-Forwarded-For 首段）。"""
+        xff = self.headers.get("X-Forwarded-For", "")
+        return (xff.split(",")[0].strip() if xff else self.client_address[0]) or ""
+
+    def _rate_limit_exempt_loopback(self, ip: str) -> bool:
+        """本机访问不做全局限流（单用户监控台易与轮询叠加导致误伤 429）。"""
+        if not ip:
+            return False
+        ip = ip.strip()
+        if ip in ("127.0.0.1", "::1"):
+            return True
+        if ip.startswith("127."):
+            return True
+        if ip.startswith("::ffff:127."):
+            return True
+        return False
+
     def _check_rate_limit(self) -> bool:
         """
         速率限制：每 IP 每分钟最多 _RATE_LIMIT_MAX 次请求。
         返回 True 表示通过，False 表示触发限流（已发送 429）。
         """
-        # 获取真实 IP（优先 X-Forwarded-For）
-        xff = self.headers.get("X-Forwarded-For", "")
-        ip = xff.split(",")[0].strip() if xff else self.client_address[0]
+        ip = self._rate_limit_client_ip()
+        if self._rate_limit_exempt_loopback(ip):
+            return True
         now = time.time()
         with _rate_limiter_lock:
             if ip not in _rate_limiter:
@@ -211,6 +229,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 return False
             times.append(now)
         return True
+
+    def _path_skips_rate_limit(self, path: str) -> bool:
+        """不参与全局限流的路径（高频只读轮询；仅 do_GET 调用）。"""
+        if path.startswith("/api/download-tasks/"):
+            return True
+        if path in ("/api/provider-scheduler/logs", "/api/provider-scheduler/status"):
+            return True
+        return False
 
     def _send_json(self, data, status=200):
         """发送 JSON 响应（含 CORS headers）"""
@@ -299,7 +325,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         # 其余所有 /api/* 均需认证和限流
         if not self._require_auth():
             return
-        if not self._check_rate_limit():
+        if not self._path_skips_rate_limit(path) and not self._check_rate_limit():
             return
         if path == "/api/accounts":
             self._api_accounts()
@@ -329,6 +355,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pid = path.split("/")[-3]
             if pid.isdigit():
                 self._api_dynamic_provider_candidates_preview(int(pid))
+            else:
+                self._send_json({"error": "无效的提供方 ID"}, 400)
         elif path == "/api/routing-preview":
             self._api_routing_preview()
         elif path.startswith("/api/api-keys/"):
@@ -1152,15 +1180,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 "min_score": min(score_values) if score_values else None,
                 "max_score": max(score_values) if score_values else None,
             }
-            top_candidate = None
-            if rows:
-                first = rows[0]
-                top_candidate = {
-                    "masked_proxy_endpoint": first.get("masked_proxy_endpoint"),
-                    "last_probe_status": first.get("last_probe_status"),
-                    "latency_ms": first.get("latency_ms"),
-                    "score": first.get("score", 0.0),
-                }
+            top_candidate = _db.pick_healthy_fastest_top_candidate(rows)
             self._send_json({
                 "provider_id": provider_id,
                 "provider_name": existing.get("name", ""),
@@ -1413,6 +1433,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 cookies_file_present=cookies_present,
             )
 
+        # 手动下载：代理池/单代理试完后是否允许直连（与全局「手动下载直连兜底」一致）
+        direct_fallback_after_proxies = bool(cfg.get("manual_direct_fallback", True)) and not user_forced_direct
+
         # Log the decision
         log_download_decision(
             route_result=route,
@@ -1471,7 +1494,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         sub_langs = body.get("sub_langs")   # Web UI 显式传入，未传则不下载字幕
         no_subs = body.get("no_subs", True)  # 默认不下载字幕（避免 WhisperX 拖慢）
         enable_aria2 = bool(cfg.get("enable_aria2", False))
-        extra_ydl_opts = build_aria2_opts(resolved_proxy) if enable_aria2 else None
+        # 代理由 batch_download 每轮注入；此处仅用占位构建 aria2 骨架，避免与动态池首包不一致
+        extra_ydl_opts = build_aria2_opts(None) if enable_aria2 else None
 
         def _bg_download():
             try:
@@ -1490,6 +1514,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     no_subs=no_subs,
                     cookies_file=cookies_file,
                     extra_ydl_opts=extra_ydl_opts,
+                    direct_fallback_after_proxies_exhausted=direct_fallback_after_proxies,
                 )
 
                 _task_mgr.finish_task(task_id, results)

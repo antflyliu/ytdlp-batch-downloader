@@ -4,6 +4,19 @@ from monitor.proxy_candidate_pool import ProxyCandidatePool
 from monitor.proxy_router import CanonicalProxyCandidate
 
 
+def _preview_alignment_sort_key(cand: CanonicalProxyCandidate) -> tuple[int, int, float]:
+    """与 monitor.db.pick_healthy_fastest_top_candidate / 候选预览「当前最优」排序一致。"""
+    lm = cand.latency_ms
+    if isinstance(lm, int) and lm >= 0:
+        tier = 0
+        lat = lm
+    else:
+        tier = 1
+        lat = 0
+    sc = float(cand.score) if isinstance(cand.score, (int, float)) else 0.0
+    return (tier, lat, -sc)
+
+
 class ProxySelector:
     """按场景从候选池选路（Task 6 skeleton）"""
 
@@ -28,7 +41,6 @@ class ProxySelector:
             cookies_present=cookies_present,
             country_codes=country_codes,
             protocol_order=protocol_order,
-            max_count=max_count * 3,
         )
         filtered = self._filter_hard(
             candidates,
@@ -38,11 +50,21 @@ class ProxySelector:
             billing_tier=billing_tier,
             risk_threshold=risk_threshold,
         )
-        ranked = sorted(
-            filtered,
-            key=lambda cand: self._score(cand, country_codes=country_codes, protocol_order=protocol_order),
-            reverse=True,
-        )
+        healthy = [
+            c
+            for c in filtered
+            if str(c.last_probe_status or "").strip().lower() == "healthy"
+        ]
+        if healthy:
+            ranked = sorted(healthy, key=_preview_alignment_sort_key)
+        else:
+            ranked = sorted(
+                filtered,
+                key=lambda cand: self._score(
+                    cand, country_codes=country_codes, protocol_order=protocol_order
+                ),
+                reverse=True,
+            )
         return ranked[:max_count]
 
     def _filter_hard(

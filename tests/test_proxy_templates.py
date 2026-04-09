@@ -84,6 +84,34 @@ def test_normalize_item_geonode_style_prefers_protocol_order():
     assert result.country_code == "US"
 
 
+def test_normalize_item_prefers_socks4_when_first_in_order():
+    from monitor.provider_templates import normalize_item
+
+    item = {
+        "ip": "8.8.8.8",
+        "port": 1080,
+        "protocols": ["socks4", "http"],
+        "country": "US",
+    }
+    result = normalize_item(
+        item,
+        {
+            "field_mapping": {
+                "host": ["ip"],
+                "port": ["port"],
+                "protocol": ["protocols"],
+                "country_code": ["country"],
+            },
+            "protocol_order": ["socks4", "http", "https", "socks5"],
+            "provider_id": 1,
+            "provider_name": "Test",
+            "provider_adapter": "list_api",
+        },
+    )
+    assert result is not None
+    assert result.protocol == "socks4"
+
+
 def test_normalize_item_drops_invalid_private_host():
     from monitor.provider_templates import normalize_item
 
@@ -138,5 +166,116 @@ def test_fetch_provider_candidates_uses_registered_custom_adapter(monkeypatch):
     assert len(candidates) == 1
     assert candidates[0].host == "8.8.8.8"
     assert candidates[0].protocol == "http"
+
+
+def test_fetch_provider_candidates_adapter_name_without_custom_mode(monkeypatch):
+    """UI 只存 adapter_name 时不应要求 mode=custom。"""
+    from monitor.provider_adapters import register_adapter
+    from monitor.provider_adapters.geonode_adapter import GeonodeAdapter
+    from monitor.provider_templates import fetch_provider_candidates
+
+    class FakeGeonodeAdapter(GeonodeAdapter):
+        def fetch_page(self, page: int) -> dict:
+            return {"data": [{"ip": "8.8.8.8", "port": 8080, "protocol": "http"}]}
+
+    register_adapter("geonode", FakeGeonodeAdapter)
+
+    provider = {
+        "id": 11,
+        "name": "GeoNode",
+        "adapter_type": "list_api",
+        "config_json": {
+            "adapter_name": "geonode",
+            "base_url": "https://proxylist.geonode.com/api/proxy-list",
+            "response": {
+                "field_mapping": {
+                    "host": ["ip"],
+                    "port": ["port"],
+                    "protocol": ["protocol"],
+                },
+            },
+        },
+    }
+
+    candidates = fetch_provider_candidates(provider, {"protocol_order": ["http", "https", "socks5"]})
+    assert len(candidates) == 1
+    assert candidates[0].host == "8.8.8.8"
+
+
+def test_fetch_provider_candidates_geonode_url_without_adapter_name_uses_generic_http(monkeypatch):
+    """未写 adapter_name 时不得按域名推断适配器，应走通用 requests GET。"""
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": [{"ip": "1.2.3.4", "port": 80, "protocol": "http"}]}
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        assert "geonode.com" in url
+        return FakeResp()
+
+    monkeypatch.setattr("monitor.provider_templates.requests.get", fake_get)
+
+    from monitor.provider_templates import fetch_provider_candidates
+
+    provider = {
+        "id": 12,
+        "name": "G",
+        "adapter_type": "list_api",
+        "config_json": {
+            "base_url": "https://proxylist.geonode.com/api/proxy-list",
+            "items_path": "data",
+            "field_mapping": {
+                "host": ["ip"],
+                "port": ["port"],
+                "protocol": ["protocol"],
+            },
+        },
+    }
+
+    candidates = fetch_provider_candidates(provider, {})
+    assert len(candidates) == 1
+    assert candidates[0].host == "1.2.3.4"
+
+
+def test_fetch_provider_candidates_generic_list_api_uses_http(monkeypatch):
+    """非 Geonode 的 list_api：对 base_url 发 GET，用顶层 items_path 解析。"""
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [{"ip": "8.8.4.4", "port": 9090, "protocol": "http"}]}
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        assert "api.example.com" in url
+        return FakeResp()
+
+    monkeypatch.setattr("monitor.provider_templates.requests.get", fake_get)
+
+    from monitor.provider_templates import fetch_provider_candidates
+
+    provider = {
+        "id": 13,
+        "name": "Custom API",
+        "adapter_type": "list_api",
+        "config_json": {
+            "base_url": "https://api.example.com/proxies",
+            "limit": 20,
+            "items_path": "results",
+            "field_mapping": {
+                "host": ["ip"],
+                "port": ["port"],
+                "protocol": ["protocol"],
+            },
+        },
+    }
+
+    candidates = fetch_provider_candidates(provider, {})
+    assert len(candidates) == 1
+    assert candidates[0].host == "8.8.4.4"
+    assert candidates[0].port == 9090
 
 

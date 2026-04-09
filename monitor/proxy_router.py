@@ -491,11 +491,14 @@ def _try_system_proxy(
         # For pool-style types (public_feed/list_api): use selected candidate pool.
         is_pool_adapter = cand.adapter_type in ("public_feed", "list_api")
         if is_pool_adapter:
+            po = global_config.get("default_proxy_protocol_order")
+            if not isinstance(po, list) or not po:
+                po = list(_db.DEFAULT_PROXY_PROTOCOL_ORDER)
             scenario = {
                 "is_auto_download": is_auto_download,
                 "cookies_present": cookies_file_present,
                 "country_codes": [],
-                "protocol_order": ["http", "https", "socks5"],
+                "protocol_order": po,
                 "allow_free": global_config.get("allow_free_proxy", True),
                 "max_candidates": 5,
             }

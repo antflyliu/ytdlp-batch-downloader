@@ -83,7 +83,8 @@ def test_selector_respects_free_proxy_disallow(tmp_path, monkeypatch):
     assert result == []
 
 
-def test_selector_score_orders_higher_scored_candidates_first(tmp_path, monkeypatch):
+def test_selector_preview_aligned_orders_healthy_by_latency_then_score(tmp_path, monkeypatch):
+    """与候选预览一致：healthy 中延迟低优先，同延迟再比 score。"""
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
@@ -101,15 +102,45 @@ def test_selector_score_orders_higher_scored_candidates_first(tmp_path, monkeypa
     pool.save_provider_candidates(
         provider_id,
         [
-            _candidate(provider_id, "1.2.3.4", score=3.0),
-            _candidate(provider_id, "1.2.3.5", score=10.0),
+            _candidate(provider_id, "1.2.3.4", score=3.0, latency_ms=50),
+            _candidate(provider_id, "1.2.3.5", score=100.0, latency_ms=500),
         ],
     )
 
     selector = ProxySelector(pool)
     result = selector.select(provider_id=provider_id, is_auto_download=False, cookies_present=False, max_count=5)
 
-    assert [item.host for item in result] == ["1.2.3.5", "1.2.3.4"]
+    assert [item.host for item in result] == ["1.2.3.4", "1.2.3.5"]
+
+
+def test_selector_prefers_healthy_over_high_score_down(tmp_path, monkeypatch):
+    from monitor.proxy_candidate_pool import ProxyCandidatePool
+    from monitor.proxy_selector import ProxySelector
+
+    db = importlib.reload(monitor_db)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(db, "_DB_PATH", str(data_dir / "monitor.db"))
+    monkeypatch.setattr(db, "_CONFIG_PATH", str(tmp_path / "config.json"))
+    monkeypatch.setattr(db, "_SCHEMA_PATH", str(ROOT / "monitor" / "schema.sql"))
+    db.init_db()
+
+    provider_id = db.add_dynamic_proxy_provider(name="ProviderA", config_json={})
+    pool = ProxyCandidatePool(db_module=db)
+    pool.save_provider_candidates(
+        provider_id,
+        [
+            _candidate(provider_id, "9.9.9.1", score=999.0, last_probe_status="down"),
+            _candidate(provider_id, "9.9.9.2", score=1.0, last_probe_status="healthy", latency_ms=200),
+        ],
+    )
+
+    selector = ProxySelector(pool)
+    result = selector.select(provider_id=provider_id, is_auto_download=False, cookies_present=False, max_count=5)
+
+    assert len(result) == 1
+    assert result[0].host == "9.9.9.2"
 
 
 def test_selector_applies_top_n_limit(tmp_path, monkeypatch):

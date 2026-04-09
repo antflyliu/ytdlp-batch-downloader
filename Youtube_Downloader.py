@@ -8,6 +8,7 @@ import argparse
 import sys
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import export_cookies
 import logging_config
@@ -15,11 +16,25 @@ import logging_config
 _log = logging_config.get_logger("ytdl_downloader")
 
 
+def proxy_url_uses_socks_scheme(proxy: str | None) -> bool:
+    """
+    aria2c 的 --all-proxy 仅支持 [http://][USER:PASSWORD@]HOST[:PORT]，
+    传入 socks4:// / socks5:// 会报 errorCode=28 unrecognized proxy format。
+    """
+    if not proxy or not str(proxy).strip():
+        return False
+    scheme = urlparse(str(proxy).strip()).scheme.lower()
+    return scheme.startswith("socks")
+
+
 def build_aria2_opts(proxy: str | None = None) -> dict:
     """构建 aria2c 外部下载器的 yt-dlp 选项字典。
 
     CLI main() 和监控模块（scheduler / monitor_server）共用此函数，
     保证 aria2 参数只在一处维护。
+
+    注意：勿对 SOCKS 代理 URL 使用本函数追加 --all-proxy；SOCKS 时应由 batch_download
+    去掉 external_downloader，改用 yt-dlp 内置分片（仍走 opts['proxy']）。
     """
     args = [
         '--min-split-size=1M',
@@ -28,12 +43,23 @@ def build_aria2_opts(proxy: str | None = None) -> dict:
         '--max-concurrent-downloads=3',
         '--continue=true',
     ]
-    if proxy:
+    if proxy and not proxy_url_uses_socks_scheme(proxy):
         args.append(f'--all-proxy={proxy}')
     return {
         'external_downloader': 'aria2c',
         'external_downloader_args': args,
     }
+
+
+def external_downloader_is_aria2(opts: dict) -> bool:
+    """
+    判断当前 yt-dlp 选项是否使用 aria2 系外部下载器（含可执行文件名为 aria2c 的绝对路径）。
+    用于在每一轮代理/直连切换时重建 external_downloader_args（含 --all-proxy）。
+    """
+    ed = opts.get("external_downloader")
+    if not ed:
+        return False
+    return "aria2" in str(ed).lower()
 
 
 def load_proxy_pool(file_path):
@@ -53,9 +79,13 @@ def load_proxy_pool(file_path):
     return proxies
 
 
-def is_rate_limited(error_msg):
-    """判断是否是被限流或代理网络错误的信号，应切换代理"""
-    msg = str(error_msg).lower()
+def is_proxy_retryable_error(error_msg) -> bool:
+    """
+    判断是否应换下一个代理或进入直连兜底（代理/链路类错误）。
+    含限流、超时、连接被重置、SOCKS/隧道错误及常见 TLS 截断等。
+    """
+    raw = str(error_msg)
+    msg = raw.lower()
     # YouTube 限流信号
     if any(k in msg for k in ["429", "too many request", "rate limit", "quota exceeded"]):
         return True
@@ -64,9 +94,24 @@ def is_rate_limited(error_msg):
         "timed out", "timeout", "connection refused",
         "connection reset", "proxy error",
         "socks", "tunnel connection failed",
+        "transporterror", "unable to download api page",
+        "failed to establish a new connection",
+        "eof", "bytes missing", "invalid response version",
+        "winerror 10054", "winerror 10061", "winerror 10053",
+    ]):
+        return True
+    # Windows / 中文报错（大小写不敏感片段）
+    if any(k in raw for k in [
+        "远程主机强迫关闭", "积极拒绝", "无法连接",
+        "连接超时", "目标计算机积极拒绝",
     ]):
         return True
     return False
+
+
+def is_rate_limited(error_msg):
+    """兼容旧名：与 is_proxy_retryable_error 相同。"""
+    return is_proxy_retryable_error(error_msg)
 
 
 def get_format_option(resolution):
@@ -251,25 +296,20 @@ def convert_vtt_to_srt(vtt_path):
 def batch_download(urls, output_path, resolution, proxy=None, progress_callback=None,
                   sub_langs=None, no_subs=False, proxy_pool=None,
                   cookies_from_browser=None, cookies_file=None,
-                  concurrent_fragments=4, extra_ydl_opts=None):
+                  concurrent_fragments=4, extra_ydl_opts=None,
+                  direct_fallback_after_proxies_exhausted=True):
     """
     批量下载视频的函数
     sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
     no_subs: True 则不下载字幕
-    proxy_pool: 代理池列表（每行一个地址），自动轮换；单个 proxy 优先于代理池
+    proxy_pool: 代理池（已按路由排好序）；依次尝试，代理类错误时换下一个；同任务内 URL 去重
+    direct_fallback_after_proxies_exhausted: 全部代理尝试失败后是否再试直连（Web 手动下载由 manual_direct_fallback 控制）
     concurrent_fragments: yt-dlp 内置分片并发数（与 aria2 二选一生效时以外部下载器为准）
     extra_ydl_opts: 额外合并到 yt-dlp 的选项（如 external_downloader='aria2c'）
     """
     results = []
     total = len(urls)
     completed = 0
-
-    # 优先用单个 proxy；没有则从代理池取
-    pool_index = 0
-    if proxy_pool:
-        current_proxy = proxy_pool[0] if proxy_pool else None
-    else:
-        current_proxy = proxy
 
     # JSON Cookie → 自动转为 Netscape 临时文件（支持 YouTube 官方导出 & 浏览器插件导出）
     _cookies_file = cookies_file
@@ -282,8 +322,13 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
             print(f"⚠️  Cookie JSON 转换失败 ({e})，跳过 Cookie")
             _cookies_file = None
 
+    _preview_proxy = None
+    if proxy_pool:
+        _preview_proxy = next((p for p in proxy_pool if p), None)
+    else:
+        _preview_proxy = proxy
     _log.info(f"批量下载开始: 总数={total} 输出={output_path} 分辨率={resolution} "
-              f"代理={current_proxy or '直连'} cookie={bool(_cookies_file)}")
+              f"首选代理={_preview_proxy or '直连'} cookie={bool(_cookies_file)}")
 
     # 启用 yt-dlp 原生多线程分片下载（替代 aria2c，无需额外安装）
     ydl_opts_base = {
@@ -303,14 +348,6 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     if extra_ydl_opts:
         ydl_opts_base.update(extra_ydl_opts)
 
-    def _apply_proxy(opts, p):
-        opts = {**opts}
-        if p:
-            opts['proxy'] = p
-        else:
-            opts['proxy'] = ''
-        return opts
-
     # 字幕选项
     if not no_subs and sub_langs:
         ydl_opts_base.update({
@@ -320,21 +357,67 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
             'convert_subs': 'srt',
         })
 
+    def _apply_proxy(opts, p):
+        opts = {**opts}
+        if p:
+            opts['proxy'] = p
+        else:
+            opts['proxy'] = ''
+        return opts
+
+    def _build_ydl_opts_for_attempt(current_proxy: str | None) -> dict:
+        """每轮合并代理；aria2 仅支持 HTTP 系 --all-proxy，SOCKS 时自动改回内置分片。"""
+        opts = dict(ydl_opts_base)
+        if external_downloader_is_aria2(opts):
+            if current_proxy and proxy_url_uses_socks_scheme(current_proxy):
+                opts.pop("external_downloader", None)
+                opts.pop("external_downloader_args", None)
+                _log.info(
+                    "当前代理为 SOCKS，aria2c 不支持该 --all-proxy 格式，本段改用 yt-dlp 内置分片（仍使用 opts['proxy']）"
+                )
+            else:
+                opts.update(build_aria2_opts(current_proxy))
+        return _apply_proxy(opts, current_proxy)
+
+    def _plan_proxy_attempts() -> list[tuple[str, str | None]]:
+        """
+        返回 [(mode, proxy_url)]，mode 为 'proxy' 或 'direct'。
+        代理池按顺序去重；直连仅在 direct_fallback_after_proxies_exhausted 且前面至少尝试过代理时追加。
+        """
+        attempts: list[tuple[str, str | None]] = []
+        if proxy_pool:
+            seen: set[str] = set()
+            for p in proxy_pool:
+                if not p or not str(p).strip():
+                    continue
+                s = str(p).strip()
+                if s in seen:
+                    continue
+                seen.add(s)
+                attempts.append(("proxy", s))
+            if direct_fallback_after_proxies_exhausted and attempts:
+                attempts.append(("direct", None))
+        elif proxy:
+            attempts.append(("proxy", str(proxy).strip()))
+            if direct_fallback_after_proxies_exhausted:
+                attempts.append(("direct", None))
+        else:
+            attempts.append(("direct", None))
+        return attempts
+
     device = get_device("auto")
     whisper_compute = "float16" if device == "cuda" else "int8"
     whisper_model = "medium"
 
     for i, url in enumerate(urls):
         sub_status = "未下载"
-        max_retries = len(proxy_pool) if proxy_pool else 1
-        retry_count = 0
+        attempts_plan = _plan_proxy_attempts()
+        last_proxy_label = "直连"
+        finished = False
 
-        while retry_count < max_retries:
-            # 切换代理
-            if proxy_pool:
-                current_proxy = proxy_pool[pool_index % len(proxy_pool)]
-
-            ydl_opts = _apply_proxy(ydl_opts_base, current_proxy)
+        for att_idx, (mode, current_proxy) in enumerate(attempts_plan):
+            last_proxy_label = current_proxy or "直连"
+            ydl_opts = _build_ydl_opts_for_attempt(current_proxy)
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -369,27 +452,48 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                 results.append({
                     'URL': url,
                     '状态': '成功',
-                    '信息': f"下载成功 | 代理: {current_proxy or '直连'} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {current_proxy or '直连'}"
+                    '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}"
                 })
-                _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={current_proxy or '直连'}")
-                break  # 成功则跳出重试循环
+                _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={last_proxy_label}")
+                finished = True
+                break
 
             except (yt_dlp.utils.DownloadError, Exception) as e:
                 error_msg = str(e)
-                if is_rate_limited(error_msg) and proxy_pool and retry_count < max_retries - 1:
-                    _log.warning(f"代理限流 [{i+1}/{total}]: {current_proxy} → 切换下一个")
-                    print(f" [{i+1}/{total}] 代理 {current_proxy} 被限流，切换下一个...")
-                    pool_index += 1
-                    retry_count += 1
-                    continue
-                else:
+                if mode == "direct":
                     results.append({
                         'URL': url,
                         '状态': '失败',
-                        '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                        '信息': f"{error_msg} | 代理: 直连"
                     })
-                    _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
+                    _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理=直连 | {error_msg[:100]}")
+                    finished = True
                     break
+
+                retryable = is_proxy_retryable_error(error_msg)
+                has_next = att_idx + 1 < len(attempts_plan)
+                if retryable and has_next:
+                    nxt = attempts_plan[att_idx + 1]
+                    nxt_label = "直连" if nxt[0] == "direct" else (nxt[1] or "")
+                    _log.warning(f"代理失败 [{i+1}/{total}]: {current_proxy} → 切换 {nxt_label}")
+                    print(f" [{i+1}/{total}] 代理 {current_proxy} 失败，切换下一个...")
+                    continue
+
+                results.append({
+                    'URL': url,
+                    '状态': '失败',
+                    '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                })
+                _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
+                finished = True
+                break
+
+        if not finished and not attempts_plan:
+            results.append({
+                'URL': url,
+                '状态': '失败',
+                '信息': "无可用代理配置",
+            })
 
         completed += 1
         if progress_callback:
@@ -648,6 +752,7 @@ def main():
             cookies_file=args.cookies,
             concurrent_fragments=args.concurrent_fragments,
             extra_ydl_opts=extra_ydl_opts if extra_ydl_opts else None,
+            direct_fallback_after_proxies_exhausted=True,
         )
 
         # 更新进度条到完成

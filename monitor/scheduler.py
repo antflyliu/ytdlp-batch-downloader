@@ -227,6 +227,7 @@ def refresh_dynamic_provider(provider_id: int) -> dict:
         latency_values: list[int] = []
         score_values: list[float] = []
         top_candidate: dict | None = None
+        top_healthy_key: tuple[int, int] | None = None
         for candidate in candidates:
             probe_result = None
             try:
@@ -243,13 +244,20 @@ def refresh_dynamic_provider(provider_id: int) -> dict:
             if isinstance(probe_latency, int):
                 latency_values.append(probe_latency)
             score_values.append(score_value)
-            if top_candidate is None:
-                top_candidate = {
-                    "masked_proxy_endpoint": getattr(candidate, "masked_proxy_endpoint", None),
-                    "last_probe_status": probe_status,
-                    "latency_ms": probe_latency,
-                    "score": score_value,
-                }
+            if probe_status == "healthy":
+                if isinstance(probe_latency, int) and probe_latency >= 0:
+                    hkey = (0, probe_latency, -score_value)
+                else:
+                    hkey = (1, 0, -score_value)
+                # 与 db.pick_healthy_fastest_top_candidate 一致：latency_ms 升序取最小，并列 score 高者优先
+                if top_healthy_key is None or hkey < top_healthy_key:
+                    top_healthy_key = hkey
+                    top_candidate = {
+                        "masked_proxy_endpoint": getattr(candidate, "masked_proxy_endpoint", None),
+                        "last_probe_status": probe_status,
+                        "latency_ms": probe_latency,
+                        "score": score_value,
+                    }
 
             _db.add_proxy_candidate(
                 provider_id=provider_id,

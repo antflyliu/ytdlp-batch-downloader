@@ -31,6 +31,9 @@ _SCHEMA_PATH = os.path.join(_PKG_DIR, "schema.sql")
 # config.json: 优先用户可写位置(exe_dir)，回退到只读资源(_PKG_DIR)
 _CONFIG_PATH = os.path.join(_EXE_DIR, "config.json")
 
+# 动态代理候选与全局协议优先级默认（与固定代理 URL 解析支持的协议一致，含 SOCKS4）
+DEFAULT_PROXY_PROTOCOL_ORDER = ("http", "https", "socks5", "socks4")
+
 _GLOBAL_WEBHOOK_KEYS = (
     "global_feishu_url",
     "global_dingtalk_url",
@@ -84,7 +87,7 @@ def _config_default() -> dict:
         "manual_direct_fallback": True,
         "auto_direct_fallback": False,
         "default_proxy_country_codes": [],
-        "default_proxy_protocol_order": ["http", "https", "socks5"],
+        "default_proxy_protocol_order": list(DEFAULT_PROXY_PROTOCOL_ORDER),
         "default_session_mode": "sticky",
         "default_sticky_minutes": 10,
         "candidate_prefetch_count": 5,
@@ -737,7 +740,7 @@ def _validate_proxy_url(url: str) -> str:
     parsed = urlparse(url)
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https", "socks5", "socks4", "socks"):
-        raise ValueError(f"不支持的协议: {scheme}，支持 http/https/socks5")
+        raise ValueError(f"不支持的协议: {scheme}，支持 http/https/socks5/socks4")
     if not parsed.hostname:
         raise ValueError("代理地址缺少主机名")
     return url.strip()
@@ -888,7 +891,14 @@ def update_dynamic_proxy_provider(
     if supports_sticky_session is not None: fields.append("supports_sticky_session=?");  values.append(int(supports_sticky_session))
     if risk_level is not None:    fields.append("risk_level=?");       values.append(risk_level)
     if notes is not None:         fields.append("notes=?");             values.append(notes)
-    if config_json is not None:   fields.append("config_json=?");       values.append(json.dumps(_encrypt_config_secrets(config_json)))
+    if config_json is not None:
+        existing = get_dynamic_proxy_provider(provider_id) or {}
+        merged_config = _merge_masked_config_secrets(
+            config_json,
+            existing.get("config_json") or {},
+        )
+        fields.append("config_json=?")
+        values.append(json.dumps(_encrypt_config_secrets(merged_config)))
     if last_health_status is not None:      fields.append("last_health_status=?");     values.append(last_health_status)
     if last_health_checked_at is not None:  fields.append("last_health_checked_at=?");  values.append(last_health_checked_at)
     # None 表示显式清空 last_error_message；省略参数（_UNSET）表示不修改该列
@@ -1079,28 +1089,82 @@ def get_proxy_candidate(candidate_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-def get_proxy_candidate_by_provider(provider_id: int, valid_only: bool = True) -> list[dict]:
+def get_proxy_candidate_by_provider(
+    provider_id: int, valid_only: bool = True, order_by_score_desc: bool = True
+) -> list[dict]:
     """
     按 provider_id 获取候选节点列表。
-    valid_only=True 时过滤 ttl_expires_at > now，按 score DESC 排序。
+    valid_only=True 时过滤 ttl_expires_at > now。
+    order_by_score_desc=True（默认）：按 score DESC（展示、兼容旧逻辑）。
+    order_by_score_desc=False：按 id ASC，供下载选路拉全量后再做与预览一致的排序，避免高分非 healthy 占满截取窗口。
     """
     now = now_iso()
+    order_clause = "ORDER BY score DESC" if order_by_score_desc else "ORDER BY id ASC"
     with get_connection() as conn:
         if valid_only:
             rows = conn.execute(
-                """SELECT * FROM dynamic_proxy_candidates
+                f"""SELECT * FROM dynamic_proxy_candidates
                    WHERE provider_id=? AND (ttl_expires_at IS NULL OR ttl_expires_at > ?)
-                   ORDER BY score DESC""",
+                   {order_clause}""",
                 (provider_id, now),
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT * FROM dynamic_proxy_candidates
+                f"""SELECT * FROM dynamic_proxy_candidates
                    WHERE provider_id=?
-                   ORDER BY score DESC""",
+                   {order_clause}""",
                 (provider_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+
+def _healthy_preview_sort_key_row(r: dict) -> tuple[int, int, float]:
+    """与候选预览「当前最优」一致：有效 latency 优先，升序；再按 score 降序。"""
+    lm = r.get("latency_ms")
+    if isinstance(lm, int) and lm >= 0:
+        tier = 0
+        lat = lm
+    else:
+        tier = 1
+        lat = 0
+    sc = r.get("score", 0.0)
+    score_f = float(sc) if isinstance(sc, (int, float)) else 0.0
+    return (tier, lat, -score_f)
+
+
+def rank_healthy_candidates_preview_aligned(rows: list[dict]) -> list[dict]:
+    """
+    仅 last_probe_status == healthy 的条目，按预览同款规则排序（latency → score）。
+    供下载选路与预览共用，保证「当前最优」与首轮代理一致。
+    """
+    healthy = [
+        r
+        for r in rows
+        if str(r.get("last_probe_status") or "").strip().lower() == "healthy"
+    ]
+    if not healthy:
+        return []
+    return sorted(healthy, key=_healthy_preview_sort_key_row)
+
+
+def pick_healthy_fastest_top_candidate(rows: list[dict]) -> dict | None:
+    """
+    预览/摘要用「当前最优」：last_probe_status == healthy，
+    再按 latency_ms 升序（正序）排序，取延迟最小的一条；并列时 score 高者优先。
+    无 healthy 时返回 None。无有效 latency 的 healthy 排在有数值者之后。
+    """
+    ranked = rank_healthy_candidates_preview_aligned(rows)
+    if not ranked:
+        return None
+    best = ranked[0]
+    sc = best.get("score", 0.0)
+    score_f = float(sc) if isinstance(sc, (int, float)) else 0.0
+    return {
+        "masked_proxy_endpoint": best.get("masked_proxy_endpoint"),
+        "last_probe_status": best.get("last_probe_status"),
+        "latency_ms": best.get("latency_ms"),
+        "score": score_f,
+    }
 
 
 def build_runtime_proxy_url(candidate: dict) -> str:
@@ -1749,6 +1813,32 @@ def _decrypt_config_secrets(cfg: dict) -> dict:
         else:
             result[k] = v
     return result
+
+
+def _merge_masked_config_secrets(new_cfg, old_cfg):
+    """将前端回传的 '***' 敏感占位符替换为旧配置中的真实值。"""
+    if isinstance(new_cfg, dict):
+        old_map = old_cfg if isinstance(old_cfg, dict) else {}
+        result = {}
+        for k, v in new_cfg.items():
+            old_v = old_map.get(k)
+            if (
+                isinstance(v, str)
+                and v == "***"
+                and k.lower() in _SECRET_FIELD_NAMES
+                and old_v is not None
+            ):
+                result[k] = old_v
+            else:
+                result[k] = _merge_masked_config_secrets(v, old_v)
+        return result
+    if isinstance(new_cfg, list):
+        old_list = old_cfg if isinstance(old_cfg, list) else []
+        return [
+            _merge_masked_config_secrets(item, old_list[idx] if idx < len(old_list) else None)
+            for idx, item in enumerate(new_cfg)
+        ]
+    return new_cfg
 
 
 # 确保 app_state 表存在（懒创建）

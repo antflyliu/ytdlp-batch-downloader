@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
 from ipaddress import ip_address
 
+import requests
+
+from monitor.db import DEFAULT_PROXY_PROTOCOL_ORDER
 from monitor.proxy_router import CanonicalProxyCandidate
 
 _log = logging.getLogger(__name__)
@@ -87,7 +89,7 @@ def _is_private_host(host: str) -> bool:
 
 def normalize_item(item: dict, config: dict) -> CanonicalProxyCandidate | None:
     field_mapping = config.get("field_mapping") or {}
-    protocol_order = config.get("protocol_order") or ["http", "https", "socks5"]
+    protocol_order = config.get("protocol_order") or list(DEFAULT_PROXY_PROTOCOL_ORDER)
 
     host = _pick_value(item, field_mapping.get("host"))
     port = _pick_value(item, field_mapping.get("port"))
@@ -140,18 +142,85 @@ def normalize_item(item: dict, config: dict) -> CanonicalProxyCandidate | None:
     )
 
 
+def _effective_response_config(cfg: dict) -> dict:
+    """
+    合并 UI 持久化的顶层字段与可选的 response 子对象。
+
+    页面表单把 items_path、field_mapping 写在 config_json 根上；
+    部分测试/手工配置使用 config_json.response，两者应等价生效。
+    """
+    nested = dict(cfg.get("response") or {})
+    if cfg.get("items_path") and not nested.get("items_path"):
+        nested["items_path"] = cfg["items_path"]
+    if cfg.get("field_mapping") and not nested.get("field_mapping"):
+        nested["field_mapping"] = cfg["field_mapping"]
+    return nested
+
+
+def _resolve_adapter_name(cfg: dict) -> str | None:
+    """
+    解析内置适配器名称（仅来自 config_json，不做 URL 猜测）。
+
+    - 非空 ``adapter_name``：在 ``provider_adapters`` 注册表中查找并实例化。
+    - 空值：``list_api`` / ``public_feed`` 走通用 ``requests`` GET + ``items_path`` 解析。
+
+    可选遗留字段 ``mode == \"custom\"`` 仅作文档语义；拉取逻辑只认 ``adapter_name``。
+    """
+    name = (cfg.get("adapter_name") or "").strip()
+    return name.lower() if name else None
+
+
+def _fetch_generic_list_api_json(cfg: dict) -> dict:
+    """
+    对「列表 API / 公共订阅」类配置发起一次 GET，返回 JSON。
+
+    仅附带 UI 中已有的 limit / country / protocol 与 page，避免向未知 API 注入
+    Geonode 专有参数。    需 Geonode 完整查询参数时，请在配置中设置 ``adapter_name: geonode``（见 Web 表单「列表解析适配器」）。
+    """
+    url = (cfg.get("base_url") or "").strip()
+    if not url:
+        return {}
+    params: dict[str, object] = {"page": 1}
+    lim = cfg.get("limit")
+    if lim is not None:
+        try:
+            params["limit"] = int(lim)
+        except (TypeError, ValueError):
+            params["limit"] = lim
+    if cfg.get("country"):
+        params["country"] = cfg["country"]
+    if cfg.get("protocol"):
+        params["protocols"] = cfg["protocol"]
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; ytdlp-monitor/1.0)",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=25, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        _log.warning("list API GET failed: %s", exc)
+        return {}
+
+
 def fetch_provider_candidates(provider: dict, scenario: dict) -> list[CanonicalProxyCandidate]:
     cfg = provider.get("config_json") or {}
-    response_cfg = cfg.get("response") or {}
+    response_cfg = _effective_response_config(cfg)
+    adapter_type = provider.get("adapter_type") or ""
 
-    if cfg.get("mode") == "custom" and cfg.get("adapter_name"):
-        from monitor.provider_adapters import get_adapter
+    from monitor.provider_adapters import get_adapter
 
-        adapter = get_adapter(cfg.get("adapter_name"), cfg)
-        if adapter is None:
-            return []
+    adapter_name = _resolve_adapter_name(cfg)
+    adapter = get_adapter(adapter_name, cfg) if adapter_name else None
+
+    if adapter is not None:
         raw_response = adapter.fetch_page(1)
         items = adapter.extract_items(raw_response)
+    elif adapter_type in ("list_api", "public_feed") and (cfg.get("base_url") or "").strip():
+        raw_response = _fetch_generic_list_api_json(cfg)
+        items = extract_items(raw_response, response_cfg)
     else:
         raw_response = scenario.get("raw_response") or {}
         items = extract_items(raw_response, response_cfg)
@@ -159,7 +228,7 @@ def fetch_provider_candidates(provider: dict, scenario: dict) -> list[CanonicalP
     normalized = []
     normalize_cfg = {
         "field_mapping": response_cfg.get("field_mapping") or {},
-        "protocol_order": scenario.get("protocol_order") or ["http", "https", "socks5"],
+        "protocol_order": scenario.get("protocol_order") or list(DEFAULT_PROXY_PROTOCOL_ORDER),
         "provider_id": provider.get("id", 0),
         "provider_name": provider.get("name", ""),
         "provider_adapter": provider.get("adapter_type", "list_api"),

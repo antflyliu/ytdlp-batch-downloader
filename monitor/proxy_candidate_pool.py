@@ -22,8 +22,12 @@ class ProxyCandidatePool:
         cookies_present: bool,
         country_codes: list[str] | None = None,
         protocol_order: list[str] | None = None,
-        max_count: int = 5,
+        fetch_limit: int = 5000,
     ) -> list[CanonicalProxyCandidate]:
+        """
+        拉取未过期候选的全集（默认最多 fetch_limit 条），不在此按 score 截断。
+        截断仅用于防止异常大表拖内存；下载排序由 ProxySelector 与预览对齐（healthy + latency + score）。
+        """
         cache_key = self._cache_key(
             provider_id,
             is_auto_download,
@@ -32,12 +36,16 @@ class ProxyCandidatePool:
             protocol_order=protocol_order,
         )
         if cache_key in self._cache:
-            return self._cache[cache_key][:max_count]
+            return self._cache[cache_key]
 
-        rows = self._db.get_proxy_candidate_by_provider(provider_id, valid_only=True)
+        rows = self._db.get_proxy_candidate_by_provider(
+            provider_id, valid_only=True, order_by_score_desc=False
+        )
+        if fetch_limit > 0 and len(rows) > fetch_limit:
+            rows = rows[:fetch_limit]
         candidates = [self._row_to_candidate(row) for row in rows]
         self._cache[cache_key] = candidates
-        return candidates[:max_count]
+        return candidates
 
     def save_provider_candidates(
         self,
