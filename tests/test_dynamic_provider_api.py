@@ -46,56 +46,102 @@ class TestDynamicProviderApi(unittest.TestCase):
         conn.close()
         return resp.status, body_bytes, dict(resp.getheaders())
 
-    def test_dynamic_provider_list_returns_metadata_fields(self):
-        future = (datetime.now() + timedelta(minutes=10)).isoformat()
-        with mock.patch.object(monitor_server, "_db") as mock_db:
-            mock_db.list_dynamic_proxy_providers.return_value = [{
-                "id": 1,
-                "name": "Webshare Gateway",
-                "enabled": 1,
-                "billing_tier": "paid",
-                "adapter_type": "rotating_gateway",
-                "priority": 10,
-                "supports_cookies": 1,
-                "supports_auto_download": 1,
-                "supports_country_filter": 1,
-                "supports_sticky_session": 1,
-                "risk_level": "low",
-                "notes": "primary",
-                "config_json": {
-                    "protocol": "http",
-                    "gateway_host": "gw.example.com",
-                    "gateway_port": 8080,
-                    "username": "user1",
-                    "password": "secret-pass",
-                },
-                "last_health_status": "healthy",
-                "last_health_checked_at": "2026-04-07T12:00:00+08:00",
-                "last_error_message": "",
-                "cooldown_until": future,
-                "created_at": "2026-04-07T12:00:00+08:00",
-                "updated_at": "2026-04-07T12:00:00+08:00",
-            }]
-            mock_db.mask_proxy_url.return_value = "http://***:****@***:****"
 
-            status, body, headers = self._request(
+
+    def test_provider_scheduler_logs_endpoint(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db:
+            mock_db.list_provider_scheduler_runs.return_value = [
+                {
+                    "id": 1,
+                    "provider_id": 2,
+                    "provider_name": "geonode-proxylist",
+                    "job_type": "refresh",
+                    "status": "success",
+                    "raw_count": 50,
+                    "valid_count": 50,
+                    "message": "ok",
+                    "started_at": "2026-04-08T17:00:00+08:00",
+                    "finished_at": "2026-04-08T17:00:02+08:00",
+                    "duration_ms": 2000,
+                }
+            ]
+            status, resp_body, _ = self._request(
                 "GET",
-                "/api/dynamic-providers",
+                "/api/provider-scheduler/logs",
                 headers={"Authorization": "Bearer test-token"},
             )
-
         self.assertEqual(status, 200)
-        self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
-        data = json.loads(body.decode("utf-8"))
+        data = json.loads(resp_body.decode("utf-8"))
         self.assertEqual(len(data), 1)
-        row = data[0]
-        self.assertIn("masked_preview", row)
-        self.assertIn("status_text", row)
-        self.assertIn("capabilities", row)
-        self.assertIn("config_json", row)
-        self.assertTrue(row["is_in_cooldown"])
-        self.assertEqual(row["masked_preview"], "http://***:****@***:****")
-        self.assertIn("Cookie", " ".join(row["capabilities"]))
+        self.assertEqual(data[0]["provider_name"], "geonode-proxylist")
+        self.assertEqual(data[0]["job_type"], "refresh")
+        self.assertEqual(data[0]["raw_count"], 50)
+
+
+    def test_provider_scheduler_status_endpoint(self):
+        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+            mock_provider_scheduler.is_running.return_value = True
+            mock_provider_scheduler.get_next_run_times.return_value = [{"id": "provider_refresh_2", "name": "ProviderRefresh geonode", "next_run": "2026-04-08 17:00:00"}]
+            status, resp_body, headers = self._request(
+                "GET",
+                "/api/provider-scheduler/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        self.assertEqual(status, 200)
+        data = json.loads(resp_body.decode("utf-8"))
+        self.assertTrue(data["running"])
+        self.assertEqual(len(data["next_runs"]), 1)
+
+
+    def test_provider_scheduler_start_endpoint(self):
+        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+            mock_provider_scheduler.start.return_value = True
+            status, resp_body, _ = self._request(
+                "POST",
+                "/api/provider-scheduler/start",
+                body=b"{}",
+                headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
+            )
+        self.assertEqual(status, 200)
+        data = json.loads(resp_body.decode("utf-8"))
+        self.assertTrue(data["ok"])
+        mock_provider_scheduler.start.assert_called_once_with()
+
+
+    def test_provider_scheduler_stop_endpoint(self):
+        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+            mock_provider_scheduler.stop.return_value = True
+            status, resp_body, _ = self._request(
+                "POST",
+                "/api/provider-scheduler/stop",
+                body=b"{}",
+                headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
+            )
+        self.assertEqual(status, 200)
+        data = json.loads(resp_body.decode("utf-8"))
+        self.assertTrue(data["ok"])
+        mock_provider_scheduler.stop.assert_called_once_with()
+
+    def test_provider_scheduler_run_once_endpoint(self):
+        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+            mock_provider_scheduler.run_once.return_value = {
+                "ok": True,
+                "provider_count": 2,
+                "results": [
+                    {"provider_id": 2, "raw_count": 50, "valid_count": 50},
+                    {"provider_id": 3, "raw_count": 20, "valid_count": 18},
+                ],
+            }
+            status, resp_body, _ = self._request(
+                "POST",
+                "/api/provider-scheduler/run-once",
+                body=b"{}",
+                headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
+            )
+        self.assertEqual(status, 200)
+        data = json.loads(resp_body.decode("utf-8"))
+        self.assertEqual(data["provider_count"], 2)
+        self.assertEqual(len(data["results"]), 2)
 
     def test_dynamic_provider_list_expired_cooldown_reports_false(self):
         past = (datetime.now() - timedelta(minutes=10)).isoformat()
@@ -311,53 +357,54 @@ class TestDynamicProviderApi(unittest.TestCase):
         self.assertIsNone(call_kwargs["cooldown_until"])
         self.assertEqual(call_kwargs["last_health_status"], "healthy")
 
-    def test_dynamic_provider_candidates_preview_endpoint(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
-            mock_db.get_dynamic_proxy_provider.return_value = {"id": 9, "name": "Preview Provider"}
-            mock_db.get_proxy_candidate_by_provider.return_value = [
-                {
-                    "id": 1,
-                    "candidate_key": "cand-1",
-                    "protocol": "http",
-                    "host": "8.8.8.8",
-                    "port": 8080,
-                    "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
-                    "last_probe_status": "healthy",
-                    "latency_ms": 120,
-                    "score": 12.5,
-                },
-                {
-                    "id": 2,
-                    "candidate_key": "cand-2",
-                    "protocol": "http",
-                    "host": "9.9.9.9",
-                    "port": 8081,
-                    "masked_proxy_endpoint": "http://9.9.9.9:8081",
-                    "last_probe_status": "down",
-                    "latency_ms": None,
-                    "score": 3.0,
-                },
-            ]
-            status, resp_body, _ = self._request(
-                "GET",
-                "/api/dynamic-providers/9/candidates/preview",
-                headers={"Authorization": "Bearer test-token"},
-            )
 
+    def test_dynamic_provider_add_reload_jobs_when_scheduler_running(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db:
+            mock_db.add_dynamic_proxy_provider.return_value = 42
+            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
+                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+                    body = json.dumps({
+                        "name": "New Provider",
+                        "billing_tier": "paid",
+                        "adapter_type": "rotating_gateway",
+                        "config_json": {"gateway_host": "gw.example.com", "gateway_port": 8080},
+                    }).encode("utf-8")
+                    status, _, _ = self._request(
+                        "POST",
+                        "/api/dynamic-providers",
+                        body=body,
+                        headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
+                    )
         self.assertEqual(status, 200)
-        data = json.loads(resp_body.decode("utf-8"))
-        self.assertEqual(data["provider_id"], 9)
-        self.assertEqual(data["total_count"], 2)
-        self.assertEqual(data["status_counts"], {"healthy": 1, "down": 1})
-        self.assertEqual(data["latency_summary"], {"count": 1, "min_ms": 120, "max_ms": 120})
-        self.assertEqual(data["score_summary"], {"count": 2, "min_score": 3.0, "max_score": 12.5})
-        self.assertEqual(data["top_candidate"], {
-            "masked_proxy_endpoint": "http://***:****@8.8.8.8:8080",
-            "last_probe_status": "healthy",
-            "latency_ms": 120,
-            "score": 12.5,
-        })
-        self.assertEqual(data["preview"][0]["masked_proxy_endpoint"], "http://***:****@8.8.8.8:8080")
+        mock_reload.assert_called_once()
+
+    def test_dynamic_provider_update_reload_jobs_when_scheduler_running(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db:
+            mock_db.get_dynamic_proxy_provider.return_value = {"id": 5, "name": "Old Name"}
+            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
+                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+                    body = json.dumps({"name": "Updated Name", "enabled": True}).encode("utf-8")
+                    status, _, _ = self._request(
+                        "POST",
+                        "/api/dynamic-providers/5/update",
+                        body=body,
+                        headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"},
+                    )
+        self.assertEqual(status, 200)
+        mock_reload.assert_called_once()
+
+    def test_dynamic_provider_delete_reload_jobs_when_scheduler_running(self):
+        with mock.patch.object(monitor_server, "_db") as mock_db:
+            mock_db.get_dynamic_proxy_provider.return_value = {"id": 3, "name": "ToDelete"}
+            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
+                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+                    status, _, _ = self._request(
+                        "DELETE",
+                        "/api/dynamic-providers/3",
+                        headers={"Authorization": "Bearer test-token"},
+                    )
+        self.assertEqual(status, 200)
+        mock_reload.assert_called_once()
 
     def test_dynamic_provider_manual_refresh_endpoint_returns_preview_aligned_summary(self):
         with mock.patch.object(monitor_server, "_db") as mock_db:

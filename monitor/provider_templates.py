@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from ipaddress import ip_address
 
 from monitor.proxy_router import CanonicalProxyCandidate
+
+_log = logging.getLogger(__name__)
 
 
 class TemplateFetcher:
@@ -88,7 +91,17 @@ def normalize_item(item: dict, config: dict) -> CanonicalProxyCandidate | None:
 
     host = _pick_value(item, field_mapping.get("host"))
     port = _pick_value(item, field_mapping.get("port"))
-    protocol = _select_protocol(_pick_value(item, field_mapping.get("protocol")), protocol_order)
+    protocol_paths = field_mapping.get("protocol")
+    raw_protocol = _pick_value(item, protocol_paths)
+    protocol = _select_protocol(raw_protocol, protocol_order)
+    if _log.isEnabledFor(logging.DEBUG):
+        _log.debug(
+            "normalize_item protocol: paths=%r raw=%r selected=%r host=%r",
+            protocol_paths,
+            raw_protocol,
+            protocol,
+            host,
+        )
     username = _pick_value(item, field_mapping.get("username"))
     password = _pick_value(item, field_mapping.get("password"))
     country_code = _pick_value(item, field_mapping.get("country_code"))

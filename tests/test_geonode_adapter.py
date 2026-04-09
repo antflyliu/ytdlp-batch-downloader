@@ -40,7 +40,7 @@ def test_geonode_adapter_fetch_page_respects_limit_override():
     assert calls == [
         (
             "https://proxylist.geonode.com",
-            {"page": 4, "limit": 20, "sort_by": "lastChecked", "sort_type": "desc"},
+            {"page": 4, "limit": 20, "sort_by": "lastChecked", "speed": "fast", "sort_type": "desc"},
         ),
     ]
 
@@ -106,7 +106,6 @@ def test_geonode_adapter_fetch_page_skips_transport_when_base_url_missing():
     assert calls == []
     assert result == {"data": []}
 
-
 def test_geonode_adapter_fetch_page_skips_transport_when_base_url_empty():
     """When base_url is empty string, fetch_page returns empty data without calling transport."""
     from monitor.provider_adapters.geonode_adapter import GeonodeAdapter
@@ -124,3 +123,31 @@ def test_geonode_adapter_fetch_page_skips_transport_when_base_url_empty():
 
     assert calls == []
     assert result == {"data": []}
+
+
+
+def test_geonode_adapter_fetch_page_uses_builtin_http_fallback_when_transport_missing(monkeypatch):
+    from monitor.provider_adapters.geonode_adapter import GeonodeAdapter
+
+    calls = []
+
+    def fake_fetch_json(self, url: str, params: dict | None = None):
+        calls.append((url, params))
+        return {"data": [{"ip": "8.8.8.8", "port": 8080, "protocols": ["http"]}]}
+
+    monkeypatch.setattr(GeonodeAdapter, "_fetch_json", fake_fetch_json)
+
+    adapter = GeonodeAdapter({
+        "base_url": "https://proxylist.geonode.com/api/proxy-list",
+        "limit": 50,
+    })
+
+    result = adapter.fetch_page(1)
+
+    assert calls == [
+        (
+            "https://proxylist.geonode.com/api/proxy-list",
+            {"page": 1, "limit": 50, "sort_by": "lastChecked", "speed": "fast", "sort_type": "desc"},
+        )
+    ]
+    assert result["data"][0]["ip"] == "8.8.8.8"

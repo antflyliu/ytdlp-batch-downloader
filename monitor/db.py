@@ -412,6 +412,35 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v9_provider_refresh_interval", today),
         )
 
+    # v10: provider scheduler run logs
+    if "v10_provider_scheduler_runs" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS provider_scheduler_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id INTEGER,
+                provider_name TEXT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                raw_count INTEGER DEFAULT 0,
+                valid_count INTEGER DEFAULT 0,
+                message TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                FOREIGN KEY (provider_id) REFERENCES dynamic_proxy_providers(id) ON DELETE SET NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_started_at ON provider_scheduler_runs(started_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_provider_id ON provider_scheduler_runs(provider_id, started_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v10_provider_scheduler_runs", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
@@ -841,7 +870,7 @@ def update_dynamic_proxy_provider(
     config_json: dict | None = None,
     last_health_status: str | None = None,
     last_health_checked_at: str | None = None,
-    last_error_message: str | None = None,
+    last_error_message: str | None = _UNSET,
     cooldown_until: str | None = None,
     refresh_interval_minutes: int | None = None,
 ) -> None:
@@ -862,7 +891,10 @@ def update_dynamic_proxy_provider(
     if config_json is not None:   fields.append("config_json=?");       values.append(json.dumps(_encrypt_config_secrets(config_json)))
     if last_health_status is not None:      fields.append("last_health_status=?");     values.append(last_health_status)
     if last_health_checked_at is not None:  fields.append("last_health_checked_at=?");  values.append(last_health_checked_at)
-    if last_error_message is not None:      fields.append("last_error_message=?");     values.append(last_error_message)
+    # None 表示显式清空 last_error_message；省略参数（_UNSET）表示不修改该列
+    if last_error_message is not _UNSET:
+        fields.append("last_error_message=?")
+        values.append(last_error_message)
     if cooldown_until is not None: fields.append("cooldown_until=?");    values.append(cooldown_until)
     if refresh_interval_minutes is not None: fields.append("refresh_interval_minutes=?"); values.append(int(refresh_interval_minutes))
     if not fields:
@@ -1239,6 +1271,37 @@ def get_account_proxy(account: dict) -> str | None:
 
 
 # ── monitor_events CRUD ───────────────────────────────────
+
+def add_provider_scheduler_run(
+    provider_id: int | None,
+    provider_name: str | None,
+    job_type: str,
+    status: str,
+    raw_count: int = 0,
+    valid_count: int = 0,
+    message: str | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    duration_ms: int | None = None,
+) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO provider_scheduler_runs
+               (provider_id, provider_name, job_type, status, raw_count, valid_count, message, started_at, finished_at, duration_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (provider_id, provider_name, job_type, status, raw_count, valid_count, message, started_at or now_iso(), finished_at, duration_ms),
+        )
+        return cur.lastrowid
+
+
+def list_provider_scheduler_runs(limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM provider_scheduler_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 def create_event(account_id: int, account_name: str) -> int:
     with get_connection() as conn:

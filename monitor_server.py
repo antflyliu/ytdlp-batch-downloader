@@ -32,6 +32,7 @@ if _PROJECT_ROOT not in sys.path:
 
 import monitor.db as _db
 import monitor.scheduler as _scheduler
+import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
@@ -286,7 +287,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         path = self._path_only()
         # 非 API 路径视为静态资源，匿名访问；路径安全由 translate_path() + resolve 边界保证
         if not path.startswith("/api/"):
-            super().do_GET()
+            try:
+                super().do_GET()
+            except (ConnectionAbortedError, BrokenPipeError):
+                _log.warning("静态响应期间客户端中断连接: %s", path)
             return
         # /api/status 是健康检查，跳过认证和限流
         if path == "/api/status":
@@ -317,6 +321,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_proxy_pools_list()
         elif path == "/api/dynamic-providers":
             self._api_dynamic_providers_list()
+        elif path == "/api/provider-scheduler/status":
+            self._api_provider_scheduler_status()
+        elif path == "/api/provider-scheduler/logs":
+            self._api_provider_scheduler_logs()
         elif path.startswith("/api/dynamic-providers/") and path.endswith("/candidates/preview"):
             pid = path.split("/")[-3]
             if pid.isdigit():
@@ -376,6 +384,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_scheduler_stop()
         elif path == "/api/scheduler/reload":
             self._api_scheduler_reload()
+        elif path == "/api/provider-scheduler/start":
+            self._api_provider_scheduler_start()
+        elif path == "/api/provider-scheduler/stop":
+            self._api_provider_scheduler_stop()
+        elif path == "/api/provider-scheduler/reload":
+            self._api_provider_scheduler_reload()
+        elif path == "/api/provider-scheduler/run-once":
+            self._api_provider_scheduler_run_once()
         elif path == "/api/accounts":
             self._api_account_add(body)
         elif path == "/api/accounts/scan":
@@ -603,6 +619,30 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_scheduler_reload(self):
         n = _scheduler.reload_jobs()
         self._send_json({"ok": True, "active_jobs": n})
+
+    def _api_provider_scheduler_status(self):
+        running = _provider_scheduler.is_running()
+        next_runs = _provider_scheduler.get_next_run_times() if running else []
+        self._send_json({"running": running, "next_runs": next_runs})
+
+    def _api_provider_scheduler_logs(self):
+        self._send_json(_db.list_provider_scheduler_runs())
+
+    def _api_provider_scheduler_start(self):
+        ok = _provider_scheduler.start()
+        self._send_json({"ok": ok})
+
+    def _api_provider_scheduler_stop(self):
+        ok = _provider_scheduler.stop()
+        self._send_json({"ok": ok})
+
+    def _api_provider_scheduler_reload(self):
+        n = _provider_scheduler.reload_jobs()
+        self._send_json({"ok": True, "active_jobs": n})
+
+    def _api_provider_scheduler_run_once(self):
+        result = _provider_scheduler.run_once()
+        self._send_json(result)
 
     def _api_account_add(self, body):
         try:
@@ -937,6 +977,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 "billing_tier": p.get("billing_tier", "free"),
                 "adapter_type": p.get("adapter_type", "public_feed"),
                 "priority": p.get("priority", 100),
+                "refresh_interval_minutes": p.get("refresh_interval_minutes", 0),
                 "supports_cookies": bool(p.get("supports_cookies")),
                 "supports_auto_download": bool(p.get("supports_auto_download")),
                 "supports_country_filter": bool(p.get("supports_country_filter")),
@@ -976,7 +1017,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 supports_sticky_session=bool(body.get("supports_sticky_session", False)),
                 risk_level=body.get("risk_level", "medium"),
                 notes=body.get("notes") or None,
+                refresh_interval_minutes=int(body.get("refresh_interval_minutes") or 0),
             )
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
             self._send_json({"ok": True, "id": provider_id})
         except Exception:
             _log.error("动态代理提供方新增异常", exc_info=True)
@@ -999,10 +1043,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if "supports_auto_download" in body: update_kwargs["supports_auto_download"] = bool(body["supports_auto_download"])
             if "supports_country_filter" in body: update_kwargs["supports_country_filter"] = bool(body["supports_country_filter"])
             if "supports_sticky_session" in body: update_kwargs["supports_sticky_session"] = bool(body["supports_sticky_session"])
+            if "refresh_interval_minutes" in body: update_kwargs["refresh_interval_minutes"] = int(body["refresh_interval_minutes"])
             if "risk_level" in body: update_kwargs["risk_level"] = body["risk_level"]
             if "notes" in body: update_kwargs["notes"] = body["notes"] or None
             if "config_json" in body: update_kwargs["config_json"] = body["config_json"]
             _db.update_dynamic_proxy_provider(provider_id, **update_kwargs)
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
             self._send_json({"ok": True})
         except Exception:
             _log.error("动态代理提供方更新异常", exc_info=True)
@@ -1016,6 +1063,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "提供方不存在"}, 404)
                 return
             _db.delete_dynamic_proxy_provider(provider_id)
+            if _scheduler.is_running():
+                _scheduler.reload_jobs()
             self._send_json({"ok": True})
         except Exception:
             _log.error("动态代理提供方删除异常", exc_info=True)
@@ -1147,6 +1196,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 cooldown_until=None,
                 last_health_status="healthy",
                 last_health_checked_at=_db.now_iso(),
+                last_error_message=None,
             )
             self._send_json({"ok": True})
         except Exception:

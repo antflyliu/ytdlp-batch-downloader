@@ -5,6 +5,7 @@ monitor.scheduler — APScheduler 后台调度器
 import os
 import sys
 import threading
+import json
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -216,11 +217,12 @@ def refresh_dynamic_provider(provider_id: int) -> dict:
             _refresh_results[provider_id] = result
             return dict(result)
 
+        from monitor.candidate_probe_transport import UrllibCandidateTransport
         from monitor.provider_templates import fetch_provider_candidates
         from monitor.proxy_validator import CandidateProbeValidator
 
         candidates = fetch_provider_candidates(provider, {})
-        validator = CandidateProbeValidator()
+        validator = CandidateProbeValidator(transport=UrllibCandidateTransport())
         status_counts: dict[str, int] = {}
         latency_values: list[int] = []
         score_values: list[float] = []

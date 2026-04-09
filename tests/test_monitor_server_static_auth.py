@@ -124,6 +124,19 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         mock_db.add_account.assert_called_once()
         self.assertEqual(mock_db.add_account.call_args.kwargs["channel_url"], "UC_x5XG1OV2P6uZZ5FSM9Ttw")
 
+    def test_static_get_ignores_client_aborted_connection(self):
+        handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
+        handler.path = "/"
+        with mock.patch.object(monitor_server.SimpleHTTPRequestHandler, "do_GET", side_effect=ConnectionAbortedError(10053, "aborted")):
+            with mock.patch.object(monitor_server, "_log") as mock_log:
+                # should not re-raise when browser aborts static response mid-stream
+                handler.do_GET()
+        mock_log.warning.assert_called_once()
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_static_get_ignores_broken_pipe(self):
+        handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
+        handler.path = "/"
+        with mock.patch.object(monitor_server.SimpleHTTPRequestHandler, "do_GET", side_effect=BrokenPipeError("pipe closed")):
+            with mock.patch.object(monitor_server, "_log") as mock_log:
+                handler.do_GET()
+        mock_log.warning.assert_called_once()
