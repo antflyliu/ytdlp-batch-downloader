@@ -56,6 +56,51 @@ def _record_run(provider_id, provider_name, job_type, status, raw_count=0, valid
     )
 
 
+def _run_scheduled_refresh(provider_id: int) -> None:
+    """APScheduler 定时回调：拉取列表并写入与 run_once 一致的调度运行记录。"""
+    prov = _db.get_dynamic_proxy_provider(provider_id)
+    name = prov.get("name") if prov else None
+    started = _db.now_iso()
+    t0 = time.perf_counter()
+    _log.info(
+        "scheduled provider refresh start provider_id=%s name=%s",
+        provider_id,
+        name,
+    )
+    try:
+        result = refresh_dynamic_provider(provider_id)
+        _record_run(
+            provider_id=provider_id,
+            provider_name=name,
+            job_type="refresh",
+            status="success" if result.get("ok") else "error",
+            raw_count=int(result.get("raw_count") or 0),
+            valid_count=int(result.get("valid_count") or 0),
+            message=result.get("error") or "ok",
+            started_at=started,
+            finished_at=_db.now_iso(),
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+        )
+    except Exception as exc:
+        _record_run(
+            provider_id=provider_id,
+            provider_name=name,
+            job_type="refresh",
+            status="error",
+            raw_count=0,
+            valid_count=0,
+            message=str(exc),
+            started_at=started,
+            finished_at=_db.now_iso(),
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _log.exception(
+            "scheduled provider refresh failed provider_id=%s",
+            provider_id,
+        )
+        raise
+
+
 def _run_cleanup_job() -> None:
     started = _db.now_iso()
     t0 = time.perf_counter()
@@ -104,7 +149,7 @@ def start() -> bool:
         for prov in _iter_refreshable_providers():
             interval = int(prov.get("refresh_interval_minutes") or 0)
             _provider_scheduler.add_job(
-                func=refresh_dynamic_provider,
+                func=_run_scheduled_refresh,
                 trigger=apscheduler.triggers.interval.IntervalTrigger(
                     minutes=interval,
                     start_date=datetime.now().astimezone(),
@@ -154,20 +199,17 @@ def reload_jobs() -> int:
         interval = int(prov.get("refresh_interval_minutes") or 0)
         job_id = f"provider_refresh_{prov['id']}"
         target_job_ids.add(job_id)
-        job_kwargs = {
-            "func": refresh_dynamic_provider,
-            "trigger": apscheduler.triggers.interval.IntervalTrigger(
+        _provider_scheduler.add_job(
+            func=_run_scheduled_refresh,
+            trigger=apscheduler.triggers.interval.IntervalTrigger(
                 minutes=interval,
                 start_date=datetime.now().astimezone(),
             ),
-            "args": [prov["id"]],
-            "name": f"ProviderRefresh {prov['name']}",
-            "replace_existing": True,
-        }
-        if job_id in current_job_ids:
-            _provider_scheduler.reschedule_job(job_id, **job_kwargs)
-        else:
-            _provider_scheduler.add_job(id=job_id, **job_kwargs)
+            args=[prov["id"]],
+            id=job_id,
+            name=f"ProviderRefresh {prov['name']}",
+            replace_existing=True,
+        )
 
     # keep cleanup job alive
     cleanup_job_id = "provider_cleanup_candidates"

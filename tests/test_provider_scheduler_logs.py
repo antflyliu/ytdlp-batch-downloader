@@ -67,6 +67,48 @@ def test_provider_scheduler_run_once_continues_after_provider_exception():
     assert second["status"] == "success"
 
 
+def test_provider_scheduler_scheduled_refresh_writes_refresh_log():
+    prov = {"id": 7, "name": "geonode-proxylist"}
+    result = {"ok": True, "provider_id": 7, "raw_count": 3, "valid_count": 2}
+
+    with mock.patch.object(provider_scheduler, "_db") as mock_db:
+        with mock.patch.object(
+            provider_scheduler, "refresh_dynamic_provider", return_value=result
+        ):
+            mock_db.get_dynamic_proxy_provider.return_value = prov
+            provider_scheduler._run_scheduled_refresh(7)
+
+    mock_db.add_provider_scheduler_run.assert_called_once()
+    call = mock_db.add_provider_scheduler_run.call_args.kwargs
+    assert call["provider_id"] == 7
+    assert call["provider_name"] == "geonode-proxylist"
+    assert call["job_type"] == "refresh"
+    assert call["status"] == "success"
+    assert call["raw_count"] == 3
+    assert call["valid_count"] == 2
+
+
+def test_provider_scheduler_scheduled_refresh_records_error_on_exception():
+    prov = {"id": 8, "name": "bad"}
+
+    with mock.patch.object(provider_scheduler, "_db") as mock_db:
+        with mock.patch.object(
+            provider_scheduler,
+            "refresh_dynamic_provider",
+            side_effect=RuntimeError("boom"),
+        ):
+            mock_db.get_dynamic_proxy_provider.return_value = prov
+            try:
+                provider_scheduler._run_scheduled_refresh(8)
+            except RuntimeError:
+                pass
+
+    mock_db.add_provider_scheduler_run.assert_called_once()
+    call = mock_db.add_provider_scheduler_run.call_args.kwargs
+    assert call["status"] == "error"
+    assert call["message"] == "boom"
+
+
 def test_provider_scheduler_cleanup_job_writes_cleanup_log():
     with mock.patch.object(provider_scheduler, "_db") as mock_db:
         with mock.patch.object(provider_scheduler, "_cleanup_stale_and_expired_candidates") as mock_cleanup:
