@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 import logging_config
@@ -474,7 +474,7 @@ def _migrate_legacy_api_keys(conn) -> None:
                 )
             except sqlite3.IntegrityError:
                 pass  # Key 已存在，忽略
-            except Exception:
+            except Exception as e:
                 _log.warning(f"Migration: 迁移 api_key_env={env_name} 失败: {e}")
 
 
@@ -572,12 +572,21 @@ def update_api_key(
 ) -> None:
     """更新 API Key"""
     fields, values = [], []
-    if name is not None:        fields.append("name=?");          values.append(name)
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
     # 空字符串表示"不修改"（前端留空时发送空字符串）
-    if key_value:               fields.append("key_value=?");     values.append(key_value)
-    if daily_quota is not None: fields.append("daily_quota=?"); values.append(daily_quota)
-    if is_active is not None:  fields.append("is_active=?");    values.append(int(is_active))
-    fields.append("updated_at=?"); values.append(now_iso())
+    if key_value:
+        fields.append("key_value=?")
+        values.append(key_value)
+    if daily_quota is not None:
+        fields.append("daily_quota=?")
+        values.append(daily_quota)
+    if is_active is not None:
+        fields.append("is_active=?")
+        values.append(int(is_active))
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(key_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE api_keys SET {','.join(fields)} WHERE id=?", values)
@@ -688,24 +697,59 @@ def update_account(
     使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
     """
     fields, values = [], []
-    if name             is not None: fields.append("name=?");             values.append(name)
-    if channel_url      is not None: fields.append("channel_url=?");      values.append(channel_url)
-    if api_key_env      is not None: fields.append("api_key_env=?");      values.append(api_key_env)
-    if fetch_mode       is not None: fields.append("fetch_mode=?");       values.append(fetch_mode)
-    if fetch_limit      is not None: fields.append("fetch_limit=?");      values.append(fetch_limit)
-    if scan_interval    is not None: fields.append("scan_interval=?");   values.append(scan_interval)
-    if enabled          is not None: fields.append("enabled=?");          values.append(int(enabled))
-    if notify_enabled   is not None: fields.append("notify_enabled=?");   values.append(int(notify_enabled))
-    if notify_platform  is not None: fields.append("notify_platform=?");  values.append(notify_platform)
-    if webhook_url     is not _UNSET: fields.append("webhook_url=?");     values.append(_encrypt_webhook(webhook_url))
-    if feishu_message_mode is not None: fields.append("feishu_message_mode=?"); values.append(feishu_message_mode)
-    if feishu_template_id is not _UNSET: fields.append("feishu_template_id=?"); values.append(feishu_template_id)
-    if feishu_scan_template_id is not _UNSET: fields.append("feishu_scan_template_id=?"); values.append(feishu_scan_template_id)
-    if api_key_id is not _UNSET: fields.append("api_key_id=?");            values.append(api_key_id)
-    if proxy_pool_id is not _UNSET: fields.append("proxy_pool_id=?");      values.append(proxy_pool_id)
-    if proxy_enabled is not None: fields.append("proxy_enabled=?");        values.append(int(proxy_enabled))
-    if download_proxy_mode is not _UNSET: fields.append("download_proxy_mode=?"); values.append(download_proxy_mode)
-    fields.append("updated_at=?"); values.append(now_iso())
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if channel_url is not None:
+        fields.append("channel_url=?")
+        values.append(channel_url)
+    if api_key_env is not None:
+        fields.append("api_key_env=?")
+        values.append(api_key_env)
+    if fetch_mode is not None:
+        fields.append("fetch_mode=?")
+        values.append(fetch_mode)
+    if fetch_limit is not None:
+        fields.append("fetch_limit=?")
+        values.append(fetch_limit)
+    if scan_interval is not None:
+        fields.append("scan_interval=?")
+        values.append(scan_interval)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
+    if notify_enabled is not None:
+        fields.append("notify_enabled=?")
+        values.append(int(notify_enabled))
+    if notify_platform is not None:
+        fields.append("notify_platform=?")
+        values.append(notify_platform)
+    if webhook_url is not _UNSET:
+        fields.append("webhook_url=?")
+        values.append(_encrypt_webhook(webhook_url))
+    if feishu_message_mode is not None:
+        fields.append("feishu_message_mode=?")
+        values.append(feishu_message_mode)
+    if feishu_template_id is not _UNSET:
+        fields.append("feishu_template_id=?")
+        values.append(feishu_template_id)
+    if feishu_scan_template_id is not _UNSET:
+        fields.append("feishu_scan_template_id=?")
+        values.append(feishu_scan_template_id)
+    if api_key_id is not _UNSET:
+        fields.append("api_key_id=?")
+        values.append(api_key_id)
+    if proxy_pool_id is not _UNSET:
+        fields.append("proxy_pool_id=?")
+        values.append(proxy_pool_id)
+    if proxy_enabled is not None:
+        fields.append("proxy_enabled=?")
+        values.append(int(proxy_enabled))
+    if download_proxy_mode is not _UNSET:
+        fields.append("download_proxy_mode=?")
+        values.append(download_proxy_mode)
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(account_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE monitor_accounts SET {','.join(fields)} WHERE id=?", values)
@@ -776,12 +820,19 @@ def update_proxy_pool(
     if proxy_url is not None:
         proxy_url = _validate_proxy_url(proxy_url)
     fields, values = [], []
-    if name is not None:       fields.append("name=?");      values.append(name)
-    if proxy_url is not None:  fields.append("proxy_url=?"); values.append(proxy_url)
-    if enabled is not None:    fields.append("enabled=?");   values.append(int(enabled))
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if proxy_url is not None:
+        fields.append("proxy_url=?")
+        values.append(proxy_url)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
     if not fields:
         return  # 无实际变更，只更新 updated_at 无意义
-    fields.append("updated_at=?"); values.append(now_iso())
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(pool_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE proxy_pools SET {','.join(fields)} WHERE id=?", values)
@@ -888,17 +939,39 @@ def update_dynamic_proxy_provider(
     """更新动态代理提供方"""
     import json
     fields, values = [], []
-    if name is not None:          fields.append("name=?");              values.append(name)
-    if enabled is not None:       fields.append("enabled=?");          values.append(int(enabled))
-    if billing_tier is not None:  fields.append("billing_tier=?");     values.append(billing_tier)
-    if adapter_type is not None:  fields.append("adapter_type=?");      values.append(adapter_type)
-    if priority is not None:      fields.append("priority=?");         values.append(priority)
-    if supports_cookies is not None:         fields.append("supports_cookies=?");          values.append(int(supports_cookies))
-    if supports_auto_download is not None:   fields.append("supports_auto_download=?");    values.append(int(supports_auto_download))
-    if supports_country_filter is not None: fields.append("supports_country_filter=?");  values.append(int(supports_country_filter))
-    if supports_sticky_session is not None: fields.append("supports_sticky_session=?");  values.append(int(supports_sticky_session))
-    if risk_level is not None:    fields.append("risk_level=?");       values.append(risk_level)
-    if notes is not None:         fields.append("notes=?");             values.append(notes)
+    if name is not None:
+        fields.append("name=?")
+        values.append(name)
+    if enabled is not None:
+        fields.append("enabled=?")
+        values.append(int(enabled))
+    if billing_tier is not None:
+        fields.append("billing_tier=?")
+        values.append(billing_tier)
+    if adapter_type is not None:
+        fields.append("adapter_type=?")
+        values.append(adapter_type)
+    if priority is not None:
+        fields.append("priority=?")
+        values.append(priority)
+    if supports_cookies is not None:
+        fields.append("supports_cookies=?")
+        values.append(int(supports_cookies))
+    if supports_auto_download is not None:
+        fields.append("supports_auto_download=?")
+        values.append(int(supports_auto_download))
+    if supports_country_filter is not None:
+        fields.append("supports_country_filter=?")
+        values.append(int(supports_country_filter))
+    if supports_sticky_session is not None:
+        fields.append("supports_sticky_session=?")
+        values.append(int(supports_sticky_session))
+    if risk_level is not None:
+        fields.append("risk_level=?")
+        values.append(risk_level)
+    if notes is not None:
+        fields.append("notes=?")
+        values.append(notes)
     if config_json is not None:
         existing = get_dynamic_proxy_provider(provider_id) or {}
         merged_config = _merge_masked_config_secrets(
@@ -907,17 +980,26 @@ def update_dynamic_proxy_provider(
         )
         fields.append("config_json=?")
         values.append(json.dumps(_encrypt_config_secrets(merged_config)))
-    if last_health_status is not None:      fields.append("last_health_status=?");     values.append(last_health_status)
-    if last_health_checked_at is not None:  fields.append("last_health_checked_at=?");  values.append(last_health_checked_at)
+    if last_health_status is not None:
+        fields.append("last_health_status=?")
+        values.append(last_health_status)
+    if last_health_checked_at is not None:
+        fields.append("last_health_checked_at=?")
+        values.append(last_health_checked_at)
     # None 表示显式清空 last_error_message；省略参数（_UNSET）表示不修改该列
     if last_error_message is not _UNSET:
         fields.append("last_error_message=?")
         values.append(last_error_message)
-    if cooldown_until is not None: fields.append("cooldown_until=?");    values.append(cooldown_until)
-    if refresh_interval_minutes is not None: fields.append("refresh_interval_minutes=?"); values.append(int(refresh_interval_minutes))
+    if cooldown_until is not None:
+        fields.append("cooldown_until=?")
+        values.append(cooldown_until)
+    if refresh_interval_minutes is not None:
+        fields.append("refresh_interval_minutes=?")
+        values.append(int(refresh_interval_minutes))
     if not fields:
         return
-    fields.append("updated_at=?"); values.append(now_iso())
+    fields.append("updated_at=?")
+    values.append(now_iso())
     values.append(provider_id)
     with get_connection() as conn:
         conn.execute(
@@ -1312,7 +1394,7 @@ def mask_proxy_url(url: str | None) -> str | None:
         from urllib.parse import urlparse, urlunparse
         parsed = urlparse(url)
         # 掩码 user:pass@host:port 部分
-        masked_netloc = f"***:****@***:****"
+        masked_netloc = "***:****@***:****"
         masked = urlunparse((
             parsed.scheme,
             masked_netloc,
@@ -1870,7 +1952,6 @@ def backup_db() -> str | None:
     backup_path = os.path.join(backup_dir, f"monitor_{ts}.db")
 
     try:
-        import shutil
         # 备份时排除 api_keys 表以防明文 Key 泄露
         conn_backup = sqlite3.connect(backup_path)
         conn_src = sqlite3.connect(_DB_PATH)

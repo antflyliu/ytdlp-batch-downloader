@@ -6,6 +6,7 @@ REST API 后端 + 静态文件服务
     python monitor_server.py              # 启动 Web UI
     python monitor_server.py --port 8765  # 指定端口
 """
+# ruff: noqa: E402
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 from pathlib import Path
@@ -1067,19 +1068,32 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "提供方不存在"}, 404)
                 return
             update_kwargs = {}
-            if "name" in body: update_kwargs["name"] = body["name"].strip()
-            if "enabled" in body: update_kwargs["enabled"] = bool(body["enabled"])
-            if "billing_tier" in body: update_kwargs["billing_tier"] = body["billing_tier"]
-            if "adapter_type" in body: update_kwargs["adapter_type"] = body["adapter_type"]
-            if "priority" in body: update_kwargs["priority"] = int(body["priority"])
-            if "supports_cookies" in body: update_kwargs["supports_cookies"] = bool(body["supports_cookies"])
-            if "supports_auto_download" in body: update_kwargs["supports_auto_download"] = bool(body["supports_auto_download"])
-            if "supports_country_filter" in body: update_kwargs["supports_country_filter"] = bool(body["supports_country_filter"])
-            if "supports_sticky_session" in body: update_kwargs["supports_sticky_session"] = bool(body["supports_sticky_session"])
-            if "refresh_interval_minutes" in body: update_kwargs["refresh_interval_minutes"] = int(body["refresh_interval_minutes"])
-            if "risk_level" in body: update_kwargs["risk_level"] = body["risk_level"]
-            if "notes" in body: update_kwargs["notes"] = body["notes"] or None
-            if "config_json" in body: update_kwargs["config_json"] = body["config_json"]
+            if "name" in body:
+                update_kwargs["name"] = body["name"].strip()
+            if "enabled" in body:
+                update_kwargs["enabled"] = bool(body["enabled"])
+            if "billing_tier" in body:
+                update_kwargs["billing_tier"] = body["billing_tier"]
+            if "adapter_type" in body:
+                update_kwargs["adapter_type"] = body["adapter_type"]
+            if "priority" in body:
+                update_kwargs["priority"] = int(body["priority"])
+            if "supports_cookies" in body:
+                update_kwargs["supports_cookies"] = bool(body["supports_cookies"])
+            if "supports_auto_download" in body:
+                update_kwargs["supports_auto_download"] = bool(body["supports_auto_download"])
+            if "supports_country_filter" in body:
+                update_kwargs["supports_country_filter"] = bool(body["supports_country_filter"])
+            if "supports_sticky_session" in body:
+                update_kwargs["supports_sticky_session"] = bool(body["supports_sticky_session"])
+            if "refresh_interval_minutes" in body:
+                update_kwargs["refresh_interval_minutes"] = int(body["refresh_interval_minutes"])
+            if "risk_level" in body:
+                update_kwargs["risk_level"] = body["risk_level"]
+            if "notes" in body:
+                update_kwargs["notes"] = body["notes"] or None
+            if "config_json" in body:
+                update_kwargs["config_json"] = body["config_json"]
             _db.update_dynamic_proxy_provider(provider_id, **update_kwargs)
             if _scheduler.is_running():
                 _scheduler.reload_jobs()
