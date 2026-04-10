@@ -3826,7 +3826,10 @@
 #bdLogText { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.7; }
 #bdLogText .log-success { color: var(--success); }
 #bdLogText .log-error { color: var(--error); }
-#bdComplete { margin-top: 8px; padding: 10px; background: var(--success-dim); border: 1px solid rgba(34,197,94,0.3); border-radius: var(--r-sm); font-size: 12px; color: var(--success); text-align: center; }
+#bdComplete { margin-top: 8px; padding: 10px; border-radius: var(--r-sm); font-size: 12px; text-align: center; }
+#bdComplete.success { background: var(--success-dim); border: 1px solid rgba(34,197,94,0.3); color: var(--success); }
+#bdComplete.warning { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.28); color: var(--warning); }
+#bdComplete.error { background: var(--error-dim); border: 1px solid rgba(239,68,68,0.3); color: var(--error); }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); }
 .modal-footer .btn { padding: 8px 20px; }
 </style>
@@ -6406,13 +6409,20 @@ function bdPoll() {
   api('GET', '/batch/tasks/' + _bdTaskId).then(r => {
     if (!r || r.error) return;
     const pct = r.total > 0 ? Math.round((r.completed / r.total) * 100) : 0;
+    const success = Number(r.success || 0);
+    const failed = Number(r.failed || 0);
+    const total = Number(r.total || 0);
+    const completed = Number(r.completed || 0);
+    const pending = Math.max(0, total - completed);
+
     document.getElementById('bdTrackFill').style.width = pct + '%';
     document.getElementById('bdPct').textContent = pct + '%';
     document.getElementById('bdCurrent').textContent = r.current_video || '';
     document.getElementById('bdCounter').textContent =
-      '✓ ' + r.success + '/' + r.total +
-      '  ·  ✗ ' + r.failed +
-      '  ·  ⏳ ' + (r.total - r.completed);
+      '✓ ' + success + '/' + total +
+      '  ·  ✗ ' + failed +
+      '  ·  ⏳ ' + pending;
+
     if (r.results && r.results.length) {
       const last = r.results[r.results.length - 1];
       const cls = last.status === '成功' ? 'log-success' : last.status === '失败' ? 'log-error' : '';
@@ -6421,18 +6431,38 @@ function bdPoll() {
       div.innerHTML += '<div class="' + cls + '">[' + t + '] ' + (last.status || '') + ' ' + (last.info || '') + '</div>';
       div.scrollTop = div.scrollHeight;
     }
+
     if (r.status === 'done' || r.status === 'error') {
       clearInterval(_bdPollTimer);
       _bdPollTimer = null;
-      _bdState = 'done';
+      _bdState = 'idle';
       document.getElementById('bdTrackPulse').classList.remove('active');
+
       const btnEl = document.getElementById('bdStartBtn');
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '✓ 完成'; }
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '▶ 重新下载';
+      }
       document.getElementById('bdCancelBtn').textContent = '关闭';
       document.getElementById('bdConfig').style.opacity = '';
-      document.getElementById('bdComplete').style.display = '';
-      document.getElementById('bdComplete').textContent =
-        '下载完成 — 成功: ' + r.success + '  失败: ' + r.failed;
+
+      const completeEl = document.getElementById('bdComplete');
+      completeEl.style.display = '';
+      completeEl.className = 'bd-complete';
+      if (failed === 0 && success > 0) {
+        completeEl.classList.add('success');
+        completeEl.textContent = '下载成功 — 成功: ' + success + '  失败: ' + failed;
+      } else if (success > 0 && failed > 0) {
+        completeEl.classList.add('warning');
+        completeEl.textContent = '部分成功 — 成功: ' + success + '  失败: ' + failed;
+      } else {
+        completeEl.classList.add('error');
+        completeEl.textContent = '下载失败 — 成功: ' + success + '  失败: ' + failed;
+      }
+
+      if (failed > 0 && (!r.current_video || r.current_video.startsWith('完成第 '))) {
+        document.getElementById('bdCurrent').textContent = '存在下载失败，请检查 Cookie / 代理 / 目标站点限制';
+      }
     }
   });
 }
