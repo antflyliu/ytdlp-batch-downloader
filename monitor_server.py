@@ -13,9 +13,11 @@ import argparse
 import collections
 import json
 import os
+import pathlib
 import re
 import secrets
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -117,6 +119,11 @@ class _DownloadTaskManager:
         with self._lock:
             t = self._tasks.get(task_id)
             return dict(t) if t else None
+
+    def list_tasks(self) -> list:
+        """返回所有任务列表。"""
+        with self._lock:
+            return [dict(t) for t in self._tasks.values()]
 
     def cleanup_old(self, max_age_sec: int = 3600):
         """清理超过 max_age_sec 的已完成任务"""
@@ -373,6 +380,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/accounts/") and "/videos" in path:
             acc_id = path.split("/")[3]
             self._api_account_videos(acc_id)
+        elif path == "/api/batch/tasks":
+            self._api_batch_tasks_list()
+        elif path.startswith("/api/batch/tasks/"):
+            task_id = path.split("/")[-1]
+            self._api_batch_task_status(task_id)
         else:
             super().do_GET()
 
@@ -468,6 +480,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pid = path.split("/")[-2]
             if pid.isdigit():
                 self._api_proxy_pool_update(int(pid), body)
+        elif path == "/api/batch/upload":
+            self._handle_multipart_upload()
+        elif path == "/api/batch/start":
+            self._api_batch_download_start(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -1607,6 +1623,149 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "created_at": task.get("created_at"),
             "finished_at": task.get("finished_at"),
         })
+
+    # ── Batch Download API ─────────────────────────────────────
+
+    def _handle_multipart_upload(self):
+        """POST /api/batch/upload — 接收上传的 Excel/CSV/TXT 文件，解析 URL 列表。"""
+        try:
+            import cgi
+
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                },
+            )
+            file_item = form.getfirst("file")
+            if not file_item:
+                self._send_json({"ok": False, "error": "未上传文件"}, 400)
+                return
+
+            filename = file_item.filename or "upload"
+            data = file_item.file.read()
+            if not data:
+                self._send_json({"ok": False, "error": "文件为空"}, 400)
+                return
+
+            # 保存到临时文件，解析后删除
+            suffix = pathlib.Path(filename).suffix
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, mode="wb"
+            ) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+
+            try:
+                from Youtube_Downloader import read_urls_from_file
+
+                urls = read_urls_from_file(tmp_path)
+                if not isinstance(urls, list) or not urls:
+                    self._send_json({"ok": False, "error": "文件中未找到有效 URL"}, 400)
+                    return
+                preview = urls[:5]
+                self._send_json({
+                    "ok": True,
+                    "filename": filename,
+                    "url_count": len(urls),
+                    "urls": preview,
+                })
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except Exception as ex:
+            self._send_json({"ok": False, "error": str(ex)}, 500)
+
+    def _api_batch_download_start(self, body: dict):
+        """POST /api/batch/start — 从 URL 列表启动批量下载。"""
+        urls = body.get("urls", [])
+        if not isinstance(urls, list) or not urls:
+            self._send_json({"error": "urls 必须为非空数组"}, 400)
+            return
+
+        cfg = _db.load_config()
+        default_out = cfg.get("download_output_path", "").strip()
+        output_path = body.get("output_path", "").strip() or default_out
+        if not output_path:
+            output_path = os.path.join(_PROJECT_ROOT, "videos")
+
+        # 路径安全校验
+        abs_output = pathlib.Path(output_path).resolve()
+        abs_root = pathlib.Path(_PROJECT_ROOT).resolve()
+        if not str(abs_output).startswith(str(abs_root)):
+            self._send_json({"error": "输出路径必须在允许范围内"}, 400)
+            return
+        os.makedirs(abs_output, exist_ok=True)
+
+        default_cookies = cfg.get("download_cookies_file", "") or None
+        cookies_file = body.get("cookies_file", "") or default_cookies
+        if cookies_file and not os.path.isfile(cookies_file):
+            cookies_file = None
+
+        resolution = body.get("resolution", "best")
+        no_subs = bool(body.get("no_subs", False))
+        sub_langs = body.get("sub_langs", "zh-Hans,en") if not no_subs else None
+
+        # 代理解析：走手动下载路由
+        route = resolve_for_manual_download(None, bool(cookies_file))
+
+        if route.resolved_proxy_source == "direct":
+            resolved_proxy = None
+        elif route.resolved_proxy_source in ("system_paid", "system_free"):
+            resolved_proxy = route.proxy
+        elif route.resolved_proxy_source == "account_static":
+            resolved_proxy = route.proxy
+        else:
+            resolved_proxy = None
+
+        # aria2 加速
+        enable_aria2 = cfg.get("enable_aria2", False)
+        _aria2_proxy = build_aria2_opts(resolved_proxy) if resolved_proxy else None
+        extra_ydl_opts = _aria2_proxy if enable_aria2 else None
+
+        video_records = [{"url": u} for u in urls]
+        task_id = _task_mgr.create_task(video_records, str(abs_output))
+
+        def progress_wrapper(progress: float, status: str):
+            _task_mgr.update_progress(task_id, int(progress * len(urls)), status)
+
+        def run():
+            try:
+                results = batch_download(
+                    urls,
+                    str(abs_output),
+                    resolution,
+                    proxy=resolved_proxy,
+                    progress_callback=progress_wrapper,
+                    sub_langs=sub_langs,
+                    no_subs=no_subs,
+                    cookies_file=cookies_file,
+                    extra_ydl_opts=extra_ydl_opts,
+                )
+                _task_mgr.finish_task(task_id, results)
+            except Exception as ex:
+                _task_mgr.fail_task(task_id, str(ex))
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self._send_json({"ok": True, "task_id": task_id})
+
+    def _api_batch_tasks_list(self):
+        """GET /api/batch/tasks — 返回所有批次任务。"""
+        tasks = _task_mgr.list_tasks()
+        self._send_json({"tasks": tasks})
+
+    def _api_batch_task_status(self, task_id: str):
+        """GET /api/batch/tasks/:id — 返回单个任务详情。"""
+        task = _task_mgr.get_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json(task)
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────
 
