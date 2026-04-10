@@ -11,6 +11,7 @@ import monitor.db as _db
 from monitor.proxy_router import (
     resolve_download_proxy,
     ProxyRouteResult,
+    resolve_proxy_download,
 )
 
 _log = logging_config.get_logger("dynamic_provider_resolver")
@@ -58,9 +59,39 @@ def resolve_for_auto_download(account_id: int) -> ProxyRouteResult:
     )
 
 
+def resolve_for_web_batch_download(
+    proxy_pool_id: int | None = None,
+    cookies_file_present: bool = False,
+    user_forced_direct: bool = False,
+) -> ProxyRouteResult:
+    """
+    Resolve proxy for Web UI batch download without requiring a monitor account.
+
+    Args:
+        proxy_pool_id: Optional fixed proxy pool selected by the user.
+        cookies_file_present: True if a cookies file will be used for this download.
+        user_forced_direct: True if the caller explicitly requested direct download.
+    """
+    pseudo_account = {
+        "id": None,
+        "name": "Web 批量下载",
+        "download_proxy_mode": "account_only" if proxy_pool_id else "auto",
+        "proxy_enabled": bool(proxy_pool_id),
+        "proxy_pool_id": proxy_pool_id,
+        # created_at 留空，按“新账户”规则走系统动态代理开关
+        "created_at": None,
+    }
+    return resolve_proxy_download(
+        pseudo_account,
+        is_auto_download=False,
+        cookies_file_present=cookies_file_present,
+        user_forced_direct=user_forced_direct,
+    )
+
+
 def log_download_decision(
     route_result: ProxyRouteResult,
-    account_id: int,
+    account_id: int | None,
     account_name: str,
     video_count: int,
     is_auto_download: bool,

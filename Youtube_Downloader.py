@@ -2,7 +2,6 @@ import yt_dlp
 from tqdm import tqdm
 import os
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
 import time
 import argparse
 import sys
@@ -14,6 +13,14 @@ import export_cookies
 import logging_config
 
 _log = logging_config.get_logger("ytdl_downloader")
+
+
+class BatchDownloadCancelled(Exception):
+    """Raised when a batch download task is cancelled externally."""
+
+    def __init__(self, message: str = "下载任务已取消", results: list[dict] | None = None):
+        super().__init__(message)
+        self.results = list(results or [])
 
 
 def proxy_url_uses_socks_scheme(proxy: str | None) -> bool:
@@ -116,12 +123,6 @@ def is_rate_limited(error_msg):
 
 def get_format_option(resolution):
     """根据选择的分辨率返回格式选项"""
-    resolution_map = {
-        '720p': 720,
-        '1080p': 1080,
-        '1440p': 1440,
-    }
-    height = resolution_map.get(resolution, 1080)
     # YouTube 1080p 视频编码高度可能是 1080（608x1080）或 1920（1920x1080），
     # 用 height<=N 过滤会漏掉真正的 1920x1080（因为 1920 > 1080）。
     # 改为直接用 bestvideo+bestaudio 让 yt-dlp 自动选最高画质。
@@ -145,7 +146,7 @@ def get_device(prefer_device="auto"):
 
 def get_subtitle_langs(sub_lang_str):
     """解析字幕语言字符串，返回 yt-dlp 和 WhisperX 格式"""
-    langs = [l.strip() for l in sub_lang_str.split(",") if l.strip()]
+    langs = [lang.strip() for lang in sub_lang_str.split(",") if lang.strip()]
     # yt-dlp 格式
     ydl_format = ",".join(langs)
     return langs, ydl_format
@@ -192,7 +193,7 @@ def generate_subtitle_with_whisper(video_path, output_dir, model_name="medium",
             print(f"      WhisperX 子进程失败: {result.stderr.strip()}")
             return None
     except subprocess.TimeoutExpired:
-        print(f"      WhisperX 处理超时（>1小时）")
+        print("      WhisperX 处理超时（>1小时）")
         return None
     except Exception as e:
         print(f"      WhisperX 生成字幕失败: {e}")
@@ -297,7 +298,8 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                   sub_langs=None, no_subs=False, proxy_pool=None,
                   cookies_from_browser=None, cookies_file=None,
                   concurrent_fragments=4, extra_ydl_opts=None,
-                  direct_fallback_after_proxies_exhausted=True):
+                  direct_fallback_after_proxies_exhausted=True,
+                  should_cancel=None):
     """
     批量下载视频的函数
     sub_langs: yt-dlp 字幕语言格式，如 "zh-Hans,en"
@@ -310,6 +312,10 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     results = []
     total = len(urls)
     completed = 0
+
+    def _raise_if_cancelled(message: str = "下载任务已取消"):
+        if should_cancel and should_cancel():
+            raise BatchDownloadCancelled(message, results=results)
 
     # JSON Cookie → 自动转为 Netscape 临时文件（支持 YouTube 官方导出 & 浏览器插件导出）
     _cookies_file = cookies_file
@@ -347,6 +353,14 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     }
     if extra_ydl_opts:
         ydl_opts_base.update(extra_ydl_opts)
+    if should_cancel:
+        progress_hooks = list(ydl_opts_base.get("progress_hooks") or [])
+
+        def _cancel_hook(_progress):
+            _raise_if_cancelled()
+
+        progress_hooks.append(_cancel_hook)
+        ydl_opts_base["progress_hooks"] = progress_hooks
 
     # 字幕选项
     if not no_subs and sub_langs:
@@ -409,107 +423,115 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
     whisper_compute = "float16" if device == "cuda" else "int8"
     whisper_model = "medium"
 
-    for i, url in enumerate(urls):
-        sub_status = "未下载"
-        attempts_plan = _plan_proxy_attempts()
-        last_proxy_label = "直连"
-        finished = False
+    try:
+        for i, url in enumerate(urls):
+            _raise_if_cancelled()
+            sub_status = "未下载"
+            attempts_plan = _plan_proxy_attempts()
+            last_proxy_label = "直连"
+            finished = False
 
-        for att_idx, (mode, current_proxy) in enumerate(attempts_plan):
-            last_proxy_label = current_proxy or "直连"
-            ydl_opts = _build_ydl_opts_for_attempt(current_proxy)
+            for att_idx, (mode, current_proxy) in enumerate(attempts_plan):
+                _raise_if_cancelled()
+                last_proxy_label = current_proxy or "直连"
+                ydl_opts = _build_ydl_opts_for_attempt(current_proxy)
 
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    video_title = info.get('title', 'unknown') if info else 'unknown'
-                    # 用 yt-dlp API 获取实际输出文件名（含 merge 后的正确扩展名）
-                    video_path = ydl.prepare_filename(info)
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        video_title = info.get('title', 'unknown') if info else 'unknown'
+                        # 用 yt-dlp API 获取实际输出文件名（含 merge 后的正确扩展名）
+                        video_path = ydl.prepare_filename(info)
 
-                # yt-dlp ignoreerrors 会吞掉部分错误，必须验证文件是否真实存在
-                if not video_path or not os.path.exists(video_path):
-                    raise Exception("视频文件未生成，下载失败")
+                    _raise_if_cancelled()
 
-                # 处理字幕
-                if not no_subs and video_path and os.path.exists(video_path):
-                    lang_list = [l.strip() for l in sub_langs.split(",")] if sub_langs else []
-                    existing_sub = check_subtitle_exists(video_path, lang_list) if lang_list else None
-                    if existing_sub:
-                        if existing_sub.endswith(".vtt"):
-                            srt_path = convert_vtt_to_srt(existing_sub)
-                            sub_status = f"yt-dlp: {os.path.basename(srt_path)}" if srt_path else f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
+                    # yt-dlp ignoreerrors 会吞掉部分错误，必须验证文件是否真实存在
+                    if not video_path or not os.path.exists(video_path):
+                        raise Exception("视频文件未生成，下载失败")
+
+                    # 处理字幕
+                    if not no_subs and video_path and os.path.exists(video_path):
+                        _raise_if_cancelled()
+                        lang_list = [lang.strip() for lang in sub_langs.split(",")] if sub_langs else []
+                        existing_sub = check_subtitle_exists(video_path, lang_list) if lang_list else None
+                        if existing_sub:
+                            if existing_sub.endswith(".vtt"):
+                                srt_path = convert_vtt_to_srt(existing_sub)
+                                sub_status = f"yt-dlp: {os.path.basename(srt_path)}" if srt_path else f"yt-dlp: {os.path.basename(existing_sub)} (VTT未转换)"
+                            else:
+                                sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
                         else:
-                            sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
-                    else:
-                        srt_path = generate_subtitle_with_whisper(
-                            video_path, output_path,
-                            model_name=whisper_model,
-                            device=device,
-                            compute_type=whisper_compute
-                        )
-                        sub_status = f"WhisperX: {os.path.basename(srt_path)}" if srt_path else "WhisperX失败"
+                            srt_path = generate_subtitle_with_whisper(
+                                video_path, output_path,
+                                model_name=whisper_model,
+                                device=device,
+                                compute_type=whisper_compute
+                            )
+                            sub_status = f"WhisperX: {os.path.basename(srt_path)}" if srt_path else "WhisperX失败"
 
-                results.append({
-                    'URL': url,
-                    '状态': '成功',
-                    '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}"
-                })
-                _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={last_proxy_label}")
-                finished = True
-                break
-
-            except (yt_dlp.utils.DownloadError, Exception) as e:
-                error_msg = str(e)
-                if mode == "direct":
                     results.append({
                         'URL': url,
-                        '状态': '失败',
-                        '信息': f"{error_msg} | 代理: 直连"
+                        '状态': '成功',
+                        '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}"
                     })
-                    _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理=直连 | {error_msg[:100]}")
+                    _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={last_proxy_label}")
                     finished = True
                     break
 
-                retryable = is_proxy_retryable_error(error_msg)
-                has_next = att_idx + 1 < len(attempts_plan)
-                if retryable and has_next:
-                    nxt = attempts_plan[att_idx + 1]
-                    nxt_label = "直连" if nxt[0] == "direct" else (nxt[1] or "")
-                    _log.warning(f"代理失败 [{i+1}/{total}]: {current_proxy} → 切换 {nxt_label}")
-                    print(f" [{i+1}/{total}] 代理 {current_proxy} 失败，切换下一个...")
-                    continue
+                except BatchDownloadCancelled:
+                    raise
+                except (yt_dlp.utils.DownloadError, Exception) as e:
+                    error_msg = str(e)
+                    if mode == "direct":
+                        results.append({
+                            'URL': url,
+                            '状态': '失败',
+                            '信息': f"{error_msg} | 代理: 直连"
+                        })
+                        _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理=直连 | {error_msg[:100]}")
+                        finished = True
+                        break
 
+                    retryable = is_proxy_retryable_error(error_msg)
+                    has_next = att_idx + 1 < len(attempts_plan)
+                    if retryable and has_next:
+                        nxt = attempts_plan[att_idx + 1]
+                        nxt_label = "直连" if nxt[0] == "direct" else (nxt[1] or "")
+                        _log.warning(f"代理失败 [{i+1}/{total}]: {current_proxy} → 切换 {nxt_label}")
+                        print(f" [{i+1}/{total}] 代理 {current_proxy} 失败，切换下一个...")
+                        continue
+
+                    results.append({
+                        'URL': url,
+                        '状态': '失败',
+                        '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                    })
+                    _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
+                    finished = True
+                    break
+
+            if not finished and not attempts_plan:
                 results.append({
                     'URL': url,
                     '状态': '失败',
-                    '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                    '信息': "无可用代理配置",
                 })
-                _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
-                finished = True
-                break
 
-        if not finished and not attempts_plan:
-            results.append({
-                'URL': url,
-                '状态': '失败',
-                '信息': "无可用代理配置",
-            })
+            completed += 1
+            if progress_callback:
+                progress_callback(completed / total, f"完成第 {completed}/{total} 个视频")
 
-        completed += 1
-        if progress_callback:
-            progress_callback(completed / total, f"完成第 {completed}/{total} 个视频")
-
-    # 清理临时 Cookie 文件
-    if _tmp_cookie and os.path.exists(_tmp_cookie):
-        try:
-            os.unlink(_tmp_cookie)
-        except Exception:
-            pass
-
-    success_cnt = sum(1 for r in results if r.get('状态') == '成功')
-    fail_cnt = sum(1 for r in results if r.get('状态') == '失败')
-    _log.info(f"批量下载完成: 总数={total} 成功={success_cnt} 失败={fail_cnt}")
-    return results
+        success_cnt = sum(1 for r in results if r.get('状态') == '成功')
+        fail_cnt = sum(1 for r in results if r.get('状态') == '失败')
+        _log.info(f"批量下载完成: 总数={total} 成功={success_cnt} 失败={fail_cnt}")
+        return results
+    finally:
+        # 清理临时 Cookie 文件
+        if _tmp_cookie and os.path.exists(_tmp_cookie):
+            try:
+                os.unlink(_tmp_cookie)
+            except Exception:
+                pass
 
 def read_urls_from_file(file_path):
     """根据文件类型读取URL列表，支持 CSV/Excel(.xlsx/.xls) 和纯文本(.txt)"""

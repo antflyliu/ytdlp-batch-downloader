@@ -154,6 +154,7 @@ def init_db() -> None:
         conn.executescript(schema)
         _ensure_schema_migrations(conn)
         _migrate_monitor_accounts(conn)
+    mark_incomplete_web_batch_tasks_interrupted()
     # 同步初始化 quota 表
     import monitor.quota as _quota
     _quota._ensure_schema()
@@ -450,6 +451,39 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v10_provider_scheduler_runs", today),
+        )
+
+    # v11: persisted Web batch download tasks
+    if "v11_web_batch_tasks" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS web_batch_tasks (
+                task_id          TEXT PRIMARY KEY,
+                source_name      TEXT,
+                output_path      TEXT,
+                status           TEXT NOT NULL,
+                total            INTEGER NOT NULL DEFAULT 0,
+                completed        INTEGER NOT NULL DEFAULT 0,
+                success          INTEGER NOT NULL DEFAULT 0,
+                failed           INTEGER NOT NULL DEFAULT 0,
+                current_video    TEXT,
+                error            TEXT,
+                cancel_requested INTEGER NOT NULL DEFAULT 0,
+                cancel_message   TEXT,
+                results_json     TEXT NOT NULL DEFAULT '[]',
+                created_at       TEXT NOT NULL,
+                finished_at      TEXT,
+                updated_at       TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_web_batch_tasks_created_at ON web_batch_tasks(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_web_batch_tasks_status ON web_batch_tasks(status, created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v11_web_batch_tasks", today),
         )
 
 
@@ -1382,6 +1416,107 @@ def get_download_decision_logs(account_id: int | None = None, limit: int = 100) 
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── web_batch_tasks CRUD ────────────────────────────────────
+
+def _normalize_web_batch_task_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    try:
+        item["results"] = json.loads(item.get("results_json") or "[]")
+    except Exception:
+        item["results"] = []
+    item.pop("results_json", None)
+    item["cancel_requested"] = bool(item.get("cancel_requested"))
+    return item
+
+
+def save_web_batch_task(task: dict) -> None:
+    """Insert or update a persisted Web batch task snapshot."""
+    payload = {
+        "task_id": task.get("task_id"),
+        "source_name": task.get("source_name"),
+        "output_path": task.get("output_path"),
+        "status": task.get("status", "running"),
+        "total": int(task.get("total", 0)),
+        "completed": int(task.get("completed", 0)),
+        "success": int(task.get("success", 0)),
+        "failed": int(task.get("failed", 0)),
+        "current_video": task.get("current_video") or "",
+        "error": task.get("error"),
+        "cancel_requested": int(bool(task.get("cancel_requested"))),
+        "cancel_message": task.get("cancel_message"),
+        "results_json": json.dumps(task.get("results", []) or [], ensure_ascii=False),
+        "created_at": task.get("created_at") or now_iso(),
+        "finished_at": task.get("finished_at"),
+        "updated_at": now_iso(),
+    }
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO web_batch_tasks
+               (task_id, source_name, output_path, status, total, completed, success, failed,
+                current_video, error, cancel_requested, cancel_message, results_json,
+                created_at, finished_at, updated_at)
+               VALUES (:task_id, :source_name, :output_path, :status, :total, :completed, :success, :failed,
+                       :current_video, :error, :cancel_requested, :cancel_message, :results_json,
+                       :created_at, :finished_at, :updated_at)
+               ON CONFLICT(task_id) DO UPDATE SET
+                 source_name=excluded.source_name,
+                 output_path=excluded.output_path,
+                 status=excluded.status,
+                 total=excluded.total,
+                 completed=excluded.completed,
+                 success=excluded.success,
+                 failed=excluded.failed,
+                 current_video=excluded.current_video,
+                 error=excluded.error,
+                 cancel_requested=excluded.cancel_requested,
+                 cancel_message=excluded.cancel_message,
+                 results_json=excluded.results_json,
+                 created_at=excluded.created_at,
+                 finished_at=excluded.finished_at,
+                 updated_at=excluded.updated_at""",
+            payload,
+        )
+
+
+def get_web_batch_task(task_id: str) -> dict | None:
+    """Load a persisted Web batch task by task_id."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM web_batch_tasks WHERE task_id=?",
+            (task_id,),
+        ).fetchone()
+    return _normalize_web_batch_task_row(row)
+
+
+def list_web_batch_tasks(limit: int = 50) -> list[dict]:
+    """List persisted Web batch tasks ordered by newest first."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM web_batch_tasks ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [_normalize_web_batch_task_row(row) for row in rows]
+
+
+def mark_incomplete_web_batch_tasks_interrupted() -> None:
+    """Convert stale running/cancelling persisted tasks to interrupted errors on startup."""
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE web_batch_tasks
+               SET status='error',
+                   error=COALESCE(error, '服务重启导致任务中断'),
+                   current_video='服务重启导致任务中断',
+                   finished_at=COALESCE(finished_at, ?),
+                   updated_at=?,
+                   cancel_requested=0
+               WHERE status IN ('running', 'cancelling')""",
+            (now, now),
+        )
 
 
 # ── 工具函数 ─────────────────────────────────────────────────
