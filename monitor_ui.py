@@ -1179,13 +1179,481 @@ class BatchDownloadDialog(tk.Toplevel):
         self._load_defaults()
 
     def _build_ui(self):
-        """构建 UI。子类可 override 各子区域以实现细节。"""
-        raise NotImplementedError
+        c = self.c
+        self.configure(bg=c["bg"])
+        self.title("批量下载视频")
+        self.geometry("640x700")
+        self.resizable(False, False)
+        self.grab_set()
+
+        # 主容器
+        container = tk.Frame(self, bg=c["bg"])
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # ── 标题栏 ──────────────────────────────────────────
+        title_bar = tk.Frame(container, bg=c["surface"], height=40)
+        title_bar.pack(fill=tk.X)
+        title_bar.pack_propagate(False)
+        accent_bar = tk.Frame(title_bar, bg=c["accent"], width=4)
+        accent_bar.pack(side=tk.LEFT, fill=tk.Y)
+        tk.Label(title_bar, text="⬇  批量下载视频", bg=c["surface"],
+                 fg=c["text"], font=("Segoe UI", 11, "bold"),
+                 anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0), pady=8)
+        close_btn = tk.Label(title_bar, text="✕", bg=c["surface"],
+                              fg=c["text_muted"], font=("Segoe UI", 10),
+                              cursor="hand2", padx=10)
+        close_btn.pack(side=tk.RIGHT)
+        close_btn.bind("<Button-1>", lambda e: self._on_close())
+
+        # 滚动区
+        scroll_frame = tk.Frame(container, bg=c["bg"])
+        scroll_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
+
+        # ── 文件上传区 ─────────────────────────────────────
+        self._build_file_section(scroll_frame)
+
+        sep1 = tk.Frame(scroll_frame, bg=c["border"], height=1)
+        sep1.pack(fill=tk.X, pady=(12, 0))
+
+        # ── 下载设置区 ─────────────────────────────────────
+        self._build_settings_section(scroll_frame)
+
+        sep2 = tk.Frame(scroll_frame, bg=c["border"], height=1)
+        sep2.pack(fill=tk.X, pady=(12, 0))
+
+        # ── 进度区 ────────────────────────────────────────
+        self._build_progress_section(scroll_frame)
+
+        # ── 底部按钮 ────────────────────────────────────────
+        btn_bar = tk.Frame(container, bg=c["bg"])
+        btn_bar.pack(fill=tk.X, pady=0)
+        spacer = tk.Frame(btn_bar, bg=c["bg"])
+        spacer.pack(side=tk.LEFT, expand=True)
+        self._cancel_btn = tk.Label(btn_bar, text="取消", bg=c["surface2"],
+                                    fg=c["text"], font=("Segoe UI", 10),
+                                    padx=20, pady=8, cursor="hand2")
+        self._cancel_btn.pack(side=tk.RIGHT, padx=(0, 12), pady=8)
+        self._cancel_btn.bind("<Button-1>", lambda e: self._on_cancel())
+        self._start_btn = tk.Label(btn_bar, text="▶ 开始下载", bg=c["accent"],
+                                   fg="#ffffff", font=("Segoe UI", 10, "bold"),
+                                   padx=20, pady=8, cursor="hand2")
+        self._start_btn.pack(side=tk.RIGHT, padx=(0, 8), pady=8)
+        self._start_btn.bind("<Button-1>", lambda e: self._on_start())
+        self._start_btn.bind("<Enter>", lambda e: self._start_btn.configure(bg=c["accent_hover"]))
+        self._start_btn.bind("<Leave>", lambda e: self._start_btn.configure(bg=c["accent"]))
+
+    def _build_file_section(self, parent):
+        """文件上传区：格式切换 pill + 上传框 + 状态行。"""
+        c = self.c
+        sec = tk.Frame(parent, bg=c["surface"], padx=16, pady=12)
+        sec.pack(fill=tk.X)
+
+        tk.Label(sec, text="📁 文件上传", bg=c["surface"], fg=c["text"],
+                 font=("Segoe UI", 10, "bold"), anchor=tk.W).pack(anchor=tk.W)
+
+        # 格式切换 pill
+        fmt_row = tk.Frame(sec, bg=c["surface"])
+        fmt_row.pack(anchor=tk.W, pady=(8, 8))
+        self._file_type = tk.StringVar(value="excel")
+        for val, label in [("excel", "Excel"), ("csv", "CSV"), ("txt", "TXT")]:
+            is_active = (val == "excel")
+            btn = tk.Label(fmt_row, text=label,
+                           bg=c["accent"] if is_active else c["surface2"],
+                           fg="#ffffff" if is_active else c["text_secondary"],
+                           font=("Segoe UI", 8), padx=12, pady=3,
+                           cursor="hand2")
+            btn.pack(side=tk.LEFT, padx=(0, 4))
+            btn.bind("<Button-1>", lambda e, v=val, b=btn: self._on_fmt_change(v, b))
+            setattr(self, f"_fmt_btn_{val}", btn)
+
+        # 上传框
+        self._upload_frame = tk.Frame(sec, bg=c["surface2"],
+                                       highlightbackground=c["border"],
+                                       highlightthickness=1,
+                                       cursor="hand2", pady=20)
+        self._upload_frame.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(self._upload_frame, text="📂", bg=c["surface2"],
+                 fg=c["text_muted"], font=("Segoe UI", 20)).pack(pady=(8, 4))
+        tk.Label(self._upload_frame, text="点击选择文件",
+                 bg=c["surface2"], fg=c["text_secondary"],
+                 font=("Segoe UI", 10)).pack()
+        tk.Label(self._upload_frame, text="支持 Excel / CSV / TXT",
+                 bg=c["surface2"], fg=c["text_muted"],
+                 font=("Segoe UI", 8)).pack()
+        self._upload_frame.bind("<Button-1>", lambda e: self._on_upload_click())
+
+        # 状态行
+        self._file_status_label = tk.Label(sec, text="", bg=c["surface"],
+                                            fg=c["success"], font=("Segoe UI", 9),
+                                            anchor=tk.W)
+        self._file_status_label.pack(anchor=tk.W)
+
+    def _build_settings_section(self, parent):
+        """下载设置区：5 行控件。"""
+        c = self.c
+        sec = tk.Frame(parent, bg=c["surface"], padx=16, pady=12)
+        sec.pack(fill=tk.X)
+
+        tk.Label(sec, text="📦 下载设置", bg=c["surface"], fg=c["text"],
+                 font=("Segoe UI", 10, "bold"), anchor=tk.W).pack(anchor=tk.W)
+
+        self._add_setting_row(sec, "保存路径", self._make_path_entry, {"padx": (0, 8), "pady": (8, 0)})
+        self._add_setting_row(sec, "视频画质", self._make_quality_combo, {"padx": (0, 8), "pady": (8, 0)})
+        self._add_setting_row(sec, "字幕语言", self._make_sub_lang_row, {"padx": (0, 8), "pady": (8, 0)})
+        self._add_setting_row(sec, "代理池", self._make_proxy_combo, {"padx": (0, 8), "pady": (8, 0)})
+        self._add_setting_row(sec, "Cookie", self._make_cookie_row, {"padx": (0, 8), "pady": (8, 0)})
+
+    def _add_setting_row(self, parent, label_text, make_widget_fn, pad):
+        """通用设置行工厂。"""
+        c = self.c
+        row = tk.Frame(parent, bg=c["surface"])
+        row.pack(fill=tk.X, **pad)
+        tk.Label(row, text=label_text, bg=c["surface"], fg=c["text_secondary"],
+                 font=("Segoe UI", 9), width=8, anchor=tk.W).pack(side=tk.LEFT)
+        widget = tk.Frame(row, bg=c["surface"])
+        widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        make_widget_fn(widget)
+
+    def _make_path_entry(self, parent):
+        """保存路径 Entry + 浏览按钮。"""
+        c = self.c
+        self._path_var = tk.StringVar()
+        entry = tk.Entry(parent, textvariable=self._path_var, bg=c["surface2"],
+                          fg=c["text"], insertbackground=c["accent"],
+                          relief=tk.FLAT, bd=0, font=("Segoe UI", 9),
+                          highlightbackground=c["border"], highlightthickness=1)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def browse():
+            path = filedialog.askdirectory()
+            if path:
+                self._path_var.set(path)
+        btn = tk.Label(parent, text="浏览", bg=c["surface2"], fg=c["text"],
+                       font=("Segoe UI", 8), padx=8, pady=2, cursor="hand2")
+        btn.pack(side=tk.LEFT, padx=(4, 0))
+        btn.bind("<Button-1>", lambda e: browse())
+
+    def _make_quality_combo(self, parent):
+        """画质下拉：best / 720p / 1080p / 1440p。"""
+        self._quality_var = tk.StringVar(value="best")
+        combo = ttk.Combobox(parent, textvariable=self._quality_var,
+                              font=("Segoe UI", 9), state="readonly",
+                              values=["best", "720p", "1080p", "1440p"], width=14)
+        combo.pack(side=tk.LEFT, fill=tk.X)
+
+    def _make_sub_lang_row(self, parent):
+        """字幕语言 Entry + 下载字幕 Checkbutton。"""
+        c = self.c
+        self._sub_lang_var = tk.StringVar(value="zh-Hans,en")
+        entry = tk.Entry(parent, textvariable=self._sub_lang_var, bg=c["surface2"],
+                          fg=c["text"], insertbackground=c["accent"],
+                          relief=tk.FLAT, bd=0, font=("Segoe UI", 9),
+                          highlightbackground=c["border"], highlightthickness=1,
+                          width=16)
+        entry.pack(side=tk.LEFT)
+        self._download_subtitles = tk.BooleanVar(value=True)
+        cb = tk.Checkbutton(parent, variable=self._download_subtitles,
+                             bg=c["surface"], fg=c["text"],
+                             selectcolor=c["accent"],
+                             activebackground=c["surface"],
+                             font=("Segoe UI", 8), text="下载字幕")
+        cb.pack(side=tk.LEFT, padx=(8, 0))
+
+    def _make_proxy_combo(self, parent):
+        """代理池下拉。"""
+        self._proxy_var = tk.StringVar(value="（不使用代理池）")
+        self._proxy_combo = ttk.Combobox(parent, textvariable=self._proxy_var,
+                                          font=("Segoe UI", 9), state="readonly",
+                                          values=["（不使用代理池）"], width=18)
+        self._proxy_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _make_cookie_row(self, parent):
+        """Cookie Entry + 浏览按钮。"""
+        c = self.c
+        self._cookie_var = tk.StringVar()
+        entry = tk.Entry(parent, textvariable=self._cookie_var, bg=c["surface2"],
+                          fg=c["text"], insertbackground=c["accent"],
+                          relief=tk.FLAT, bd=0, font=("Segoe UI", 9),
+                          highlightbackground=c["border"], highlightthickness=1)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def browse():
+            path = filedialog.askopenfilename(title="选择 Cookie 文件",
+                                              filetypes=[("Netscape Cookie", "*.txt *.json"),
+                                                          ("所有文件", "*.*")])
+            if path:
+                self._cookie_var.set(path)
+        btn = tk.Label(parent, text="浏览", bg=c["surface2"], fg=c["text"],
+                       font=("Segoe UI", 8), padx=8, pady=2, cursor="hand2")
+        btn.pack(side=tk.LEFT, padx=(4, 0))
+        btn.bind("<Button-1>", lambda e: browse())
+
+    def _build_progress_section(self, parent):
+        """进度区：Canvas 进度条 + 标题 + 计数器 + 详情日志。"""
+        c = self.c
+        sec = tk.Frame(parent, bg=c["surface"], padx=16, pady=12)
+        sec.pack(fill=tk.X)
+
+        tk.Label(sec, text="📊 下载进度", bg=c["surface"], fg=c["text"],
+                 font=("Segoe UI", 10, "bold"), anchor=tk.W).pack(anchor=tk.W)
+
+        # Canvas 进度条
+        self._progress_canvas = tk.Canvas(sec, bg=c["surface2"],
+                                          height=12, highlightthickness=0)
+        self._progress_canvas.pack(fill=tk.X, pady=(8, 4))
+        self._progress_rect = self._progress_canvas.create_rectangle(
+            0, 0, 0, 12, fill=c["accent"], outline="")
+
+        self._progress_pct = tk.Label(sec, text="0%", bg=c["surface"],
+                                       fg=c["text_muted"], font=("Segoe UI", 8),
+                                       anchor=tk.W)
+        self._progress_pct.pack()
+
+        # 当前视频标题
+        self._current_title_label = tk.Label(sec, text="", bg=c["surface"],
+                                              fg=c["text_secondary"],
+                                              font=("Segoe UI", 9),
+                                              anchor=tk.W)
+        self._current_title_label.pack(anchor=tk.W, pady=(4, 0))
+
+        # 计数器
+        self._counter_label = tk.Label(sec, text="", bg=c["surface"],
+                                        fg=c["text_secondary"],
+                                        font=("Segoe UI", 9), anchor=tk.W)
+        self._counter_label.pack(anchor=tk.W, pady=(2, 0))
+
+        # 展开详情 toggle
+        self._log_expanded = False
+        self._detail_toggle = tk.Label(sec, text="▼ 展开详情",
+                                        bg=c["surface"], fg=c["text_muted"],
+                                        font=("Segoe UI", 8), cursor="hand2",
+                                        anchor=tk.W)
+        self._detail_toggle.pack(anchor=tk.W, pady=(6, 0))
+        self._detail_toggle.bind("<Button-1>", lambda e: self._toggle_detail())
+
+        # 日志 Text（默认隐藏）
+        self._log_frame = tk.Frame(sec, bg=c["surface"])
+        log_scroll = tk.Scrollbar(self._log_frame)
+        self._log_text = tk.Text(self._log_frame, bg=c["surface2"], fg=c["text"],
+                                  font=("Cascadia Code", 8), relief=tk.FLAT, bd=0,
+                                  padx=6, pady=4, state="disabled", wrap=tk.WORD,
+                                  height=6)
+        self._log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._log_text.configure(yscrollcommand=log_scroll.set)
+        log_scroll.configure(command=self._log_text.yview)
+        self._log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        self._log_frame.pack_forget()  # 默认收起
 
     def _populate_proxy_pools(self):
         """填充代理池下拉列表。"""
-        raise NotImplementedError
+        try:
+            pools = _db.list_proxy_pools()
+            names = ["（不使用代理池）"] + [p["name"] for p in pools]
+            self._proxy_combo.configure(values=names)
+            self._proxy_urls = {p["name"]: p["proxy_url"] for p in pools}
+        except Exception:
+            self._proxy_combo.configure(values=["（不使用代理池）"])
+            self._proxy_urls = {}
 
     def _load_defaults(self):
         """从 config.json 加载默认值。"""
-        raise NotImplementedError
+        try:
+            cfg = _db.load_config()
+            self._path_var.set(cfg.get("download_output_path", ""))
+            cookie = cfg.get("download_cookies_file", "")
+            self._cookie_var.set(cookie)
+        except Exception:
+            pass
+
+# ── 事件处理 ──────────────────────────────────────────────
+
+    def _on_fmt_change(self, val, btn):
+        """切换文件格式，清空已选文件。"""
+        c = self.c
+        self._file_type.set(val)
+        for v, lbl in [("excel", "Excel"), ("csv", "CSV"), ("txt", "TXT")]:
+            b = getattr(self, f"_fmt_btn_{v}")
+            is_active = (v == val)
+            b.configure(
+                bg=c["accent"] if is_active else c["surface2"],
+                fg="#ffffff" if is_active else c["text_secondary"]
+            )
+        self._selected_file = None
+        self._urls = []
+        self._file_status_label.configure(text="", fg=c["success"])
+
+    def _on_upload_click(self):
+        """打开文件选择对话框。"""
+        fmt = self._file_type.get()
+        ft_map = {
+            "excel": [("Excel 文件", "*.xlsx *.xls"), ("所有文件", "*.*")],
+            "csv":   [("CSV 文件", "*.csv"), ("所有文件", "*.*")],
+            "txt":   [("文本文件", "*.txt"), ("所有文件", "*.*")],
+        }
+        path = filedialog.askopenfilename(title="选择文件", filetypes=ft_map.get(fmt, ft_map["excel"]))
+        if not path:
+            return
+        self._selected_file = path
+        self._parse_file()
+
+    def _parse_file(self):
+        """解析已选文件，提取 URL 列表。"""
+        c = self.c
+        try:
+            from Youtube_Downloader import read_urls_from_file
+            urls = read_urls_from_file(self._selected_file)
+            self._urls = urls if isinstance(urls, list) else []
+            name = Path(self._selected_file).name
+            self._file_status_label.configure(
+                text=f"✅ 已选择: {name}  ·  {len(self._urls)} 条 URL",
+                fg=c["success"]
+            )
+        except Exception as ex:
+            self._urls = []
+            self._file_status_label.configure(
+                text=f"❌ 解析失败: {ex}",
+                fg=c["error"]
+            )
+
+    def _on_close(self):
+        """关闭弹窗。"""
+        self.destroy()
+
+# ── 进度 UI 更新 ────────────────────────────────────────────
+
+    def _update_progress(self, progress: float, status: str):
+        """由 download thread 通过 root.after() 调用，更新进度 UI。"""
+        pct = int(progress * 100)
+        self._progress_pct.configure(text=f"{pct}%")
+        w = self._progress_canvas.winfo_width()
+        if w > 0:
+            self._progress_canvas.coords(
+                self._progress_rect, 0, 0, int(w * progress), 12)
+        done = int(progress * self._total) if self._total > 0 else 0
+        waiting = max(0, self._total - done)
+        self._counter_label.configure(
+            text=f"✓ 已完成: {done}/{self._total}  ·  ✗ 失败: {self._failed}  ·  等待中: {waiting}"
+        )
+        self._append_log(status)
+
+    def _toggle_detail(self):
+        """展开/收起详情日志。"""
+        if self._log_expanded:
+            self._log_frame.pack_forget()
+            self._detail_toggle.configure(text="▼ 展开详情")
+            self._log_expanded = False
+        else:
+            self._log_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            self._detail_toggle.configure(text="▲ 收起详情")
+            self._log_expanded = True
+
+# ── 状态切换 + 按钮 ────────────────────────────────────────
+
+    def _set_state(self, state: str):
+        """切换状态，更新按钮样式和可用性。"""
+        c = self.c
+        self._state = state
+        if state == "idle":
+            self._start_btn.configure(text="▶ 开始下载", bg=c["accent"], state="normal")
+            self._cancel_btn.configure(text="取消", bg=c["surface2"], fg=c["text"])
+            self._cancel_btn.pack(side=tk.RIGHT, padx=(0, 12), pady=8)
+        elif state == "downloading":
+            self._start_btn.configure(text="下载中...", bg=c["text_muted"], state="disabled")
+            self._cancel_btn.configure(text="取消", bg=c["warning"], fg="#ffffff")
+            self._cancel_btn.pack(side=tk.RIGHT, padx=(0, 12), pady=8)
+        elif state == "completed":
+            self._start_btn.configure(text="确定", bg=c["accent"], state="normal")
+            self._cancel_btn.pack_forget()
+
+    def _on_start(self):
+        """开始下载。"""
+        if self._state == "completed":
+            self.destroy()
+            return
+        if self._state == "downloading":
+            return
+
+        from tkinter import messagebox
+        if not self._urls:
+            messagebox.showwarning("提示", "请先选择包含 URL 的文件")
+            return
+
+        save_path = self._path_var.get().strip()
+        if not save_path:
+            messagebox.showwarning("提示", "请选择保存路径")
+            return
+
+        # Cookie 持久化
+        cookie_path = self._cookie_var.get().strip()
+        try:
+            cfg = _db.load_config()
+            if cookie_path != cfg.get("download_cookies_file", ""):
+                cfg["download_cookies_file"] = cookie_path
+                _db.save_config(cfg)
+        except Exception:
+            pass
+
+        self._total = len(self._urls)
+        self._completed = 0
+        self._failed = 0
+        self._log_entries = []
+        self._set_state("downloading")
+        self._log_text.configure(state="normal")
+        self._log_text.delete("1.0", tk.END)
+        self._log_text.configure(state="disabled")
+
+        def progress_wrapper(progress: float, status: str):
+            self.parent.after(0, lambda p=progress, s=status: self._update_progress(p, s))
+
+        def download_thread():
+            try:
+                from Youtube_Downloader import batch_download
+                quality = self._quality_var.get()
+                proxy_name = self._proxy_var.get()
+                proxy = self._proxy_urls.get(proxy_name) if proxy_name != "（不使用代理池）" else None
+                no_subs = not self._download_subtitles.get()
+                sub_langs = self._sub_lang_var.get() if not no_subs else None
+
+                results = batch_download(
+                    self._urls,
+                    save_path,
+                    quality,
+                    proxy=proxy,
+                    progress_callback=progress_wrapper,
+                    sub_langs=sub_langs,
+                    no_subs=no_subs,
+                    cookies_file=cookie_path or None,
+                )
+                success = sum(1 for r in results if r.get("状态") == "成功")
+                failed = len(results) - success
+                summary = f"========== 下载完成 ==========\n成功: {success}  失败: {failed}"
+                self.parent.after(0, lambda: self._on_download_complete(success, failed, summary))
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                self.parent.after(0, lambda: self._on_download_error(str(ex)))
+
+        import threading
+        t = threading.Thread(target=download_thread, daemon=True)
+        t.start()
+
+    def _on_download_complete(self, success: int, failed: int, summary: str):
+        """下载完成回调。"""
+        self._failed = failed
+        self._set_state("completed")
+        self._append_log(summary)
+        self._counter_label.configure(
+            text=f"✓ 成功: {success}  ·  ✗ 失败: {failed}",
+            fg=self.c["success"]
+        )
+        self._progress_pct.configure(text="100%", fg=self.c["success"])
+
+    def _on_download_error(self, err: str):
+        """下载异常回调。"""
+        self._set_state("idle")
+        self._append_log(f"❌ 下载异常: {err}")
+
+    def _on_cancel(self):
+        """取消（关闭弹窗）。"""
+        self.destroy()
