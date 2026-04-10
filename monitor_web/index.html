@@ -6424,7 +6424,7 @@ function bdPoll() {
       _bdPollTimer = null;
       _bdState = 'done';
       document.getElementById('bdTrackPulse').classList.remove('active');
-      btnEl = document.getElementById('bdStartBtn');
+      const btnEl = document.getElementById('bdStartBtn');
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '✓ 完成'; }
       document.getElementById('bdCancelBtn').textContent = '关闭';
       document.getElementById('bdConfig').style.opacity = '';
