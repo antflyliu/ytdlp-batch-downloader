@@ -414,11 +414,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         if not self._check_rate_limit():
             return
+        path = self._path_only()
+        if self.headers.get("Content-Type", "").startswith("multipart/form-data"):
+            if path == "/api/batch/upload":
+                self._handle_multipart_upload()
+                return
+            self._send_json({"error": "未知 multipart API"}, 404)
+            return
         body = self._read_json()
         if body is None:
             self._send_json({"error": "invalid json body"}, 400)
             return
-        path = self._path_only()
         if path == "/api/scheduler/start":
             self._api_scheduler_start(body)
         elif path == "/api/scheduler/stop":
