@@ -1,5 +1,33 @@
 # Web UI 批量下载弹窗 — 实现计划
 
+> **As-built update (2026-04-10):** 以下实现说明以当前代码为准，早期草案中的部分片段已被后续修正覆盖。当前正式契约为：
+> - `POST /api/batch/upload` 返回 `upload_id + url_count + preview_urls`，前端**只显示预览**，完整 URL 列表仅保存在服务端上传会话中。
+> - `POST /api/batch/start` 以 `upload_id` 启动任务，并接受 `proxy_pool_id`（可选）而不是裸 `proxy` 字符串。
+> - `POST /api/batch/tasks/:id/cancel` 支持服务端取消任务；运行中的任务会先显示 `cancelling`，完成取消后落为 `cancelled`。
+> - Cookie 覆盖值是**监控服务本机可访问的路径**，不再假定浏览器本地文件可直接传给后端。
+> - 输出路径校验复用现有下载接口的允许范围（项目目录 + 全局配置目录）。
+> - 当前测试主入口为 `tests/test_batch_webui_api_behavior.py`、`tests/test_batch_webui_contract.py`，并配合 `tests/test_batch_*` 回归集。
+
+## 当前收口状态（2026-04-10）
+
+### 已完成
+
+- [x] 上传文件后由服务端保存完整 URL 集，前端仅持有 `upload_id`
+- [x] Web 批量下载独立代理路由，避免复用 account-only 路由入口
+- [x] 代理池通过 `proxy_pool_id` 生效
+- [x] Cookie 覆盖输入收敛为服务器路径语义
+- [x] 任务结果对外统一为 `status / info / url`
+- [x] 支持服务端取消任务
+- [x] 支持在弹窗内查看最近任务并恢复查看运行中任务
+- [x] 最近任务历史持久化到数据库，服务重启后仍可查看
+
+### 当前建议验证命令
+
+```bash
+python -m pytest -q
+python -m ruff check monitor_server.py Youtube_Downloader.py tests/test_batch_download_cancellation.py tests/test_batch_webui_api_behavior.py tests/test_batch_webui_contract.py
+```
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development
 > Steps use checkbox (`- [ ]`) syntax.
 
@@ -15,7 +43,8 @@
 |------|------|
 | `monitor_server.py` | +~200 行：4 个新端点 + multipart upload 支持 |
 | `monitor_web/index.html` | +~400 行：modal HTML/CSS/JS |
-| `tests/test_batch_server.py` | 新建，测试新 API |
+| `tests/test_batch_webui_api_behavior.py` | 新建，验证 upload_id / proxy_pool_id / 任务状态 API 行为 |
+| `tests/test_batch_webui_contract.py` | 新建，验证 Web UI 契约（upload_id、代理池、Cookie、日志增量） |
 
 ---
 

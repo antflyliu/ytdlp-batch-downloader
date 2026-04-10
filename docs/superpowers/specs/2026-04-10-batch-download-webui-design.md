@@ -1,5 +1,39 @@
 # Web UI 批量下载弹窗 — 实现设计方案
 
+> **As-built update (2026-04-10):** 当前实现已经从最初草案演进为服务端持有完整上传 URL 集的模式。以下几点优先于后续旧草案片段：
+> - 上传接口返回 `upload_id` 与 `preview_urls`，完整 URL 列表保存在服务端上传会话中。
+> - 启动接口使用 `upload_id` + `proxy_pool_id`（可选）+ 配置启动任务，不再直接接收前端持有的完整 `urls` 或裸 `proxy`。
+> - Web UI 批量下载通过 `resolve_for_web_batch_download()` 路由，不再错误复用 account-only 的 `resolve_for_manual_download(None, ...)`。
+> - Cookie 覆盖输入代表**服务器端路径**；UI 仅帮助用户填写该路径，不直接读取浏览器本地 Cookie 文件。
+> - `/api/batch/tasks/:id` 对外统一返回规范化结果字段：`status` / `info` / `url`。
+> - 新增 `POST /api/batch/tasks/:id/cancel`，前端点击“取消”会请求服务端取消任务；若当前视频仍在下载，任务会先进入 `cancelling`，随后落到 `cancelled`。
+> - 最近任务已持久化到数据库（`web_batch_tasks`），服务重启后仍可查看历史任务；启动时会把残留 `running/cancelling` 任务标记为中断。
+
+## 0. 当前最终契约（2026-04-10 as-built）
+
+### API
+
+| 端点 | 方法 | 当前用途 |
+|------|------|----------|
+| `/api/batch/upload` | POST multipart | 解析上传文件，返回 `upload_id`、`url_count`、`preview_urls` |
+| `/api/batch/start` | POST JSON | 使用 `upload_id` + 配置启动任务 |
+| `/api/batch/tasks` | GET | 返回最近批量任务列表（按创建时间倒序） |
+| `/api/batch/tasks/:id` | GET | 返回单个任务详情与规范化结果 |
+| `/api/batch/tasks/:id/cancel` | POST | 请求取消任务，状态进入 `cancelling/cancelled` |
+
+### Web UI 语义
+
+- 上传成功后，前端仅保留 `upload_id` 与预览，不持有完整 URL 列表
+- 代理池选择传 `proxy_pool_id`，不传脱敏后的代理 URL
+- Cookie 输入框表示**服务器端路径**
+- 最近任务区可重新打开运行中/已完成/已取消任务
+
+### 测试入口
+
+- `tests/test_batch_webui_api_behavior.py`
+- `tests/test_batch_webui_contract.py`
+- `tests/test_batch_download_cancellation.py`
+
 > **Agent 用途**：指导 `monitor_server.py` 后端 API + `monitor_web/index.html` 前端弹窗的实现
 > **依赖**：复用 Tkinter 版已实现的 `BatchDownloadDialog` 设计逻辑；复用 `monitor_server.py` 已有 `_DownloadTaskManager` + `batch_download()` 引擎
 
