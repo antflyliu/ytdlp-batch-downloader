@@ -13,9 +13,11 @@ import argparse
 import collections
 import json
 import os
+import pathlib
 import re
 import secrets
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -37,8 +39,13 @@ import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import logging_config
-from Youtube_Downloader import batch_download, build_aria2_opts
-from monitor.dynamic_provider_resolver import resolve_for_manual_download, log_download_decision
+from Youtube_Downloader import BatchDownloadCancelled, batch_download, build_aria2_opts
+from monitor.dynamic_provider_resolver import (
+    log_download_decision,
+    resolve_for_manual_download,
+    resolve_for_web_batch_download,
+)
+from monitor.http_multipart import MultipartParseError, read_single_file_part
 
 _log = logging_config.get_logger("monitor_server")
 
@@ -47,6 +54,7 @@ _RATE_LIMIT_WINDOW = 60  # 秒
 _RATE_LIMIT_MAX = 600    # 非回环客户端每窗口上限（仪表盘 + 多弹窗轮询仍可能触顶）
 _rate_limiter: dict[str, collections.deque] = {}
 _rate_limiter_lock = threading.Lock()
+_WEB_BATCH_ACCOUNT_NAME = "Web 批量下载"
 
 
 def _get_client_ip() -> str:
@@ -67,11 +75,22 @@ class _DownloadTaskManager:
         self._lock = threading.Lock()
         self._tasks: dict[str, dict] = {}
 
-    def create_task(self, video_records: list[dict], output_path: str) -> str:
+    def create_task(
+        self,
+        video_records: list[dict],
+        output_path: str,
+        *,
+        task_kind: str = "generic",
+        source_name: str | None = None,
+        persist_task: bool = False,
+    ) -> str:
         """创建下载任务，返回 task_id"""
         task_id = uuid.uuid4().hex[:12]
         task = {
             "task_id": task_id,
+            "task_kind": task_kind,
+            "source_name": source_name,
+            "persist_task": persist_task,
             "status": "running",
             "total": len(video_records),
             "completed": 0,
@@ -80,62 +99,188 @@ class _DownloadTaskManager:
             "current_video": "",
             "results": [],
             "output_path": output_path,
+            "cancel_requested": False,
+            "cancel_message": None,
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "finished_at": None,
         }
         with self._lock:
+            self._cleanup_old_locked()
             self._tasks[task_id] = task
+            self._persist_task_locked(task)
         return task_id
 
     def update_progress(self, task_id: str, completed: int, status_text: str):
         with self._lock:
             t = self._tasks.get(task_id)
-            if t:
+            if t and t.get("status") != "cancelled":
                 t["completed"] = completed
                 t["current_video"] = status_text
+                self._persist_task_locked(t)
 
     def finish_task(self, task_id: str, results: list[dict]):
         with self._lock:
             t = self._tasks.get(task_id)
             if t:
+                if t.get("status") == "cancelled":
+                    return
                 t["status"] = "done"
                 t["results"] = results
                 t["completed"] = t["total"]
-                t["success"] = sum(1 for r in results if r.get("状态") == "成功")
-                t["failed"] = sum(1 for r in results if r.get("状态") == "失败")
+                t["success"] = sum(
+                    1 for r in results if (r.get("状态") or r.get("status")) == "成功"
+                )
+                t["failed"] = sum(
+                    1 for r in results if (r.get("状态") or r.get("status")) == "失败"
+                )
                 t["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                self._persist_task_locked(t)
 
     def fail_task(self, task_id: str, error: str):
         with self._lock:
             t = self._tasks.get(task_id)
             if t:
+                if t.get("status") == "cancelled":
+                    return
                 t["status"] = "error"
                 t["error"] = error
                 t["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                self._persist_task_locked(t)
+
+    def request_cancel(self, task_id: str, message: str = "正在取消下载任务…") -> dict | None:
+        with self._lock:
+            self._cleanup_old_locked()
+            t = self._tasks.get(task_id)
+            if not t:
+                return None
+            if t["status"] in ("done", "error", "cancelled"):
+                return dict(t)
+            t["cancel_requested"] = True
+            t["cancel_message"] = message
+            t["status"] = "cancelling"
+            t["current_video"] = message
+            self._persist_task_locked(t)
+            return dict(t)
+
+    def is_cancel_requested(self, task_id: str) -> bool:
+        with self._lock:
+            self._cleanup_old_locked()
+            t = self._tasks.get(task_id)
+            return bool(t and t.get("cancel_requested"))
+
+    def cancel_task(self, task_id: str, results: list[dict] | None = None, message: str = "下载任务已取消"):
+        with self._lock:
+            self._cleanup_old_locked()
+            t = self._tasks.get(task_id)
+            if not t:
+                return
+            normalized_results = results if results is not None else t.get("results", [])
+            t["status"] = "cancelled"
+            t["cancel_requested"] = True
+            t["cancel_message"] = message
+            t["current_video"] = message
+            t["results"] = normalized_results
+            t["success"] = sum(
+                1 for r in normalized_results if (r.get("状态") or r.get("status")) == "成功"
+            )
+            t["failed"] = sum(
+                1 for r in normalized_results if (r.get("状态") or r.get("status")) == "失败"
+            )
+            t["completed"] = min(
+                t["total"],
+                max(int(t.get("completed", 0)), len(normalized_results)),
+            )
+            t["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+            self._persist_task_locked(t)
 
     def get_task(self, task_id: str) -> dict | None:
         with self._lock:
+            self._cleanup_old_locked()
             t = self._tasks.get(task_id)
             return dict(t) if t else None
 
+    def list_tasks(self) -> list:
+        """返回所有任务列表。"""
+        with self._lock:
+            self._cleanup_old_locked()
+            tasks = [dict(t) for t in self._tasks.values()]
+            return sorted(tasks, key=lambda item: item.get("created_at") or "", reverse=True)
+
     def cleanup_old(self, max_age_sec: int = 3600):
         """清理超过 max_age_sec 的已完成任务"""
-        now = datetime.now().astimezone()
         with self._lock:
-            to_del = []
-            for tid, t in self._tasks.items():
-                if t["status"] in ("done", "error") and t.get("finished_at"):
-                    try:
-                        fin = datetime.fromisoformat(t["finished_at"])
-                        if (now - fin).total_seconds() > max_age_sec:
-                            to_del.append(tid)
-                    except Exception:
-                        pass
-            for tid in to_del:
-                del self._tasks[tid]
+            self._cleanup_old_locked(max_age_sec=max_age_sec)
+
+    def _cleanup_old_locked(self, max_age_sec: int = 3600):
+        now = datetime.now().astimezone()
+        to_del = []
+        for tid, t in self._tasks.items():
+            if t["status"] in ("done", "error", "cancelled") and t.get("finished_at"):
+                try:
+                    fin = datetime.fromisoformat(t["finished_at"])
+                    if (now - fin).total_seconds() > max_age_sec:
+                        to_del.append(tid)
+                except Exception:
+                    pass
+        for tid in to_del:
+            del self._tasks[tid]
+
+    def _persist_task_locked(self, task: dict):
+        if task.get("persist_task") and task.get("task_kind") == "web_batch":
+            _db.save_web_batch_task(task)
 
 
 _task_mgr = _DownloadTaskManager()
+
+
+class _BatchUploadStore:
+    """缓存 Web 批量下载上传解析结果，避免前端持有完整 URL 集。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._uploads: dict[str, dict] = {}
+
+    def create_upload(self, filename: str, urls: list[str]) -> str:
+        upload_id = uuid.uuid4().hex[:12]
+        with self._lock:
+            self._cleanup_old_locked()
+            self._uploads[upload_id] = {
+                "upload_id": upload_id,
+                "filename": filename,
+                "urls": list(urls),
+                "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
+        return upload_id
+
+    def get_upload(self, upload_id: str) -> dict | None:
+        with self._lock:
+            self._cleanup_old_locked()
+            item = self._uploads.get(upload_id)
+            return {
+                "upload_id": item["upload_id"],
+                "filename": item["filename"],
+                "urls": list(item["urls"]),
+                "created_at": item["created_at"],
+            } if item else None
+
+    def _cleanup_old_locked(self, max_age_sec: int = 3600):
+        now = datetime.now().astimezone()
+        expired: list[str] = []
+        for upload_id, item in self._uploads.items():
+            created_at = item.get("created_at")
+            if not created_at:
+                continue
+            try:
+                created = datetime.fromisoformat(created_at)
+            except Exception:
+                continue
+            if (now - created).total_seconds() > max_age_sec:
+                expired.append(upload_id)
+        for upload_id in expired:
+            self._uploads.pop(upload_id, None)
+
+
+_batch_upload_mgr = _BatchUploadStore()
 
 # ── PyInstaller 兼容路径 ───────────────────────────────────────
 if getattr(sys, "frozen", False):
@@ -150,6 +295,96 @@ _YOUTUBE_URL_RE = re.compile(
 )
 _YOUTUBE_HANDLE_RE = re.compile(r"^@[A-Za-z0-9._-]{3,100}$")
 _YOUTUBE_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{20,40}$")
+
+
+def _normalize_fs_path(path: str) -> str:
+    """规范化文件系统路径，兼容 Windows 大小写与符号链接。"""
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _is_path_within(candidate: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([candidate, root]) == root
+    except ValueError:
+        return False
+
+
+def _resolve_download_output_path(requested_path: str, cfg: dict) -> str:
+    cfg_output_path = cfg.get("download_output_path", "") or ""
+    output_path = (requested_path or "").strip() or str(cfg_output_path).strip()
+    if not output_path:
+        output_path = os.path.join(_PROJECT_ROOT, "videos")
+
+    abs_output = _normalize_fs_path(output_path)
+    abs_root = _normalize_fs_path(_PROJECT_ROOT)
+    cfg_path = str(cfg.get("download_output_path", "") or "")
+    cfg_abs = _normalize_fs_path(cfg_path) if cfg_path else ""
+    allowed_roots = [abs_root]
+    if cfg_abs and cfg_abs not in allowed_roots:
+        allowed_roots.append(cfg_abs)
+
+    if not any(_is_path_within(abs_output, root) for root in allowed_roots):
+        raise ValueError("输出路径必须在允许范围内")
+
+    os.makedirs(abs_output, exist_ok=True)
+    return abs_output
+
+
+def _resolve_cookies_file(requested_path: str | None, cfg: dict) -> str | None:
+    cfg_cookies = str(cfg.get("download_cookies_file", "") or "")
+    cookies_file = (requested_path or "").strip() or cfg_cookies or None
+    if cookies_file and not os.path.isfile(cookies_file):
+        _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
+        return None
+    return cookies_file
+
+
+def _route_to_download_targets(route) -> tuple[str | None, list[str] | None]:
+    resolved_proxy: str | None = None
+    resolved_proxy_pool: list[str] | None = None
+    if route.resolved_proxy_source == "direct":
+        return None, None
+    if route.resolved_proxy_source == "account_static":
+        return route.proxy, None
+    if route.resolved_proxy_source in ("system_paid", "system_free"):
+        if route.proxy_pool:
+            resolved_proxy_pool = route.proxy_pool
+        else:
+            resolved_proxy = route.proxy
+    return resolved_proxy, resolved_proxy_pool
+
+
+def _normalize_batch_result(result: dict) -> dict:
+    return {
+        "url": result.get("url") or result.get("URL") or "",
+        "status": result.get("status") or result.get("状态") or "",
+        "info": result.get("info") or result.get("信息") or "",
+    }
+
+
+def _serialize_batch_task(task: dict, *, include_results: bool) -> dict:
+    payload = {
+        "task_id": task.get("task_id"),
+        "source_name": task.get("source_name"),
+        "status": task.get("status"),
+        "total": task.get("total", 0),
+        "completed": task.get("completed", 0),
+        "success": task.get("success", 0),
+        "failed": task.get("failed", 0),
+        "current_video": task.get("current_video", ""),
+        "output_path": task.get("output_path"),
+        "error": task.get("error"),
+        "cancel_requested": bool(task.get("cancel_requested")),
+        "cancel_message": task.get("cancel_message"),
+        "created_at": task.get("created_at"),
+        "finished_at": task.get("finished_at"),
+    }
+    if include_results:
+        payload["results"] = [
+            _normalize_batch_result(result)
+            for result in task.get("results", []) or []
+        ]
+    return payload
 
 
 def _is_valid_youtube_url(url: str) -> bool:
@@ -373,6 +608,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/accounts/") and "/videos" in path:
             acc_id = path.split("/")[3]
             self._api_account_videos(acc_id)
+        elif path == "/api/batch/tasks":
+            self._api_batch_tasks_list()
+        elif path.startswith("/api/batch/tasks/") and path.endswith("/cancel"):
+            self._send_json({"error": "请使用 POST /api/batch/tasks/:id/cancel"}, 405)
+        elif path.startswith("/api/batch/tasks/"):
+            task_id = path.split("/")[-1]
+            self._api_batch_task_status(task_id)
         else:
             super().do_GET()
 
@@ -402,11 +644,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         if not self._check_rate_limit():
             return
+        path = self._path_only()
+        if self.headers.get("Content-Type", "").startswith("multipart/form-data"):
+            if path == "/api/batch/upload":
+                self._handle_multipart_upload()
+                return
+            self._send_json({"error": "未知 multipart API"}, 404)
+            return
         body = self._read_json()
         if body is None:
             self._send_json({"error": "invalid json body"}, 400)
             return
-        path = self._path_only()
         if path == "/api/scheduler/start":
             self._api_scheduler_start(body)
         elif path == "/api/scheduler/stop":
@@ -468,6 +716,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pid = path.split("/")[-2]
             if pid.isdigit():
                 self._api_proxy_pool_update(int(pid), body)
+        elif path == "/api/batch/upload":
+            self._handle_multipart_upload()
+        elif path == "/api/batch/start":
+            self._api_batch_download_start(body)
+        elif path.startswith("/api/batch/tasks/") and path.endswith("/cancel"):
+            task_id = path.split("/")[-2]
+            self._api_batch_task_cancel(task_id)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -1386,25 +1641,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
 
         cfg = _db.load_config()
-
-        output_path = body.get("output_path", "").strip()
-        if not output_path:
-            output_path = cfg.get("download_output_path", "").strip()
-        if not output_path:
-            output_path = os.path.join(_PROJECT_ROOT, "videos")
-
-        # 路径安全校验：规范化并限制在允许范围内
-        # 使用 realpath 解析符号链接，防止 UNC 路径绕过 startswith() 检查
-        abs_output = os.path.realpath(os.path.abspath(output_path))
-        abs_root = os.path.abspath(_PROJECT_ROOT)
-        # 允许：项目根目录下任何子目录 + 全局配置中明确设置的路径
-        cfg_abs = os.path.realpath(os.path.abspath(cfg.get("download_output_path", ""))) if cfg.get("download_output_path") else ""
-        allowed_roots = [abs_root, cfg_abs] if cfg_abs else [abs_root]
-        if not any(abs_output.startswith(r) for r in allowed_roots):
-            self._send_json({"error": "输出路径必须在允许范围内"}, 400)
+        try:
+            abs_output = _resolve_download_output_path(body.get("output_path", ""), cfg)
+        except ValueError as ex:
+            self._send_json({"error": str(ex)}, 400)
             return
-
-        os.makedirs(abs_output, exist_ok=True)
 
         video_records = _db.get_videos_by_ids(video_ids)
         if not video_records:
@@ -1425,10 +1666,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         # user_forced_direct: 允许请求体传 direct=true 强制直连
         user_forced_direct = bool(body.get("direct", False))
 
-        cookies_file = body.get("cookies_file") or cfg.get("download_cookies_file", "") or None
-        if cookies_file and not os.path.isfile(cookies_file):
-            _log.warning(f"Cookie 文件不存在，将跳过 Cookie: {cookies_file}")
-            cookies_file = None
+        cookies_file = _resolve_cookies_file(body.get("cookies_file"), cfg)
         cookies_present = bool(cookies_file)
 
         # Resolve proxy using unified routing
@@ -1487,18 +1725,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
 
         # Determine what to pass to batch_download
-        resolved_proxy: str | None = None
-        resolved_proxy_pool: list[str] | None = None
-        if route.resolved_proxy_source == "direct":
-            resolved_proxy = None
-        elif route.resolved_proxy_source == "account_static":
-            resolved_proxy = route.proxy
-        elif route.resolved_proxy_source in ("system_paid", "system_free"):
-            # proxy_pool takes priority over proxy for dynamic providers
-            if route.proxy_pool:
-                resolved_proxy_pool = route.proxy_pool
-            else:
-                resolved_proxy = route.proxy
+        resolved_proxy, resolved_proxy_pool = _route_to_download_targets(route)
 
         task_id = _task_mgr.create_task(video_records, abs_output)
         _log.info(
@@ -1606,6 +1833,243 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "error": task.get("error"),
             "created_at": task.get("created_at"),
             "finished_at": task.get("finished_at"),
+        })
+
+    # ── Batch Download API ─────────────────────────────────────
+
+    def _handle_multipart_upload(self):
+        """POST /api/batch/upload — 接收上传的 Excel/CSV/TXT 文件，解析 URL 列表。"""
+        try:
+            file_part = read_single_file_part(self.rfile, self.headers, field_name="file")
+
+            # Deprecated backup path (kept commented intentionally per request):
+            # import cgi
+            # form = cgi.FieldStorage(
+            #     fp=self.rfile,
+            #     headers=self.headers,
+            #     environ={
+            #         "REQUEST_METHOD": "POST",
+            #         "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+            #     },
+            # )
+            # if "file" not in form:
+            #     self._send_json({"ok": False, "error": "未上传文件"}, 400)
+            #     return
+            # file_item = form["file"]
+            # if isinstance(file_item, list):
+            #     file_item = file_item[0] if file_item else None
+            # file_obj = getattr(file_item, "file", None) if file_item is not None else None
+            # if file_item is None or file_obj is None:
+            #     self._send_json({"ok": False, "error": "未上传文件"}, 400)
+            #     return
+
+            if file_part is None:
+                self._send_json({"ok": False, "error": "未上传文件"}, 400)
+                return
+
+            filename = file_part.filename or "upload"
+            data = file_part.data
+            if not data:
+                self._send_json({"ok": False, "error": "文件为空"}, 400)
+                return
+
+            # 保存到临时文件，解析后删除
+            suffix = pathlib.Path(filename).suffix
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, mode="wb"
+            ) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+
+            try:
+                from Youtube_Downloader import read_urls_from_file
+
+                urls = read_urls_from_file(tmp_path)
+                if not isinstance(urls, list) or not urls:
+                    self._send_json({"ok": False, "error": "文件中未找到有效 URL"}, 400)
+                    return
+                upload_id = _batch_upload_mgr.create_upload(filename, urls)
+                preview = urls[:5]
+                self._send_json({
+                    "ok": True,
+                    "upload_id": upload_id,
+                    "filename": filename,
+                    "url_count": len(urls),
+                    "preview_urls": preview,
+                })
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except MultipartParseError as ex:
+            self._send_json({"ok": False, "error": str(ex)}, 400)
+        except Exception as ex:
+            self._send_json({"ok": False, "error": str(ex)}, 500)
+
+    def _api_batch_download_start(self, body: dict):
+        """POST /api/batch/start — 从 upload_id 启动批量下载。"""
+        upload_id = (body.get("upload_id") or "").strip()
+        if not upload_id:
+            self._send_json({"error": "upload_id 不能为空"}, 400)
+            return
+        upload = _batch_upload_mgr.get_upload(upload_id)
+        if not upload:
+            self._send_json({"error": "上传会话不存在或已过期，请重新上传文件"}, 400)
+            return
+        urls = upload.get("urls", [])
+        if not isinstance(urls, list) or not urls:
+            self._send_json({"error": "上传会话中无有效 URL，请重新上传文件"}, 400)
+            return
+        filename = upload.get("filename") or "upload"
+
+        cfg = _db.load_config()
+        try:
+            abs_output = _resolve_download_output_path(body.get("output_path", ""), cfg)
+        except ValueError as ex:
+            self._send_json({"error": str(ex)}, 400)
+            return
+
+        cookies_file = _resolve_cookies_file(body.get("cookies_file"), cfg)
+
+        resolution = body.get("resolution", "best")
+        no_subs = bool(body.get("no_subs", False))
+        sub_langs = body.get("sub_langs", "zh-Hans,en") if not no_subs else None
+        user_forced_direct = bool(body.get("direct", False))
+
+        proxy_pool_id_raw = body.get("proxy_pool_id")
+        proxy_pool_id: int | None = None
+        if proxy_pool_id_raw not in (None, ""):
+            try:
+                proxy_pool_id = int(proxy_pool_id_raw)
+            except (TypeError, ValueError):
+                self._send_json({"error": "proxy_pool_id 必须为整数"}, 400)
+                return
+            if proxy_pool_id <= 0:
+                self._send_json({"error": "proxy_pool_id 必须为正整数"}, 400)
+                return
+
+        route = resolve_for_web_batch_download(
+            proxy_pool_id=proxy_pool_id,
+            cookies_file_present=bool(cookies_file),
+            user_forced_direct=user_forced_direct,
+        )
+        if route.resolved_mode == "failed":
+            self._send_json({
+                "ok": False,
+                "error": route.reason,
+                "routing": {
+                    "source": route.resolved_proxy_source,
+                    "provider": route.provider_name,
+                    "masked_endpoint": route.masked_proxy_endpoint,
+                    "reason": route.reason,
+                    "warnings": route.warnings,
+                    "session_mode": route.session_mode,
+                },
+            }, 400)
+            return
+
+        log_download_decision(
+            route_result=route,
+            account_id=None,
+            account_name=_WEB_BATCH_ACCOUNT_NAME,
+            video_count=len(urls),
+            is_auto_download=False,
+        )
+
+        _log.info(
+            f"[Web Batch Download] upload={upload_id} file={filename} route={route.resolved_proxy_source} "
+            f"provider={route.provider_name or 'N/A'} reason={route.reason} "
+            f"proxy={route.masked_proxy_endpoint or 'direct'}"
+        )
+
+        resolved_proxy, resolved_proxy_pool = _route_to_download_targets(route)
+
+        # aria2 加速
+        enable_aria2 = bool(cfg.get("enable_aria2", False))
+        extra_ydl_opts = build_aria2_opts(None) if enable_aria2 else None
+
+        video_records = [{"url": u} for u in urls]
+        task_id = _task_mgr.create_task(
+            video_records,
+            abs_output,
+            task_kind="web_batch",
+            source_name=filename,
+            persist_task=True,
+        )
+        direct_fallback_after_proxies = bool(cfg.get("manual_direct_fallback", True)) and not (
+            user_forced_direct or proxy_pool_id is not None
+        )
+
+        def progress_wrapper(progress: float, status: str):
+            _task_mgr.update_progress(task_id, int(progress * len(urls)), status)
+
+        def run():
+            try:
+                results = batch_download(
+                    urls,
+                    abs_output,
+                    resolution,
+                    proxy=resolved_proxy,
+                    proxy_pool=resolved_proxy_pool,
+                    progress_callback=progress_wrapper,
+                    sub_langs=sub_langs,
+                    no_subs=no_subs,
+                    cookies_file=cookies_file,
+                    extra_ydl_opts=extra_ydl_opts,
+                    direct_fallback_after_proxies_exhausted=direct_fallback_after_proxies,
+                    should_cancel=lambda: _task_mgr.is_cancel_requested(task_id),
+                )
+                _task_mgr.finish_task(task_id, results)
+            except BatchDownloadCancelled as ex:
+                _task_mgr.cancel_task(task_id, getattr(ex, "results", []), str(ex))
+            except Exception as ex:
+                _task_mgr.fail_task(task_id, str(ex))
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self._send_json({
+            "ok": True,
+            "task_id": task_id,
+            "queued": len(urls),
+            "upload_id": upload_id,
+        })
+
+    def _api_batch_tasks_list(self):
+        """GET /api/batch/tasks — 返回所有批次任务。"""
+        tasks = _db.list_web_batch_tasks(limit=50)
+        self._send_json({"tasks": [_serialize_batch_task(task, include_results=False) for task in tasks]})
+
+    def _api_batch_task_status(self, task_id: str):
+        """GET /api/batch/tasks/:id — 返回单个任务详情。"""
+        task = _task_mgr.get_task(task_id)
+        if not task or task.get("task_kind") != "web_batch":
+            task = _db.get_web_batch_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json(_serialize_batch_task(task, include_results=True))
+
+    def _api_batch_task_cancel(self, task_id: str):
+        """POST /api/batch/tasks/:id/cancel — 请求取消 Web 批量下载任务。"""
+        task = _task_mgr.request_cancel(task_id)
+        if not task:
+            persisted = _db.get_web_batch_task(task_id)
+            if not persisted:
+                self._send_json({"error": "任务不存在"}, 404)
+                return
+            self._send_json({
+                "ok": False,
+                "error": "任务当前未运行，无法取消",
+                "task": _serialize_batch_task(persisted, include_results=False),
+            }, 409)
+            return
+        self._send_json({
+            "ok": True,
+            "task_id": task_id,
+            "status": task.get("status"),
+            "cancel_requested": True,
+            "message": task.get("cancel_message") or "正在取消下载任务…",
         })
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────

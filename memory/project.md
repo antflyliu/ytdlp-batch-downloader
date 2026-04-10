@@ -131,3 +131,45 @@ dist/YouTubeMonitor.exe  # PyInstaller 打包
 import monitor_ui
 self._monitor_page = monitor_ui.MonitorPage(frame, colors=self.colors)
 ```
+
+## Session Memory Update (2026-04-10)
+
+### Web UI 批量下载能力已完成的关键升级
+- 批量上传/启动链路已改为 **server-owned `upload_id` 模型**：前端只保留预览与 `upload_id`，完整 URL 集由服务端保存。
+- Web UI 批量下载已使用 **独立路由入口**，不再错误复用 account-only 的 `resolve_for_manual_download(None, ...)`。
+- 代理选择语义已改为 **`proxy_pool_id`**；Cookie 覆盖语义已收敛为 **服务器端文件路径**。
+- 批量任务已支持 **服务端取消**：状态流转为 `running -> cancelling -> cancelled`。
+- 最近任务已从内存态升级为 **数据库持久化**（`web_batch_tasks`），服务重启后仍可查看；启动时会把残留 `running/cancelling` 任务标记为中断错误。
+- 批量下载弹窗已具备轻量任务中心能力：
+  - 最近任务下拉 + 卡片列表
+  - 状态筛选（全部 / 进行中 / 已结束 / 已取消）
+  - 汇总计数
+  - 卡片级“重开 / 取消”操作
+  - 运行中任务恢复查看
+- multipart 上传解析运行时已从 **`cgi.FieldStorage`** 切换为项目内最小解析器 `monitor/http_multipart.py`；旧 `cgi` 方案保留为注释备用参考。
+
+### schema / DB 对齐结论
+- `monitor/data/monitor.db` 的运行时初始化 schema 来源是 **`monitor/schema.sql`**，不是仓库根目录的 `schema.sql`。
+- 已补齐 `monitor/schema.sql` 中缺失的运行时对象，包括：
+  - `api_quota_usage`
+  - `channel_meta_cache`
+  - `schema_migrations`
+  - `alembic_version`
+  - `dynamic_proxy_providers`
+  - `download_decision_logs`
+  - `provider_scheduler_runs`
+  - `web_batch_tasks`
+- 还为 `monitor/schema.sql` 的表字段补充了更详细的中文注释，说明字段用途、状态语义、时间格式、外键删除行为等。
+
+### 关键验证状态
+- 全量测试最近一次结果：`pytest -q` **265 passed**。
+- 重点验证通过：
+  - Web batch API behavior
+  - UI contract
+  - task cancellation
+  - multipart parser
+  - recent-task persistence / reopen / cancel actions
+
+### 仍需注意的风险
+- 取消仍是“尽快取消”，不是强杀底层下载进程。
+- 根目录 `schema.sql` 与 `monitor/schema.sql` 仍是两套不同职责的 schema 文件，后续可再补职责说明避免混淆。
