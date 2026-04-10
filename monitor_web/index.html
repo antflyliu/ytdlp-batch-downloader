@@ -2475,6 +2475,7 @@
       <button class="btn btn-ghost" onclick="openConfig()">⚙ 全局配置</button>
       <button class="btn btn-ghost" onclick="openCache()">API 缓存</button>
       <button class="btn btn-ghost" onclick="openApiKeys()">API Keys</button>
+      <button class="btn btn-ghost" onclick="openBatchDownload()">⬇ 批量下载</button>
       <button class="btn-ghost-proxy" onclick="openProxyPools()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
@@ -3748,6 +3749,187 @@
       <button class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')">取消</button>
       <button class="btn btn-dyn-primary" onclick="saveDynamicProvider()">保存提供方</button>
     </div>
+  </div>
+</div>
+
+<!-- ── 批量下载弹窗 CSS ── -->
+<style>
+/* ── 批量下载弹窗 ───────────────────────────────── */
+#modalBatchDownload .modal-header {
+  border-left: 3px solid var(--accent);
+  border-bottom: 1.5px solid var(--border);
+}
+.bd-section { padding: 0 0 4px; }
+.bd-section-label {
+  font-size: 12px; font-weight: 600;
+  color: var(--text-muted); margin-bottom: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.bd-pills { display: flex; gap: 6px; margin-bottom: 10px; }
+.bd-pill {
+  padding: 4px 14px; border-radius: 20px;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text-muted);
+  transition: all 0.15s;
+}
+.bd-pill:hover { border-color: var(--accent); color: var(--text); }
+.bd-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.bd-dropzone {
+  border: 1.5px dashed var(--border); border-radius: var(--r-md); padding: 24px 16px; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.bd-dropzone:hover { border-color: var(--accent); background: var(--accent-dim); }
+.bd-dropzone.selected { border-style: solid; border-color: var(--success); background: var(--success-dim); }
+.bd-dropzone.error { border-color: var(--error); background: var(--error-dim); }
+.bd-drop-icon { font-size: 18px; color: var(--text-dim); margin-bottom: 6px; }
+.bd-drop-text { font-size: 13px; color: var(--text-muted); }
+.bd-drop-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.bd-file-error { font-size: 12px; color: var(--error); margin-top: 6px; text-align: center; }
+.bd-sep { border-top: 1px solid var(--border); margin: 14px 0; }
+.bd-form-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.bd-label { font-size: 12px; color: var(--text-muted); width: 56px; flex-shrink: 0; }
+.bd-input-row { display: flex; flex: 1; gap: 6px; }
+.bd-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 6px 10px;
+  color: var(--text); font-size: 12px; font-family: var(--font);
+  outline: none; transition: border-color 0.15s;
+}
+.bd-input:focus { border-color: var(--accent); }
+.bd-select {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 6px 10px;
+  color: var(--text); font-size: 12px; appearance: none; cursor: pointer;
+}
+.bd-browse {
+  padding: 6px 12px; background: var(--surface3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text-muted); font-size: 12px;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.bd-browse:hover { color: var(--text); border-color: var(--accent); }
+.bd-checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.bd-checkbox-label input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.bd-track-wrap { display: flex; align-items: center; gap: 10px; margin: 8px 0 6px; }
+.bd-track { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; position: relative; }
+.bd-track-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s ease; width: 0%; }
+.bd-track-pulse { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: bd-pulse 1.5s ease-in-out infinite; opacity: 0; }
+.bd-track-pulse.active { opacity: 1; }
+@keyframes bd-pulse { 0%, 100% { transform: translateY(-50%) scale(1); opacity: 1; } 50% { transform: translateY(-50%) scale(1.5); opacity: 0.6; } }
+.bd-pct { font-size: 11px; color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; width: 32px; text-align: right; }
+.bd-current { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-counter { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+.bd-log-toggle { font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; margin-bottom: 4px; }
+.bd-log-toggle:hover { color: var(--text-muted); }
+.bd-log { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; max-height: 120px; overflow-y: auto; }
+.bd-log:empty::before { content: '暂无日志'; color: var(--text-dim); font-size: 11px; }
+#bdLogText { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.7; }
+#bdLogText .log-success { color: var(--success); }
+#bdLogText .log-error { color: var(--error); }
+#bdComplete { margin-top: 8px; padding: 10px; background: var(--success-dim); border: 1px solid rgba(34,197,94,0.3); border-radius: var(--r-sm); font-size: 12px; color: var(--success); text-align: center; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); }
+.modal-footer .btn { padding: 8px 20px; }
+</style>
+
+<!-- 批量下载弹窗 -->
+<div class="modal" id="modalBatchDownload" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
+  <div class="modal-header">
+    <div class="modal-title">⬇  批量下载</div>
+    <button class="modal-close" onclick="bdClose()">✕</button>
+  </div>
+  <div class="modal-body" style="overflow-y:auto;flex:1;padding:16px 20px">
+
+    <!-- 上传区 -->
+    <div class="bd-section">
+      <div class="bd-section-label">📁 上传视频列表</div>
+      <div class="bd-pills" id="bdPills">
+        <button class="bd-pill active" data-fmt="excel" onclick="bdSwitchFmt(this)">Excel</button>
+        <button class="bd-pill" data-fmt="csv" onclick="bdSwitchFmt(this)">CSV</button>
+        <button class="bd-pill" data-fmt="txt" onclick="bdSwitchFmt(this)">TXT</button>
+      </div>
+      <input type="hidden" id="bdFmt" value="excel">
+      <div class="bd-dropzone" id="bdDropzone" onclick="bdTriggerFile()">
+        <div id="bdDropIdle">
+          <div class="bd-drop-icon">——</div>
+          <div class="bd-drop-text">点击选择文件上传</div>
+          <div class="bd-drop-sub">支持 Excel · CSV · TXT</div>
+        </div>
+        <div id="bdDropSelected" style="display:none">
+          <div class="bd-drop-icon" style="color:var(--success)">✓</div>
+          <div class="bd-drop-text" id="bdFileName"></div>
+          <div class="bd-drop-sub" id="bdUrlCount"></div>
+        </div>
+      </div>
+      <input type="file" id="bdFileInput" style="display:none" accept=".xlsx,.xls,.csv,.txt" onchange="bdHandleFile(this)">
+      <div class="bd-file-error" id="bdFileError" style="display:none"></div>
+    </div>
+
+    <div class="bd-sep"></div>
+
+    <!-- 配置区 -->
+    <div class="bd-section" id="bdConfig">
+      <div class="bd-section-label">📦 下载配置</div>
+      <div class="bd-form-row">
+        <label class="bd-label">保存路径</label>
+        <div class="bd-input-row">
+          <input class="bd-input" id="bdOutputPath" placeholder="默认使用全局配置">
+          <button class="bd-browse" onclick="bdBrowsePath()">浏览</button>
+        </div>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label">视频画质</label>
+        <select class="bd-select" id="bdResolution">
+          <option value="best">最高画质</option>
+          <option value="720p">720p</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p</option>
+        </select>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label">字幕语言</label>
+        <input class="bd-input" id="bdSubLang" value="zh-Hans,en" style="width:120px">
+        <label class="bd-checkbox-label">
+          <input type="checkbox" id="bdSubEnabled" checked>
+          <span>下载字幕</span>
+        </label>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label">代理池</label>
+        <select class="bd-select" id="bdProxy">
+          <option value="">（不使用代理池）</option>
+        </select>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label">Cookie</label>
+        <div class="bd-input-row">
+          <input class="bd-input" id="bdCookie" placeholder="默认使用全局配置">
+          <button class="bd-browse" onclick="bdBrowseCookie()">浏览</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 进度区 -->
+    <div class="bd-section" id="bdProgressSection" style="display:none">
+      <div class="bd-section-label">📡 下载管道</div>
+      <div class="bd-track-wrap">
+        <div class="bd-track">
+          <div class="bd-track-fill" id="bdTrackFill"></div>
+          <div class="bd-track-pulse" id="bdTrackPulse"></div>
+        </div>
+        <span class="bd-pct" id="bdPct">0%</span>
+      </div>
+      <div class="bd-current" id="bdCurrent"></div>
+      <div class="bd-counter" id="bdCounter"></div>
+      <div class="bd-log-toggle" onclick="bdToggleLog()" id="bdLogToggle">▾ 展开详情</div>
+      <div class="bd-log" id="bdLog" style="display:none"><div id="bdLogText"></div></div>
+    </div>
+
+    <div class="bd-complete" id="bdComplete" style="display:none"></div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn btn-ghost" id="bdCancelBtn" onclick="bdCancel()">取消</button>
+    <button class="btn btn-primary" id="bdStartBtn" onclick="bdStart()">▶ 开始下载</button>
   </div>
 </div>
 
@@ -6072,6 +6254,207 @@
     }
     toast('全量健康检查完成 (' + providers.length + ' 个)', 'ok');
   }
+
+// ── 批量下载弹窗 ─────────────────────────────────────
+let _bdTaskId = null;
+let _bdPollTimer = null;
+let _bdUrls = [];
+let _bdState = 'idle'; // idle | running | done
+
+function openBatchDownload() {
+  _bdState = 'idle';
+  _bdTaskId = null;
+  _bdUrls = [];
+  if (_bdPollTimer) { clearInterval(_bdPollTimer); _bdPollTimer = null; }
+  // Reset UI
+  document.getElementById('bdDropIdle').style.display = '';
+  document.getElementById('bdDropSelected').style.display = 'none';
+  document.getElementById('bdDropzone').className = 'bd-dropzone';
+  document.getElementById('bdFileError').style.display = 'none';
+  document.getElementById('bdProgressSection').style.display = 'none';
+  document.getElementById('bdComplete').style.display = 'none';
+  document.getElementById('bdStartBtn').style.display = '';
+  document.getElementById('bdStartBtn').disabled = false;
+  document.getElementById('bdStartBtn').textContent = '▶ 开始下载';
+  document.getElementById('bdCancelBtn').textContent = '取消';
+  document.getElementById('bdConfig').style.opacity = '';
+  document.getElementById('bdLogText').innerHTML = '';
+  document.getElementById('bdLog').style.display = 'none';
+  document.getElementById('bdLogToggle').textContent = '▾ 展开详情';
+  // Load proxy pools
+  api('GET', '/api/proxy-pools').then(r => {
+    if (r && r.pools) {
+      const sel = document.getElementById('bdProxy');
+      sel.innerHTML = '<option value="">（不使用代理池）</option>';
+      r.pools.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.proxy_url || '';
+        opt.textContent = p.name + (p.proxy_url ? ' (' + p.proxy_url.substring(0, 30) + '...)' : '');
+        sel.appendChild(opt);
+      });
+    }
+  });
+  openModal('modalBatchDownload');
+}
+
+function bdSwitchFmt(btn) {
+  document.getElementById('bdFmt').value = btn.dataset.fmt;
+  document.querySelectorAll('.bd-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function bdTriggerFile() {
+  document.getElementById('bdFileInput').click();
+}
+
+function bdHandleFile(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const formData = new FormData();
+  formData.append('file', file);
+  fetch('/api/batch/upload', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + _bearerToken },
+    body: formData,
+  }).then(r => r.json()).then(r => {
+    if (r.ok) {
+      _bdUrls = r.urls || [];
+      document.getElementById('bdFileName').textContent = r.filename;
+      document.getElementById('bdUrlCount').textContent = r.url_count + ' 条 URL';
+      document.getElementById('bdDropIdle').style.display = 'none';
+      document.getElementById('bdDropSelected').style.display = '';
+      document.getElementById('bdDropzone').className = 'bd-dropzone selected';
+      document.getElementById('bdFileError').style.display = 'none';
+    } else {
+      document.getElementById('bdDropzone').className = 'bd-dropzone error';
+      document.getElementById('bdFileError').textContent = '❌ ' + (r.error || '解析失败');
+      document.getElementById('bdFileError').style.display = '';
+      _bdUrls = [];
+    }
+  }).catch(() => {
+    document.getElementById('bdDropzone').className = 'bd-dropzone error';
+    document.getElementById('bdFileError').textContent = '❌ 网络错误';
+    document.getElementById('bdFileError').style.display = '';
+  });
+}
+
+function bdBrowsePath() {
+  const p = prompt('请输入下载保存路径（留空使用全局配置）:');
+  if (p !== null) document.getElementById('bdOutputPath').value = p;
+}
+
+function bdBrowseCookie() {
+  const f = document.createElement('input');
+  f.type = 'file';
+  f.accept = '.txt,.json';
+  f.onchange = () => {
+    if (f.files[0]) document.getElementById('bdCookie').value = f.files[0].name || '';
+  };
+  f.click();
+}
+
+function bdStart() {
+  if (_bdState === 'done') { bdClose(); return; }
+  if (_bdState === 'running') return;
+  const urls = _bdUrls;
+  if (!urls || urls.length === 0) { toast('请先上传包含 URL 的文件', 'error'); return; }
+  const body = {
+    urls,
+    output_path: document.getElementById('bdOutputPath').value.trim() || '',
+    resolution: document.getElementById('bdResolution').value,
+    sub_langs: document.getElementById('bdSubEnabled').checked ? document.getElementById('bdSubLang').value.trim() : '',
+    no_subs: !document.getElementById('bdSubEnabled').checked,
+    proxy: document.getElementById('bdProxy').value || null,
+    cookies_file: document.getElementById('bdCookie').value.trim() || null,
+  };
+  const btn = document.getElementById('bdStartBtn');
+  btn.disabled = true;
+  btn.textContent = '启动中...';
+  api('POST', '/api/batch/start', body).then(r => {
+    btn.disabled = false;
+    if (r && r.task_id) {
+      _bdTaskId = r.task_id;
+      _bdState = 'running';
+      btn.textContent = '下载中...';
+      btn.disabled = true;
+      document.getElementById('bdCancelBtn').textContent = '取消';
+      document.getElementById('bdConfig').style.opacity = '0.5';
+      document.getElementById('bdProgressSection').style.display = '';
+      document.getElementById('bdLogText').innerHTML = '';
+      document.getElementById('bdLog').style.display = 'none';
+      document.getElementById('bdTrackFill').style.width = '0%';
+      document.getElementById('bdPct').textContent = '0%';
+      document.getElementById('bdCurrent').textContent = '';
+      document.getElementById('bdCounter').textContent = '';
+      document.getElementById('bdTrackPulse').classList.add('active');
+      _bdPollTimer = setInterval(bdPoll, 2000);
+    } else {
+      toast((r && r.error) || '启动失败', 'error');
+      btn.textContent = '▶ 开始下载';
+    }
+  }).catch(() => {
+    btn.disabled = false;
+    btn.textContent = '▶ 开始下载';
+    toast('网络错误', 'error');
+  });
+}
+
+function bdPoll() {
+  if (!_bdTaskId) return;
+  api('GET', '/api/batch/tasks/' + _bdTaskId).then(r => {
+    if (!r || r.error) return;
+    const pct = r.total > 0 ? Math.round((r.completed / r.total) * 100) : 0;
+    document.getElementById('bdTrackFill').style.width = pct + '%';
+    document.getElementById('bdPct').textContent = pct + '%';
+    document.getElementById('bdCurrent').textContent = r.current_video || '';
+    document.getElementById('bdCounter').textContent =
+      '✓ ' + r.success + '/' + r.total +
+      '  ·  ✗ ' + r.failed +
+      '  ·  ⏳ ' + (r.total - r.completed);
+    if (r.results && r.results.length) {
+      const last = r.results[r.results.length - 1];
+      const cls = last.status === '成功' ? 'log-success' : last.status === '失败' ? 'log-error' : '';
+      const t = new Date().toLocaleTimeString();
+      const div = document.getElementById('bdLogText');
+      div.innerHTML += '<div class="' + cls + '">[' + t + '] ' + (last.status || '') + ' ' + (last.info || '') + '</div>';
+      div.scrollTop = div.scrollHeight;
+    }
+    if (r.status === 'done' || r.status === 'error') {
+      clearInterval(_bdPollTimer);
+      _bdPollTimer = null;
+      _bdState = 'done';
+      document.getElementById('bdTrackPulse').classList.remove('active');
+      btnEl = document.getElementById('bdStartBtn');
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '✓ 完成'; }
+      document.getElementById('bdCancelBtn').textContent = '关闭';
+      document.getElementById('bdConfig').style.opacity = '';
+      document.getElementById('bdComplete').style.display = '';
+      document.getElementById('bdComplete').textContent =
+        '下载完成 — 成功: ' + r.success + '  失败: ' + r.failed;
+    }
+  });
+}
+
+function bdToggleLog() {
+  const el = document.getElementById('bdLog');
+  const tog = document.getElementById('bdLogToggle');
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    tog.textContent = '▴ 收起详情';
+  } else {
+    el.style.display = 'none';
+    tog.textContent = '▾ 展开详情';
+  }
+}
+
+function bdCancel() {
+  if (_bdPollTimer) { clearInterval(_bdPollTimer); _bdPollTimer = null; }
+  bdClose();
+}
+
+function bdClose() {
+  closeModal('modalBatchDownload');
+}
 
 </script>
 </body>
