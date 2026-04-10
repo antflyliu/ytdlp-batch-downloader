@@ -1651,12 +1651,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             file_item = form["file"]
             if isinstance(file_item, list):
                 file_item = file_item[0] if file_item else None
-            if not file_item or not getattr(file_item, "file", None):
+            file_obj = getattr(file_item, "file", None) if file_item is not None else None
+            if file_item is None or file_obj is None:
                 self._send_json({"ok": False, "error": "未上传文件"}, 400)
                 return
 
             filename = getattr(file_item, "filename", None) or "upload"
-            data = file_item.file.read()
+            data = file_obj.read()
             if not data:
                 self._send_json({"ok": False, "error": "文件为空"}, 400)
                 return
