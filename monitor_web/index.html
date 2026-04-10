@@ -3832,7 +3832,8 @@
 </style>
 
 <!-- 批量下载弹窗 -->
-<div class="modal" id="modalBatchDownload" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
+<div class="modal-overlay" id="modalBatchDownload">
+  <div class="modal" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
   <div class="modal-header">
     <div class="modal-title">⬇  批量下载</div>
     <button class="modal-close" onclick="bdClose()">✕</button>
@@ -3931,6 +3932,7 @@
     <button class="btn btn-ghost" id="bdCancelBtn" onclick="bdCancel()">取消</button>
     <button class="btn btn-primary" id="bdStartBtn" onclick="bdStart()">▶ 开始下载</button>
   </div>
+</div>
 </div>
 
 <!-- Toast 容器 -->
@@ -6282,7 +6284,7 @@ function openBatchDownload() {
   document.getElementById('bdLog').style.display = 'none';
   document.getElementById('bdLogToggle').textContent = '▾ 展开详情';
   // Load proxy pools
-  api('GET', '/api/proxy-pools').then(r => {
+  api('GET', '/proxy-pools').then(r => {
     if (r && r.pools) {
       const sel = document.getElementById('bdProxy');
       sel.innerHTML = '<option value="">（不使用代理池）</option>';
@@ -6370,7 +6372,7 @@ function bdStart() {
   const btn = document.getElementById('bdStartBtn');
   btn.disabled = true;
   btn.textContent = '启动中...';
-  api('POST', '/api/batch/start', body).then(r => {
+  api('POST', '/batch/start', body).then(r => {
     btn.disabled = false;
     if (r && r.task_id) {
       _bdTaskId = r.task_id;
@@ -6401,7 +6403,7 @@ function bdStart() {
 
 function bdPoll() {
   if (!_bdTaskId) return;
-  api('GET', '/api/batch/tasks/' + _bdTaskId).then(r => {
+  api('GET', '/batch/tasks/' + _bdTaskId).then(r => {
     if (!r || r.error) return;
     const pct = r.total > 0 ? Math.round((r.completed / r.total) * 100) : 0;
     document.getElementById('bdTrackFill').style.width = pct + '%';
