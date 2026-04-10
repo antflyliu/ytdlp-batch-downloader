@@ -486,6 +486,19 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v11_web_batch_tasks", today),
         )
 
+    # v12: monitor_accounts.dingtalk_sign_secret
+    if "v12_monitor_accounts_dingtalk_sign_secret" not in applied:
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "dingtalk_sign_secret" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN dingtalk_sign_secret TEXT DEFAULT NULL"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v12_monitor_accounts_dingtalk_sign_secret", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
