@@ -4624,6 +4624,7 @@
           title: '启动监控',
           message: '开始按计划扫描账号更新。',
           confirmText: '启动监控',
+          cancelText: '取消',
           confirmTone: 'success',
           checkbox: {
             label: '扫描到新视频后自动下载',
@@ -4638,7 +4639,7 @@
         if (r.ok !== false) {
           schedulerRunning = true;
           updateSchedulerUI();
-          toast('调度器已启动' + (autoDl ? '（含自动下载）' : ''), 'ok');
+          toast('调度器已启动' + (confirmResult.checked ? '（含自动下载）' : ''), 'ok');
         } else {
           toast(r.error || '启动失败', 'err');
         }
