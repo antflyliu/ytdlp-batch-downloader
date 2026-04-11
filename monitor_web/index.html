@@ -4252,6 +4252,21 @@
 
   let _appConfirmResolve = null;
   let _appConfirmEscHandler = null;
+  let _appConfirmGeneration = 0;
+
+  function resetAppConfirmCheckbox() {
+    const row = document.getElementById('appConfirmCheckboxRow');
+    const checkbox = document.getElementById('appConfirmCheckbox');
+    const label = document.getElementById('appConfirmCheckboxLabel');
+    const hint = document.getElementById('appConfirmCheckboxHint');
+    if (row) row.hidden = true;
+    if (checkbox) checkbox.checked = false;
+    if (label) label.textContent = '';
+    if (hint) {
+      hint.textContent = '';
+      hint.hidden = true;
+    }
+  }
 
   function openModal(id) {
     document.getElementById(id).classList.add('show');
@@ -4266,16 +4281,18 @@
 
   /**
    * Promise 版确认框，替代 alert/confirm，样式与 .modal-overlay 一致。
-   * @param {{ title: string, message: string, confirmText?: string, cancelText?: string, variant?: 'primary'|'danger' }} options
+   * @param {{ title: string, message: string, confirmText?: string, cancelText?: string, variant?: 'primary'|'danger', confirmTone?: 'primary'|'danger'|'success' }} options
    */
   function showAppConfirm(options) {
     return new Promise((resolve) => {
+      _appConfirmGeneration += 1;
       if (_appConfirmResolve) {
         const prev = _appConfirmResolve;
         _appConfirmResolve = null;
         prev(false);
       }
       _appConfirmResolve = resolve;
+      resetAppConfirmCheckbox();
       const titleEl = document.getElementById('appConfirmTitle');
       const bodyEl = document.getElementById('appConfirmBody');
       const primaryBtn = document.getElementById('appConfirmPrimaryBtn');
@@ -4284,11 +4301,11 @@
       bodyEl.textContent = options.message || '';
       primaryBtn.textContent = options.confirmText || '确定';
       cancelBtn.textContent = options.cancelText || '取消';
-      const danger = options.variant === 'danger';
-      primaryBtn.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+      const tone = options.confirmTone || (options.variant === 'danger' ? 'danger' : 'primary');
+      primaryBtn.className = 'btn ' + (tone === 'danger' ? 'btn-danger' : tone === 'success' ? 'btn-success' : 'btn-primary');
       const appConfirmOverlay = document.getElementById('modalAppConfirm');
       if (appConfirmOverlay) {
-        appConfirmOverlay.classList.toggle('modal-app-confirm--danger', danger);
+        appConfirmOverlay.classList.toggle('modal-app-confirm--danger', tone === 'danger');
       }
       if (_appConfirmEscHandler) {
         document.removeEventListener('keydown', _appConfirmEscHandler);
@@ -4322,6 +4339,32 @@
     if (fn) {
       fn(!!confirmed);
     }
+  }
+
+  /**
+   * @param {{ title: string, message: string, confirmText?: string, cancelText?: string, variant?: 'primary'|'danger', confirmTone?: 'primary'|'danger'|'success', checkbox?: { label: string, description?: string, checked?: boolean } }} options
+   * @returns {Promise<{ confirmed: boolean, checked?: boolean }>}
+   */
+  async function showAppConfirmWithCheckbox(options) {
+    const confirmPromise = showAppConfirm(options);
+    const generation = _appConfirmGeneration;
+    const row = document.getElementById('appConfirmCheckboxRow');
+    const checkbox = document.getElementById('appConfirmCheckbox');
+    const label = document.getElementById('appConfirmCheckboxLabel');
+    const hint = document.getElementById('appConfirmCheckboxHint');
+
+    row.hidden = false;
+    checkbox.checked = options.checkbox.checked !== false;
+    label.textContent = options.checkbox.label || '';
+    hint.textContent = options.checkbox.description || '';
+    hint.hidden = !options.checkbox.description;
+
+    const confirmed = await confirmPromise;
+    const checked = checkbox.checked;
+    if (_appConfirmGeneration === generation) {
+      resetAppConfirmCheckbox();
+    }
+    return confirmed ? { confirmed: true, checked } : { confirmed: false };
   }
 
   function _resetScanNowState() {
@@ -4577,13 +4620,20 @@
           toast(r.error || '操作失败', 'err');
         }
       } else {
-        const autoDl = confirm(
-          "启动监控\n\n☑ 扫描到新视频后立即下载？\n\n" +
-          "（勾选 → 每次扫描完成自动开始下载，\n" +
-          "   最多 2 个视频同时下载）"
-        );
+        const confirmResult = await showAppConfirmWithCheckbox({
+          title: '启动监控',
+          message: '开始按计划扫描账号更新。',
+          confirmText: '启动监控',
+          confirmTone: 'success',
+          checkbox: {
+            label: '扫描到新视频后自动下载',
+            description: '每轮扫描完成后自动开始下载，最多 2 个视频同时下载',
+            checked: true,
+          },
+        });
+        if (!confirmResult.confirmed) return;
         const r = await api('POST', '/scheduler/start', {
-          auto_download: autoDl
+          auto_download: confirmResult.checked
         });
         if (r.ok !== false) {
           schedulerRunning = true;

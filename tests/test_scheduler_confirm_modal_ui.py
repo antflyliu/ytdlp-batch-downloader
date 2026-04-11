@@ -30,15 +30,30 @@ def test_app_confirm_modal_exposes_checkbox_markup_and_scoped_styles():
 def test_app_confirm_checkbox_wrapper_exposes_contract_level_api():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
+    # confirmTone option support in showAppConfirm
+    assert 'options.confirmTone' in html
+    assert "tone === 'success' ? 'btn-success'" in html
+    # generation counter incremented at top of showAppConfirm Promise body
+    assert '_appConfirmGeneration += 1;' in html
+    # reset helper called inside showAppConfirm
+    assert 'resetAppConfirmCheckbox();' in html
+    # reset helper defined with all checkbox elements
+    assert 'function resetAppConfirmCheckbox()' in html
+    assert "if (row) row.hidden = true;" in html
+    assert "if (checkbox) checkbox.checked = false;" in html
+    assert "if (label) label.textContent = '';" in html
+    assert "if (hint) {\n      hint.textContent = '';\n      hint.hidden = true;" in html or \
+           "if (hint) {\n      hint.textContent = '';" in html
+    # wrapper exists and returns contract shape
     assert 'function showAppConfirmWithCheckbox(' in html
     assert 'function showAppConfirm(' in html
 
     wrapper_start = html.index('function showAppConfirmWithCheckbox(')
-    wrapper_tail = html[wrapper_start:]
-    return_index = wrapper_tail.rfind('return')
-    assert return_index != -1
-
-    return_tail = wrapper_tail[return_index:]
+    wrapper_end = html.index('function _resetScanNowState', wrapper_start)
+    wrapper_body = html[wrapper_start:wrapper_end]
+    return_idx = wrapper_body.rfind('return')
+    assert return_idx != -1
+    return_tail = wrapper_body[return_idx:]
     assert 'confirmed' in return_tail
     assert 'checked' in return_tail
 
