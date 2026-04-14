@@ -94,3 +94,35 @@ class TestUploadsPlaylistIdRetry:
         result = collector._get_channel_videos_by_playlist("UCtest")
         assert result == []
         assert 100 not in incr_calls, f"不应有100 units，实际: {incr_calls}"
+
+
+class TestPlaylistCancelWhileLoop:
+    """用户停止监控后，翻页循环应检查 should_cancel 并退出（不再无限 continue）。"""
+
+    def test_breaks_on_cancel_after_transient_api_error(self):
+        from ytb_api import YouTubeDataCollector
+
+        checks = {"n": 0}
+
+        def should_cancel() -> bool:
+            checks["n"] += 1
+            # 第 1 次：循环开头；第 2 次：except 内；第 3 次：下一轮循环开头 → 退出
+            return checks["n"] >= 3
+
+        collector = YouTubeDataCollector(
+            api_key="test_key",
+            save_path="/tmp",
+            max_limit=5,
+            fetch_mode="playlist",
+            view_threshold=0,
+            should_cancel=should_cancel,
+        )
+        collector._get_uploads_playlist_id = MagicMock(return_value="UUtest")
+        collector.youtube = MagicMock()
+        exe = collector.youtube.playlistItems.return_value.list.return_value.execute
+        exe.side_effect = Exception("[WinError 10060] timeout")
+        collector.get_videos_details = MagicMock()
+
+        result = collector._get_channel_videos_by_playlist("UCtest123")
+        assert result == []
+        assert exe.call_count == 1

@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Callable, Literal
 import pandas as pd
 import logging_config
 from googleapiclient.discovery import build
@@ -25,6 +25,7 @@ class YouTubeDataCollector:
         fetch_mode: Literal["search", "playlist"] = "search",
         uploads_playlist_id: str | None = None,
         uploads_playlist_channel_id: str | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ):
         """
         初始化收集器
@@ -41,6 +42,7 @@ class YouTubeDataCollector:
         :param uploads_playlist_channel_id: 与 uploads_playlist_id 对应的频道 ID；同时传入时按频道键缓存，
             避免同一实例用于多频道时误复用。仅传 uploads_playlist_id 时：首次 _get_uploads_playlist_id
             会把该 ID 绑定到当时传入的 channel_id（兼容旧调用）。
+        :param should_cancel: 可选；返回 True 时长时间翻页/重试循环应提前结束（例如调度器已停止）。
         """
         # 配置代理
         if proxy:
@@ -62,6 +64,8 @@ class YouTubeDataCollector:
         elif uploads_playlist_id:
             self._unbound_uploads_playlist_id = uploads_playlist_id
 
+        self._should_cancel = should_cancel
+
         # 验证并设置保存路径
         if not save_path:
             raise ValueError("必须指定保存路径")
@@ -69,6 +73,15 @@ class YouTubeDataCollector:
 
         # 使用共享日志配置（所有模块写入同一日志文件）
         self.logger = logging_config.get_logger("ytb_api")
+
+    def _cancel_requested(self) -> bool:
+        """供翻页循环检测：外部（如调度器 stop）请求中止时返回 True。"""
+        if self._should_cancel is None:
+            return False
+        try:
+            return bool(self._should_cancel())
+        except Exception:
+            return False
 
     def log_message(self, message):
         """统一的日志记录函数"""
@@ -373,6 +386,10 @@ class YouTubeDataCollector:
 
         try:
             while True:
+                if self._cancel_requested():
+                    exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                    self.log_message(exhausted_reason)
+                    break
                 try:
                     page_count += 1
                     self.log_message(
@@ -460,6 +477,10 @@ class YouTubeDataCollector:
                         self.log_message(f"获取视频详情时出错: {str(e)}")
                         if "quotaExceeded" in str(e):
                             raise
+                        if self._cancel_requested():
+                            exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                            self.log_message(exhausted_reason)
+                            break
                         continue
 
                     # ★ 收集够 max_limit 条就停止
@@ -483,6 +504,10 @@ class YouTubeDataCollector:
                     self.log_message(f"获取播放列表视频时出错: {str(e)}")
                     if "quotaExceeded" in str(e):
                         raise
+                    if self._cancel_requested():
+                        exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                        self.log_message(exhausted_reason)
+                        break
                     exhausted_reason = f"API错误: {str(e)}"
                     continue
 
@@ -529,6 +554,10 @@ class YouTubeDataCollector:
 
         try:
             while True:
+                if self._cancel_requested():
+                    exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                    self.log_message(exhausted_reason)
+                    break
                 try:
                     page_count += 1
                     self.log_message(
@@ -601,6 +630,10 @@ class YouTubeDataCollector:
                         self.log_message(f"获取视频详情时出错: {str(e)}")
                         if "quotaExceeded" in str(e):
                             raise
+                        if self._cancel_requested():
+                            exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                            self.log_message(exhausted_reason)
+                            break
                         continue
 
                     if len(videos) >= self.max_limit:
@@ -625,6 +658,10 @@ class YouTubeDataCollector:
                     self.log_message(f"获取频道视频列表时出错: {str(e)}")
                     if "quotaExceeded" in str(e):
                         raise
+                    if self._cancel_requested():
+                        exhausted_reason = "已取消（用户停止监控或调度器关闭）"
+                        self.log_message(exhausted_reason)
+                        break
                     exhausted_reason = f"API错误: {str(e)}"
                     continue
 
