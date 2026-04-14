@@ -2,8 +2,9 @@
 monitor.notifier — 多平台通知器
 支持：日志文件 / 飞书 / 钉钉 / 企业微信
 
-All builder functions have been moved to monitor/notification/ subpackage.
-This module re-exports them for backward compatibility.
+⚠️ 兼容垫片：所有 builder 函数已移至 monitor/notification/ 子包。
+本文件从 monitor.notification 重新导出公开接口，保持向后兼容。
+新代码应直接导入 monitor.notification。
 """
 import logging
 from typing import Literal

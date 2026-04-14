@@ -1,8 +1,9 @@
 """
-monitor/proxy_router.py — Unified Download Proxy Routing Layer
+monitor/proxy_router.py — 统一下载代理路由层
 
-This module re-exports from monitor.proxy subpackage for backward compatibility.
-New code should import from monitor.proxy directly.
+⚠️ 兼容垫片：实际实现已移至 monitor.proxy 子包。
+本文件从 monitor.proxy 重新导出所有公开接口，保持向后兼容。
+新代码应直接导入 monitor.proxy。
 """
 from monitor.proxy.models import (
     ProxyRouteResult,
