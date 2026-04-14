@@ -89,6 +89,14 @@ def test_batch_ui_cancel_requests_server_side_task_cancellation():
     assert "r.status === 'done' || r.status === 'error' || r.status === 'cancelled'" in js
 
 
+def test_batch_ui_restart_without_upload_uses_post_restart():
+    """无 upload_id 时「重新下载」应对选中/当前历史任务 POST /batch/tasks/:id/restart。"""
+    js = _js()
+    assert "function bdRestartHistoryTask(taskId)" in js
+    assert "api('POST', '/batch/tasks/' + taskId + '/restart', {})" in js
+    assert "bdResolveRestartTaskId" in js or "bdResolveRestartTaskId()" in js
+
+
 def test_batch_ui_can_load_and_reopen_recent_tasks():
     """最近任务列表 UI 在模板文件中（Phase 4 提取）。"""
     tpl = _tpl()

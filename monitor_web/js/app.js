@@ -19,7 +19,7 @@ import { loadAccounts } from './components/account-list.js';
 import { loadEvents } from './components/event-log.js';
 import { schedulerRunning, loadStatus, updateSchedulerUI } from './modules/ui.js';
 import { toggleScheduler, reloadJobs, toggleDynamicProviderScheduler, reloadDynamicProviderJobs, runDynamicProviderJobsOnce } from './components/scheduler-panel.js';
-import { openBatchDownload, bdClose, bdCancel, bdStart, bdSwitchFmt, bdTriggerFile, bdHandleFile, bdBrowsePath, bdBrowseCookie, bdOpenSelectedTask, bdToggleLog, bdSetRecentFilter, loadRecentBatchTasks } from './components/batch-download-modal.js';
+import { openBatchDownload, bdClose, bdCancel, bdStart, bdRestartHistoryTask, bdSwitchFmt, bdTriggerFile, bdHandleFile, bdBrowsePath, bdBrowseCookie, bdOpenSelectedTask, bdToggleLog, bdSetRecentFilter, loadRecentBatchTasks } from './components/batch-download-modal.js';
 import { loadPartials } from './load-partials.js';
 
 // ── Re-exports / globals needed by inline HTML onclick ────────────────
@@ -144,6 +144,7 @@ window.openBatchDownload = openBatchDownload;
 window.bdClose = bdClose;
 window.bdCancel = bdCancel;
 window.bdStart = bdStart;
+window.bdRestartHistoryTask = bdRestartHistoryTask;
 window.bdSwitchFmt = bdSwitchFmt;
 window.bdTriggerFile = bdTriggerFile;
 window.bdHandleFile = bdHandleFile;

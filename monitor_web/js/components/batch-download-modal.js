@@ -404,7 +404,7 @@ export function bdRenderRecentTaskCards(tasks, activeTaskId) {
     reopenBtn.textContent = '重开';
     reopenBtn.onclick = (event) => {
       event.stopPropagation();
-      bdAttachTask(task.task_id);
+      bdRestartHistoryTask(task.task_id);
     };
     actions.appendChild(reopenBtn);
 
@@ -468,6 +468,58 @@ export function bdOpenSelectedTask() {
     return;
   }
   bdAttachTask(taskId);
+}
+
+/**
+ * 无新上传时用于「重新下载」：优先最近任务下拉的选中项，否则为当前已附加查看的任务。
+ */
+function bdResolveRestartTaskId() {
+  const sel = el('bdRecentTasks');
+  const v = sel && sel.value ? String(sel.value).trim() : '';
+  if (v) return v;
+  return _bdTaskId || '';
+}
+
+/** 启动成功后统一更新底部按钮、进度区与轮询（与 /batch/start 成功路径共用） */
+function _bdApplyRunningAfterStart(taskId) {
+  _bdTaskId = taskId;
+  _bdState = 'running';
+  const btn = el('bdStartBtn');
+  if (btn) { btn.textContent = '下载中...'; btn.disabled = true; }
+  const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) bdCancelBtn.textContent = '取消';
+  const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '0.5';
+  const bdProgressSection = el('bdProgressSection'); if (bdProgressSection) bdProgressSection.style.display = '';
+  const bdTrackPulse = el('bdTrackPulse'); if (bdTrackPulse) bdTrackPulse.classList.add('active');
+  loadRecentBatchTasks(taskId);
+  if (_bdPollTimer) { clearInterval(_bdPollTimer); _bdPollTimer = null; }
+  _bdPollTimer = setInterval(bdPoll, 2000);
+}
+
+/**
+ * 使用服务端已存 URL 重开某条历史批量任务（POST /batch/tasks/:id/restart）。
+ * 供底部「重新下载」在无新上传时、以及最近任务卡片「重开」调用。
+ */
+export function bdRestartHistoryTask(taskId) {
+  if (_bdState === 'running' || _bdState === 'cancelling') return;
+  if (!taskId) {
+    toast('无效的任务', 'err');
+    return;
+  }
+  const btn = el('bdStartBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '启动中...'; }
+  bdResetProgressState();
+  api('POST', '/batch/tasks/' + taskId + '/restart', {}).then(r => {
+    if (btn) { btn.disabled = false; }
+    if (r && r.task_id) {
+      _bdApplyRunningAfterStart(r.task_id);
+    } else {
+      toast((r && r.error) || '重开失败', 'err');
+      if (btn) btn.textContent = '▶ 重新下载';
+    }
+  }).catch(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 重新下载'; }
+    toast('网络错误', 'err');
+  });
 }
 
 export function bdCancelTask(taskId) {
@@ -595,7 +647,16 @@ export function bdAttachTask(taskId) {
 
 export function bdStart() {
   if (_bdState === 'running' || _bdState === 'cancelling') return;
-  if (!_bdUploadId) { toast('请先上传并解析包含 URL 的文件', 'err'); return; }
+  // 有新上传：走 /batch/start；否则用最近任务选中项（或当前查看任务）重开
+  if (!_bdUploadId) {
+    const restartTaskId = bdResolveRestartTaskId();
+    if (!restartTaskId) {
+      toast('请先上传并解析包含 URL 的文件，或在「最近任务」中选择一条任务', 'err');
+      return;
+    }
+    bdRestartHistoryTask(restartTaskId);
+    return;
+  }
   const bdOutputPath = el('bdOutputPath');
   const bdResolution = el('bdResolution');
   const bdSubEnabled = el('bdSubEnabled');
@@ -617,15 +678,7 @@ export function bdStart() {
   api('POST', '/batch/start', body).then(r => {
     if (btn) { btn.disabled = false; }
     if (r && r.task_id) {
-      _bdTaskId = r.task_id;
-      _bdState = 'running';
-      if (btn) { btn.textContent = '下载中...'; btn.disabled = true; }
-      const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) bdCancelBtn.textContent = '取消';
-      const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '0.5';
-      const bdProgressSection = el('bdProgressSection'); if (bdProgressSection) bdProgressSection.style.display = '';
-      const bdTrackPulse = el('bdTrackPulse'); if (bdTrackPulse) bdTrackPulse.classList.add('active');
-      loadRecentBatchTasks(r.task_id);
-      _bdPollTimer = setInterval(bdPoll, 2000);
+      _bdApplyRunningAfterStart(r.task_id);
     } else {
       toast((r && r.error) || '启动失败', 'err');
       if (btn) btn.textContent = '▶ 开始下载';
