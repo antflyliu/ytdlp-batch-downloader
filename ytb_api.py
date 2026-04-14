@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Literal
 import pandas as pd
@@ -23,6 +24,7 @@ class YouTubeDataCollector:
         published_after_days=None,
         fetch_mode: Literal["search", "playlist"] = "search",
         uploads_playlist_id: str | None = None,
+        uploads_playlist_channel_id: str | None = None,
     ):
         """
         初始化收集器
@@ -36,6 +38,9 @@ class YouTubeDataCollector:
         :param fetch_mode: 视频获取模式，"search"（默认）用 search.list（最新优先），
                            "playlist" 用 playlistItems.list（上传顺序，最老在前）
         :param uploads_playlist_id: 预知的 uploads 播放列表ID（来自 get_channel_data，可省1次API调用）
+        :param uploads_playlist_channel_id: 与 uploads_playlist_id 对应的频道 ID；同时传入时按频道键缓存，
+            避免同一实例用于多频道时误复用。仅传 uploads_playlist_id 时：首次 _get_uploads_playlist_id
+            会把该 ID 绑定到当时传入的 channel_id（兼容旧调用）。
         """
         # 配置代理
         if proxy:
@@ -49,7 +54,13 @@ class YouTubeDataCollector:
         self.max_limit = max_limit
         self.published_after_days = published_after_days
         self.fetch_mode = fetch_mode
-        self.uploads_playlist_id = uploads_playlist_id
+        # 按 channel_id 缓存 uploads 播放列表 ID（生产级：避免跨频道误用单字段缓存）
+        self._uploads_playlist_by_channel: dict[str, str] = {}
+        self._unbound_uploads_playlist_id: str | None = None
+        if uploads_playlist_id and uploads_playlist_channel_id:
+            self._uploads_playlist_by_channel[uploads_playlist_channel_id] = uploads_playlist_id
+        elif uploads_playlist_id:
+            self._unbound_uploads_playlist_id = uploads_playlist_id
 
         # 验证并设置保存路径
         if not save_path:
@@ -241,15 +252,64 @@ class YouTubeDataCollector:
     def _get_uploads_playlist_id(self, channel_id: str) -> str | None:
         """
         获取频道的上传视频播放列表ID（Uploads 播放列表）
+        失败时指数退避重试（1s → 2s → 4s），最多 3 次。
+        全部失败返回 None，不触发 search.list（避免高额 quota 消耗）。
 
         :param channel_id: 频道ID
         :return: uploads 播放列表ID，失败返回 None
         """
-        # ★ 已缓存则直接返回（避免重复请求）
-        if self.uploads_playlist_id:
-            self.log_message(f"复用缓存的 uploads_playlist_id: {self.uploads_playlist_id}")
-            return self.uploads_playlist_id
+        cached = self._uploads_playlist_by_channel.get(channel_id)
+        if cached is not None:
+            self.log_message(f"复用缓存的 uploads_playlist_id ({channel_id}): {cached}")
+            return cached
 
+        if self._unbound_uploads_playlist_id is not None:
+            pid = self._unbound_uploads_playlist_id
+            self._unbound_uploads_playlist_id = None
+            self._uploads_playlist_by_channel[channel_id] = pid
+            self.log_message(
+                f"将构造时传入的 uploads_playlist_id 绑定到频道 {channel_id}: {pid}"
+            )
+            return pid
+
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                request = self.youtube.channels().list(
+                    part="contentDetails",
+                    id=channel_id,
+                )
+                response = request.execute()
+                self._incr_quota()
+                if response.get("items"):
+                    uploads_playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+                    self._uploads_playlist_by_channel[channel_id] = uploads_playlist_id
+                    self.log_message(f"获取频道 uploads 播放列表ID: {uploads_playlist_id}")
+                    return uploads_playlist_id
+                else:
+                    self.log_message(f"未找到频道 contentDetails: {channel_id}")
+                    if attempt < max_attempts:
+                        backoff = 2 ** (attempt - 1)
+                        self.log_message(f"第 {attempt} 次尝试失败，{backoff}s 后重试...")
+                        time.sleep(backoff)
+                        continue
+                    return None
+            except Exception as e:
+                self.log_message(f"获取 uploads 播放列表ID时出错 (第 {attempt} 次): {str(e)}")
+                if attempt < max_attempts:
+                    backoff = 2 ** (attempt - 1)
+                    self.log_message(f"{backoff}s 后重试...")
+                    time.sleep(backoff)
+                else:
+                    self.log_message("重试次数耗尽，无法获取 uploads_播放列表")
+                    return None
+        return None
+
+    def probe_uploads_playlist_id(self, channel_id: str) -> str | None:
+        """
+        单次 channels.list(part=contentDetails) 查询 Uploads 列表 ID（约 1 quota unit）。
+        不写入实例内 _uploads_playlist_by_channel，专供频道元数据健康检查。
+        """
         try:
             request = self.youtube.channels().list(
                 part="contentDetails",
@@ -257,15 +317,12 @@ class YouTubeDataCollector:
             )
             response = request.execute()
             self._incr_quota()
-            if response.get("items"):
-                uploads_playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
-                self.log_message(f"获取频道 uploads 播放列表ID: {uploads_playlist_id}")
-                return uploads_playlist_id
-            else:
-                self.log_message(f"未找到频道 contentDetails: {channel_id}")
+            if not response.get("items"):
+                self.log_message(f"probe: 无频道项 {channel_id}")
                 return None
+            return response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         except Exception as e:
-            self.log_message(f"获取 uploads 播放列表ID时出错: {str(e)}")
+            self.log_message(f"probe_uploads_playlist_id 失败: {e}")
             return None
 
     def _get_channel_videos_by_playlist(self, channel_id: str):
@@ -279,10 +336,18 @@ class YouTubeDataCollector:
         :param channel_id: 频道ID
         :return: 符合条件的视频列表（按上传顺序，最老→最新）
         """
-        uploads_playlist_id = self._get_uploads_playlist_id(channel_id)
+        try:
+            uploads_playlist_id = self._get_uploads_playlist_id(channel_id)
+        except Exception as e:
+            self.log_message(f"获取 uploads_playlist_id 时异常: {e}，跳过本次视频获取")
+            return []
+
         if not uploads_playlist_id:
-            self.log_message("无法获取 uploads 播放列表，切换到 search.list 模式")
-            return self._get_channel_videos_by_search(channel_id)
+            self.log_message(
+                "无法获取 uploads 播放列表（已重试 3 次），跳过本次视频获取，"
+                "不触发 search.list 以节省 quota"
+            )
+            return []
 
         videos = []
         next_page_token = None
