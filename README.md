@@ -464,6 +464,17 @@ ln -s "$(pwd)/.claude/skills/youtube-channel-monitor" ~/.claude/skills/
 
 Claude Code 启动时自动扫描 `~/.claude/skills/` 下的所有 `SKILL.md` 并注册。重启后即可使用触发词。
 
+#### 4. 启动
+
+```
+# PowerShell
+> $env:MONITOR_API_TOKEN="123456"
+> python monitor_server.py --force-restart
+> cd dist
+> YouTubeMonitor.exe
+```
+
+
 ### 验证
 
 在 Claude Code 中输入：
