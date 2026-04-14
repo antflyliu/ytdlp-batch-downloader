@@ -1,0 +1,26 @@
+<!-- 模态: 立即扫描确认 -->
+<div class="modal-overlay" id="modalScanConfirm">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title">立即扫描</div>
+      <button class="modal-close" onclick="closeScanConfirm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+        确认立即扫描当前账户？
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="scanNowAutoDownload" checked>
+        <span class="checkbox-box"></span>
+        扫描到新视频后立即下载
+      </label>
+      <div class="form-hint" style="margin-top:8px;margin-left:26px">
+        扫描完成后自动开始下载，最多 2 个视频同时下载。
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeScanConfirm()">取消</button>
+      <button class="btn btn-primary" onclick="confirmScanNow()">开始扫描</button>
+    </div>
+  </div>
+</div>

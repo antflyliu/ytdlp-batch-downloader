@@ -1,0 +1,24 @@
+<!-- 模态: 通用确认（替代原生 confirm，与现有 modal 组件一致） -->
+<div class="modal-overlay" id="modalAppConfirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" id="appConfirmTitle"></div>
+      <button type="button" class="modal-close" onclick="closeAppConfirm(false)" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body" style="padding-top:12px">
+      <p class="modal-confirm-desc" id="appConfirmBody"></p>
+      <div class="modal-confirm-checkbox-row" id="appConfirmCheckboxRow" hidden>
+        <label class="checkbox-label modal-confirm-checkbox">
+          <input type="checkbox" id="appConfirmCheckbox">
+          <span class="checkbox-box"></span>
+          <span id="appConfirmCheckboxLabel"></span>
+        </label>
+        <div class="form-hint modal-confirm-checkbox-hint" id="appConfirmCheckboxHint"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="appConfirmCancelBtn" onclick="closeAppConfirm(false)">取消</button>
+      <button type="button" class="btn btn-primary" id="appConfirmPrimaryBtn" onclick="closeAppConfirm(true)">确定</button>
+    </div>
+  </div>
+</div>

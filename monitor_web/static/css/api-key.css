@@ -1,0 +1,286 @@
+/* ── Video Detail Table ────────────────────────────────────────────── */
+.vd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vd-table th {
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 12px;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--border);
+}
+.vd-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vd-table tr:hover td { background: var(--surface2); }
+.vd-table tr:hover td:first-child { border-left: 2px solid var(--accent); }
+.vd-title { color: var(--text); cursor: pointer; }
+.vd-title:hover { color: var(--accent); text-decoration: underline; }
+.vd-url { color: var(--text-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-desc { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-num { font-family: var(--mono); color: var(--text-muted); font-size: 12px; text-align: right; }
+.vd-check { width: 36px; }
+
+/* Download Progress Bar */
+.vd-dl-bar { display:none; padding:8px 16px; border-bottom:1px solid var(--border); }
+.vd-dl-bar.show { display:block; }
+.vd-dl-bar .dl-info { font-size:12px; color:var(--text-muted); margin-bottom:4px; display:flex; justify-content:space-between; }
+.vd-dl-bar .dl-track { height:6px; background:var(--surface3); border-radius:3px; overflow:hidden; }
+.vd-dl-bar .dl-fill { height:100%; background:var(--accent); border-radius:3px; transition:width 0.3s ease; }
+.vd-dl-bar .dl-status { font-size:11px; color:var(--text-dim); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ── API Key Components ────────────────────────────────────────────── */
+.ak-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+.ak-card:hover {
+  border-color: rgba(99,102,241,0.4);
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.1);
+}
+.ak-card .btn-sm svg { display: block; }
+
+/* API Key 配额环形图 */
+.ak-ring {
+  flex-shrink: 0;
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+.ak-ring svg {
+  transform: rotate(-90deg);
+  width: 56px;
+  height: 56px;
+}
+.ak-ring-bg {
+  fill: none;
+  stroke: var(--surface3);
+  stroke-width: 4;
+}
+.ak-ring-progress {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.4s ease-out, stroke 0.3s;
+}
+.ak-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.ak-ring-pct {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.ak-ring-label {
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+/* API Key 详情区 */
+.ak-info {
+  flex: 1;
+  min-width: 0;
+}
+.ak-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ak-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ak-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid;
+}
+.ak-status.active {
+  background: rgba(34,197,94,0.12);
+  color: var(--success);
+  border-color: rgba(34,197,94,0.2);
+}
+.ak-status.inactive {
+  background: rgba(239,68,68,0.12);
+  color: var(--error);
+  border-color: rgba(239,68,68,0.2);
+}
+.ak-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ak-key svg {
+  flex-shrink: 0;
+}
+
+/* API Key 配额进度条 */
+.ak-quota-bar {
+  height: 4px;
+  background: var(--surface3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ak-quota-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease-out;
+}
+.ak-quota-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ak-quota-stats strong {
+  font-family: var(--mono);
+}
+.ak-quota-stats .used { color: var(--accent); }
+.ak-quota-stats .remaining { color: var(--success); }
+
+/* API Key 操作按钮 */
+.ak-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* API Key 空状态增强 */
+.ak-empty {
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--surface2);
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+}
+.ak-empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  background: var(--surface3);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ak-empty-icon svg {
+  width: 28px;
+  height: 28px;
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+.ak-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.ak-empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+/* 表单模态框增强 */
+.ak-form-section {
+  margin-bottom: 20px;
+}
+.ak-form-section:last-child {
+  margin-bottom: 0;
+}
+.ak-form-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ak-form-section-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+}
+.ak-form-section.identity .ak-form-section-title::before {
+  background: var(--accent);
+}
+.ak-form-section.quota .ak-form-section-title::before {
+  background: var(--warning);
+}
+.ak-form-section.quota {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.ak-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ak-form-row .form-group:last-child {
+  padding-top: 26px;
+}
+
+/* 平台专属敏感字段（钉钉加签）：侧栏色带 + 弱衬底，与 DESIGN.md「分区层次」一致且不破坏深色主题 */
+.form-group--dingtalk-addon {
+  margin-bottom: 18px;
+  padding: 12px 14px 14px;
+  background: rgba(22, 119, 255, 0.06);
+  border: 1px solid rgba(22, 119, 255, 0.22);
+  border-radius: var(--r-md);
+  border-left: 3px solid var(--dingtalk);
+}
+.form-group--dingtalk-addon .form-label--platform {
+  color: var(--dingtalk);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  font-size: 13px;
+}
+.form-group--dingtalk-addon .form-hint {
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 52ch;
+}
+.form-group--dingtalk-addon .form-input:focus-visible {
+  border-color: var(--dingtalk);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.2);
+}

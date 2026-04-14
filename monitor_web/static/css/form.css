@@ -1,0 +1,182 @@
+/* ── Form ──────────────────────────────────────────────────────────── */
+.form-group {
+  margin-bottom: 18px;
+}
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.form-input::placeholder { color: var(--text-dim); }
+.form-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+.form-help-text {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  margin-top: 4px;
+}
+
+/* ── Platform Selector ─────────────────────────────────────────────── */
+.platform-selector { display: flex; gap: 8px; }
+.platform-btn {
+  flex: 1;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.15s;
+}
+.platform-btn:hover { border-color: var(--text-muted); }
+.platform-btn.active-feishu { background: rgba(123,104,238,0.15); border-color: var(--feishu); color: var(--feishu); }
+.platform-btn.active-dingtalk { background: rgba(22,119,255,0.15); border-color: var(--dingtalk); color: var(--dingtalk); }
+.platform-btn.active-wecom { background: rgba(82,196,26,0.15); border-color: var(--wecom); color: var(--wecom); }
+
+/* ── Checkbox ──────────────────────────────────────────────────────── */
+.checkbox-group { display: flex; gap: 16px; }
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.checkbox-label input { display: none; }
+.checkbox-box {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.checkbox-label input:checked + .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox-box::after {
+  content: '\2713';
+  font-size: 10px;
+  color: #fff;
+  display: none;
+}
+.checkbox-label input:checked + .checkbox-box::after { display: block; }
+
+/* ── Select ────────────────────────────────────────────────────────── */
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238896ab' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+/* ── Proxy Pool Form overrides ────────────────────────────────────── */
+#modalProxyPoolForm .form-label {
+  color: var(--proxy-text);
+  font-size: 11px;
+}
+#modalProxyPoolForm .form-input:focus {
+  border-color: var(--proxy-border);
+  box-shadow: 0 0 0 3px var(--proxy-tint), 0 1px 0 var(--proxy-border);
+}
+
+/* ── Dynamic Provider Form overrides ──────────────────────────────── */
+#modalDynamicProviderForm .form-label {
+  color: var(--dyn-text);
+  font-size: 11px;
+}
+#modalDynamicProviderForm .form-input:focus {
+  border-color: var(--dyn-border);
+  box-shadow: 0 0 0 3px var(--dyn-tint), 0 1px 0 var(--dyn-border);
+}
+
+/* ── Batch Download Form Elements ─────────────────────────────────── */
+.bd-section { padding: 0 0 4px; }
+.bd-section-label {
+  font-size: 12px; font-weight: 600;
+  color: var(--text-muted); margin-bottom: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.bd-pills { display: flex; gap: 6px; margin-bottom: 10px; }
+.bd-pill {
+  padding: 4px 14px; border-radius: 20px;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text-muted);
+  transition: all 0.15s;
+}
+.bd-pill:hover { border-color: var(--accent); color: var(--text); }
+.bd-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.bd-dropzone {
+  border: 1.5px dashed var(--border); border-radius: var(--r-md); padding: 24px 16px; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.bd-dropzone:hover { border-color: var(--accent); background: var(--accent-dim); }
+.bd-dropzone.selected { border-style: solid; border-color: var(--success); background: var(--success-dim); }
+.bd-dropzone.error { border-color: var(--error); background: var(--error-dim); }
+.bd-drop-icon { font-size: 18px; color: var(--text-dim); margin-bottom: 6px; }
+.bd-drop-text { font-size: 13px; color: var(--text-muted); }
+.bd-drop-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.bd-file-error { font-size: 12px; color: var(--error); margin-top: 6px; text-align: center; }
+.bd-field-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+.bd-sep { border-top: 1px solid var(--border); margin: 14px 0; }
+.bd-form-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.bd-label { font-size: 12px; color: var(--text-muted); width: 56px; flex-shrink: 0; }
+.bd-input-row { display: flex; flex: 1; gap: 6px; }
+.bd-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 6px 10px;
+  color: var(--text); font-size: 12px; font-family: var(--font);
+  outline: none; transition: border-color 0.15s;
+}
+.bd-input:focus { border-color: var(--accent); }
+.bd-select {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 6px 10px;
+  color: var(--text); font-size: 12px; appearance: none; cursor: pointer;
+}
+.bd-browse {
+  padding: 6px 12px; background: var(--surface3); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text-muted); font-size: 12px;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.bd-browse:hover { color: var(--text); border-color: var(--accent); }
+.bd-checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.bd-checkbox-label input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.bd-filter-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.bd-filter-chip {
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text-dim); font-size: 11px; cursor: pointer;
+}
+.bd-filter-chip.active { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }

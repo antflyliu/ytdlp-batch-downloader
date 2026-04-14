@@ -1,0 +1,103 @@
+/* ── Theme: App Confirm Modal（与主界面深色模态一致） ───────────────── */
+/* 应用内确认框：z-index 高于其他业务模态（如在「动态代理」抽屉内触发） */
+#modalAppConfirm.modal-overlay { z-index: 1100; }
+
+#modalAppConfirm .modal-confirm-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+/* 焦点：与表单/主按钮体系一致（靛紫 accent） */
+#modalAppConfirm .btn:focus-visible,
+#modalAppConfirm .modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 与 modal.css 通用 .modal 一致，并加左侧强调条（与 #modalBatchDownload 同类） */
+#modalAppConfirm > .modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  box-shadow: var(--shadow);
+}
+#modalAppConfirm .modal-header {
+  border-bottom-color: var(--border);
+}
+#modalAppConfirm .modal-title {
+  color: var(--text);
+}
+
+/* 危险确认：全局 error 语义，左侧条与弱光环与变量表一致 */
+#modalAppConfirm.modal-app-confirm--danger > .modal {
+  border-color: var(--border);
+  border-left: 3px solid var(--error);
+  box-shadow: var(--shadow), 0 0 0 1px var(--error-dim);
+}
+#modalAppConfirm.modal-app-confirm--danger .modal-title {
+  color: var(--error);
+}
+
+#modalAppConfirm .modal-close {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+#modalAppConfirm .modal-close:hover {
+  background: var(--surface3);
+  color: var(--text);
+}
+
+#modalAppConfirm .modal-confirm-checkbox-row {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+#modalAppConfirm .modal-confirm-checkbox {
+  align-items: flex-start;
+  color: var(--text);
+}
+
+#modalAppConfirm .modal-confirm-checkbox input {
+  display: block;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}
+#modalAppConfirm .modal-confirm-checkbox input:focus-visible + .checkbox-box,
+#modalAppConfirm .modal-confirm-checkbox:focus-within .checkbox-box {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#modalAppConfirm .checkbox-box {
+  border-color: var(--border);
+}
+#modalAppConfirm .checkbox-label input:checked + .checkbox-box {
+  background: var(--success);
+  border-color: var(--success);
+}
+#modalAppConfirm .modal-confirm-checkbox-hint {
+  margin-top: 8px;
+  margin-left: 26px;
+  color: var(--text-muted);
+}
+
+/* 取消钮：对齐全局 .btn-ghost（深色工作台） */
+#modalAppConfirm .btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+#modalAppConfirm .btn-ghost:hover {
+  background: var(--surface2);
+  color: var(--text);
+}

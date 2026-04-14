@@ -1,0 +1,50 @@
+<!-- 模态: 添加/编辑固定代理 -->
+<div class="modal-overlay" id="modalProxyPoolForm">
+  <div class="modal" style="max-width:480px" id="modalProxyPoolFormInner">
+    <div class="modal-header">
+      <div class="modal-title" id="modalProxyPoolFormTitle">添加固定代理节点</div>
+      <button class="modal-close" onclick="closeModal('modalProxyPoolForm')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppId">
+      <div class="form-group">
+        <label class="form-label" for="ppName">节点名称</label>
+        <input class="form-input" id="ppName" placeholder="例如：香港节点-01 / 住宅代理">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ppUrl">
+          代理地址
+          <span class="pp-scheme-tag">HTTP</span>
+        </label>
+        <input class="form-input" id="ppUrl" placeholder="http://user:pass@host:port">
+        <div class="pp-hint-row">
+          <div class="pp-hint-schemes">
+            <span class="pp-scheme-chip">http</span>
+            <span class="pp-scheme-chip">https</span>
+            <span class="pp-scheme-chip">socks5</span>
+            <span class="pp-scheme-chip">socks4</span>
+          </div>
+        </div>
+        <div class="form-hint" style="margin-top:4px">
+          支持带用户名密码认证的代理，认证信息已加密存储
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(42,53,73,0.4);margin-top:4px">
+        <div class="proxy-toggle-label" style="font-size:12px;color:var(--text-muted)">
+          <label class="toggle-switch">
+            <input type="checkbox" id="ppEnabled" checked>
+            <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          </label>
+          立即启用
+        </div>
+        <div style="font-size:11px;color:var(--text-dim)">保存后可在账户中关联使用</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalProxyPoolForm')">取消</button>
+      <button class="btn btn-primary" onclick="saveProxyPool()" style="background:var(--proxy-text);color:#0f1117;font-weight:600">
+        保存节点
+      </button>
+    </div>
+  </div>
+</div>

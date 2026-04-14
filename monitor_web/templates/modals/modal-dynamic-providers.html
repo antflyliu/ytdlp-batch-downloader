@@ -1,0 +1,92 @@
+<!-- 模态: 动态代理提供方管理 -->
+<div class="modal-overlay" id="modalDynamicProviders">
+  <div class="modal" style="max-width:760px;height:88vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">动态代理提供方</div>
+      <button class="modal-close" onclick="closeModal('modalDynamicProviders')">✕</button>
+    </div>
+    <div class="modal-body" style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column">
+      <div class="dyn-toolbar-row" style="align-items:stretch;gap:14px;flex-wrap:wrap">
+        <div class="dyn-toolbar-left" style="flex:1 1 320px;display:block">
+          <div style="font-family:Georgia,serif;font-size:18px;color:#f5f4ed;line-height:1.15;margin-bottom:6px">动态代理调度工作台</div>
+          <div style="font-size:12px;color:#9b9bb2;line-height:1.6;max-width:520px">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。<strong style="color:#c4c2bd;font-weight:600">Provider Scheduler 不会随页面打开自动启动</strong>，需点击「启动动态代理调度」。</div>
+        </div>
+        <div style="flex:1 1 260px;background:rgba(18,21,35,0.74);border:1px solid rgba(135,134,127,0.18);border-radius:18px;padding:14px 16px;box-shadow:0 0 0 1px rgba(232,230,220,0.04) inset">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#87867f">Provider Scheduler</div>
+            <div id="dynProviderSchedulerBadge" style="font-size:11px;padding:4px 10px;border-radius:999px;background:rgba(200,100,66,0.12);color:#d97757;border:1px solid rgba(201,100,66,0.18)">未启动</div>
+          </div>
+          <div id="dynSchedulerHint" style="font-size:12px;color:#b0aea5;line-height:1.55;margin-bottom:12px">调度器未运行：刷新间隔不会自动生效</div>
+          <div id="dynProviderNextRun" style="font-size:11px;color:#87867f;line-height:1.5">下一次执行：—</div>
+        </div>
+        <div class="dyn-toolbar-right" style="align-items:flex-start;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="dyn-ghost-btn" id="btnDynProviderSchedulerToggle" onclick="toggleDynamicProviderScheduler()">启动动态代理调度</button>
+          <button class="dyn-ghost-btn" onclick="reloadDynamicProviderJobs()">重载动态代理任务</button>
+          <button class="dyn-ghost-btn" onclick="runDynamicProviderJobsOnce()">立即刷新全部列表 API</button>
+          <button class="dyn-ghost-btn" onclick="healthCheckAllProviders()">
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            全量健康检查
+          </button>
+          <button class="btn btn-sm" style="background:rgba(201,100,66,0.12);border-color:rgba(201,100,66,0.18);color:#f5f4ed;font-weight:600" onclick="openAddDynamicProvider()">+ 添加提供方</button>
+        </div>
+      </div>
+
+      <div class="dyn-scheduler-split" role="region" aria-label="调度执行记录与说明">
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head">
+            <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">最近调度执行</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div style="font-size:11px;color:#87867f">独立于 monitor_events</div>
+              <select id="dynProviderLogFilter" class="form-input" style="width:auto;min-width:120px;padding:6px 10px;background:rgba(20,20,19,0.76);border-color:rgba(135,134,127,0.18);color:#f5f4ed" onchange="loadProviderSchedulerLogs()">
+                <option value="all">全部日志</option>
+                <option value="refresh">仅 refresh</option>
+                <option value="cleanup">仅 cleanup</option>
+                <option value="error">仅 error</option>
+              </select>
+            </div>
+          </div>
+          <div id="dynProviderSchedulerLogs" class="dyn-scheduler-card-scroll"></div>
+        </div>
+        <div class="dyn-scheduler-card">
+          <div class="dyn-scheduler-card-head dyn-scheduler-card-head--simple">
+            <div style="font-family:Georgia,serif;font-size:17px;line-height:1.2;color:#f5f4ed">调度说明</div>
+          </div>
+          <div class="dyn-scheduler-card-scroll dyn-scheduler-help-body">
+            <div>• 进程内只有 <strong>一个</strong> Provider Scheduler；各提供方以「定时任务」形式挂在上面，没有单独的「多个 Scheduler」列表。</div>
+            <div>• 仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）&gt; 0</strong> 的提供方会注册定时拉列表；否则启动后也只有每日 cleanup 等任务。</div>
+            <div>• <strong>重载动态代理任务</strong> 只重建任务，不会立即调用外部 API。</div>
+            <div>• <strong>立即刷新全部列表 API</strong> 会立刻执行一次批量 refresh。</div>
+            <div>• cleanup 会独立记录，不再混入账号监控事件；左侧「最近调度执行」即各任务运行历史。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dyn-table-shell">
+        <table class="dyn-table" id="dynProviderTable">
+          <thead>
+            <tr>
+              <th style="width:36px">ID</th>
+              <th>名称</th>
+              <th>计费</th>
+              <th>适配器</th>
+              <th>健康状态</th>
+              <th>优先级</th>
+              <th>功能</th>
+              <th style="width:160px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="dynProviderTableBody">
+          </tbody>
+        </table>
+      </div>
+      <div id="dynEmptyState" class="dyn-empty" style="display:none">
+        <div class="dyn-empty-title">还没有配置动态代理提供方</div>
+        <div class="dyn-empty-desc">添加一个提供方后，它将参与系统动态代理路由决策。付费提供方优先，免费提供方兜底。</div>
+        <div class="dyn-empty-cta">
+          <button class="btn btn-sm dyn-empty-primary" onclick="openAddDynamicProvider()">+ 添加第一个提供方</button>
+          <span class="dyn-note">提供方按优先级从低到高依次尝试</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

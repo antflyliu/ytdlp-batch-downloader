@@ -1,0 +1,76 @@
+<!-- 全屏: 视频详情 -->
+<div class="modal-overlay" id="modalVideoDetail">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--text-dim);padding:2px 6px;background:var(--surface2);border-radius:4px;border:1px solid var(--border)">ESC 关闭</span>
+        <span id="vdTotal" style="font-size:12px;color:var(--text-muted);margin-right:8px"></span>
+        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <!-- 工具栏 -->
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+        <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <select class="form-input" id="vdSortBy" style="width:140px" onchange="vdSearch()">
+          <option value="published_at">发布时间</option>
+          <option value="view_count">浏览量</option>
+          <option value="like_count">点赞数</option>
+          <option value="comment_count">评论数</option>
+        </select>
+        <select class="form-input" id="vdSortDir" style="width:90px" onchange="vdSearch()">
+          <option value="desc">降序</option>
+          <option value="asc">升序</option>
+        </select>
+        <button class="btn btn-sm" onclick="vdSearch()">搜索</button>
+        <button class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-left:auto">
+          <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
+          <span id="vdSubLabel">字幕:否</span>
+        </label>
+      </div>
+      <!-- 下载进度条 -->
+      <div class="vd-dl-bar" id="vdDlBar">
+        <div class="dl-info">
+          <span id="vdDlLabel">准备下载...</span>
+          <span id="vdDlPercent">0%</span>
+        </div>
+        <div class="dl-track"><div class="dl-fill" id="vdDlFill" style="width:0%"></div></div>
+        <div class="dl-status" id="vdDlStatus"></div>
+      </div>
+      <!-- 表格 -->
+      <div style="flex:1;overflow:auto;min-height:0">
+        <table class="vd-table">
+          <thead>
+            <tr>
+              <th style="width:40px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
+              <th>标题</th>
+              <th style="width:90px">发布时间</th>
+              <th style="width:80px">时长</th>
+              <th style="width:90px">浏览量</th>
+              <th style="width:70px">点赞</th>
+              <th style="width:70px">评论</th>
+              <th style="width:90px">下载状态</th>
+              <th style="width:50px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="vdTbody"></tbody>
+        </table>
+      </div>
+      <!-- 分页 -->
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:12px;flex-shrink:0">
+        <button class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
+        <span id="vdPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
+        <button class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
+        <select class="form-input" id="vdPageSize" style="width:80px;font-size:12px" onchange="vdChangePageSize()">
+          <option value="20">20/页</option>
+          <option value="50">50/页</option>
+          <option value="100">100/页</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>

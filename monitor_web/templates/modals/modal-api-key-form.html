@@ -1,0 +1,50 @@
+<!-- 模态: 添加/编辑 API Key -->
+<div class="modal-overlay" id="modalApiKeyForm">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <div class="modal-title" id="modalApiKeyFormTitle">新增 API Key</div>
+      <button class="modal-close" onclick="closeModal('modalApiKeyForm')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="akId">
+      <!-- Key Identity -->
+      <div class="ak-form-section identity">
+        <div class="ak-form-section-title">身份信息</div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label class="form-label">Key 名称</label>
+          <input class="form-input" id="akName" placeholder="例如：主号专用 / Key-2 / 备用Key">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">API Key 值</label>
+          <input class="form-input" id="akValue" placeholder="AIzaSy..." style="font-family:var(--mono);font-size:12px;letter-spacing:0.5px">
+          <div class="form-hint" id="akValueHint">YouTube Data API v3 的实际 Key 值，安全存储于本地数据库</div>
+        </div>
+      </div>
+      <!-- Quota Config -->
+      <div class="ak-form-section quota">
+        <div class="ak-form-section-title">配额设置</div>
+        <div class="ak-form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">每日配额上限</label>
+            <input class="form-input" id="akQuota" type="number" value="10000" min="100" max="100000" placeholder="10000">
+            <div class="form-hint" style="margin-top:4px">超过后该 Key 暂停扫描</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="checkbox-label" style="font-size:13px">
+              <input type="checkbox" id="akActive" checked>
+              <span class="checkbox-box"></span>
+              启用此 Key
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalApiKeyForm')">取消</button>
+      <button class="btn btn-primary" onclick="saveApiKey()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        保存
+      </button>
+    </div>
+  </div>
+</div>
