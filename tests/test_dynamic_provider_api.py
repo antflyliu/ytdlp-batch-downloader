@@ -15,6 +15,7 @@ sys.path.insert(0, str(_ROOT))
 
 import monitor.db as monitor_db
 import monitor_server
+import server.__main__ as _server_main  # noqa: E402
 
 
 class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -50,7 +51,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
 
     def test_provider_scheduler_logs_endpoint(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.list_provider_scheduler_runs.return_value = [
                 {
                     "id": 1,
@@ -80,7 +81,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
 
     def test_provider_scheduler_status_endpoint(self):
-        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+        with mock.patch.object(_server_main, "_provider_scheduler") as mock_provider_scheduler:
             mock_provider_scheduler.is_running.return_value = True
             mock_provider_scheduler.get_next_run_times.return_value = [{"id": "provider_refresh_2", "name": "ProviderRefresh geonode", "next_run": "2026-04-08 17:00:00"}]
             status, resp_body, headers = self._request(
@@ -95,7 +96,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
 
     def test_provider_scheduler_start_endpoint(self):
-        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+        with mock.patch.object(_server_main, "_provider_scheduler") as mock_provider_scheduler:
             mock_provider_scheduler.start.return_value = True
             status, resp_body, _ = self._request(
                 "POST",
@@ -110,7 +111,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
 
     def test_provider_scheduler_stop_endpoint(self):
-        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+        with mock.patch.object(_server_main, "_provider_scheduler") as mock_provider_scheduler:
             mock_provider_scheduler.stop.return_value = True
             status, resp_body, _ = self._request(
                 "POST",
@@ -124,7 +125,7 @@ class TestDynamicProviderApi(unittest.TestCase):
         mock_provider_scheduler.stop.assert_called_once_with()
 
     def test_provider_scheduler_run_once_endpoint(self):
-        with mock.patch.object(monitor_server, "_provider_scheduler") as mock_provider_scheduler:
+        with mock.patch.object(_server_main, "_provider_scheduler") as mock_provider_scheduler:
             mock_provider_scheduler.run_once.return_value = {
                 "ok": True,
                 "provider_count": 2,
@@ -146,7 +147,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_list_expired_cooldown_reports_false(self):
         past = (datetime.now() - timedelta(minutes=10)).isoformat()
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.list_dynamic_proxy_providers.return_value = [{
                 "id": 1,
                 "name": "Expired Cooldown",
@@ -181,7 +182,7 @@ class TestDynamicProviderApi(unittest.TestCase):
         self.assertFalse(data[0]["is_in_cooldown"])
 
     def test_routing_preview_returns_route_without_triggering_download(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             with mock.patch("monitor.dynamic_provider_resolver.resolve_for_manual_download") as mock_resolve:
                 mock_db.get_account.return_value = {"id": 7, "name": "Account-7", "download_proxy_mode": "auto"}
                 mock_resolve.return_value = mock.Mock(
@@ -222,7 +223,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_routing_preview_account_not_found(self):
         """Invalid account_id returns 404."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_account.return_value = None
             status, body, _ = self._request(
                 "GET",
@@ -235,7 +236,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_routing_preview_user_forced_direct(self):
         """direct=1 forces direct mode regardless of account settings."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_account.return_value = {"id": 7, "name": "Account-7", "download_proxy_mode": "auto"}
             status, body, headers = self._request(
                 "GET",
@@ -249,7 +250,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_routing_preview_auto_download_mode(self):
         """auto=1 resolves for auto download context."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             with mock.patch("monitor.dynamic_provider_resolver.resolve_for_auto_download") as mock_resolve:
                 mock_db.get_account.return_value = {"id": 7, "name": "Account-7", "download_proxy_mode": "auto"}
                 mock_resolve.return_value = mock.Mock(
@@ -269,7 +270,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_add_success(self):
         """POST /api/dynamic-providers creates a new provider."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.add_dynamic_proxy_provider.return_value = 42
             body = json.dumps({
                 "name": "New Provider",
@@ -290,7 +291,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_add_requires_name(self):
         """POST /api/dynamic-providers with empty name returns 400."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             body = json.dumps({"name": ""}).encode("utf-8")
             status, resp_body, _ = self._request(
                 "POST",
@@ -304,7 +305,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_update_success(self):
         """POST /api/dynamic-providers/{id}/update updates provider fields."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = {"id": 5, "name": "Old Name"}
             body = json.dumps({"name": "Updated Name", "enabled": True}).encode("utf-8")
             status, resp_body, _ = self._request(
@@ -318,7 +319,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_update_not_found(self):
         """POST /api/dynamic-providers/{id}/update with unknown id returns 404."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = None
             body = json.dumps({"name": "Whatever"}).encode("utf-8")
             status, resp_body, _ = self._request(
@@ -333,7 +334,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_delete_success(self):
         """DELETE /api/dynamic-providers/{id} deletes provider."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = {"id": 3, "name": "ToDelete"}
             status, resp_body, _ = self._request(
                 "DELETE",
@@ -345,7 +346,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
     def test_dynamic_provider_cooldown_clear(self):
         """POST /api/dynamic-providers/{id}/cooldown/clear clears cooldown."""
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             status, resp_body, _ = self._request(
                 "POST",
                 "/api/dynamic-providers/7/cooldown/clear",
@@ -360,10 +361,10 @@ class TestDynamicProviderApi(unittest.TestCase):
 
 
     def test_dynamic_provider_add_reload_jobs_when_scheduler_running(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.add_dynamic_proxy_provider.return_value = 42
-            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
-                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+            with mock.patch.object(_server_main._scheduler, "is_running", return_value=True):
+                with mock.patch.object(_server_main._scheduler, "reload_jobs") as mock_reload:
                     body = json.dumps({
                         "name": "New Provider",
                         "billing_tier": "paid",
@@ -380,10 +381,10 @@ class TestDynamicProviderApi(unittest.TestCase):
         mock_reload.assert_called_once()
 
     def test_dynamic_provider_update_reload_jobs_when_scheduler_running(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = {"id": 5, "name": "Old Name"}
-            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
-                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+            with mock.patch.object(_server_main._scheduler, "is_running", return_value=True):
+                with mock.patch.object(_server_main._scheduler, "reload_jobs") as mock_reload:
                     body = json.dumps({"name": "Updated Name", "enabled": True}).encode("utf-8")
                     status, _, _ = self._request(
                         "POST",
@@ -395,10 +396,10 @@ class TestDynamicProviderApi(unittest.TestCase):
         mock_reload.assert_called_once()
 
     def test_dynamic_provider_delete_reload_jobs_when_scheduler_running(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = {"id": 3, "name": "ToDelete"}
-            with mock.patch.object(monitor_server._scheduler, "is_running", return_value=True):
-                with mock.patch.object(monitor_server._scheduler, "reload_jobs") as mock_reload:
+            with mock.patch.object(_server_main._scheduler, "is_running", return_value=True):
+                with mock.patch.object(_server_main._scheduler, "reload_jobs") as mock_reload:
                     status, _, _ = self._request(
                         "DELETE",
                         "/api/dynamic-providers/3",
@@ -408,9 +409,9 @@ class TestDynamicProviderApi(unittest.TestCase):
         mock_reload.assert_called_once()
 
     def test_dynamic_provider_manual_refresh_endpoint_returns_preview_aligned_summary(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db:
+        with mock.patch.object(_server_main, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = {"id": 5, "name": "Refresh Provider"}
-            with mock.patch.object(monitor_server._scheduler, "refresh_dynamic_provider", return_value={
+            with mock.patch.object(_server_main._scheduler, "refresh_dynamic_provider", return_value={
                 "ok": True,
                 "provider_id": 5,
                 "raw_count": 12,
@@ -458,7 +459,7 @@ class TestDynamicProviderApi(unittest.TestCase):
                 },
             },
         }
-        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+        with mock.patch.object(_server_main._scheduler, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = provider
             entered = threading.Event()
             release = threading.Event()
@@ -475,7 +476,7 @@ class TestDynamicProviderApi(unittest.TestCase):
                     results: list[dict] = []
 
                     def _run_refresh():
-                        results.append(monitor_server._scheduler.refresh_dynamic_provider(5))
+                        results.append(_server_main._scheduler.refresh_dynamic_provider(5))
 
                     t1 = threading.Thread(target=_run_refresh)
                     t1.start()
@@ -528,7 +529,7 @@ class TestDynamicProviderApi(unittest.TestCase):
             mock.Mock(status="healthy", latency_ms=120, error_message=None),
             mock.Mock(status="down", latency_ms=None, error_message="connect failed"),
         ]
-        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+        with mock.patch.object(_server_main._scheduler, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = provider
             with mock.patch("monitor.provider_templates.fetch_provider_candidates", return_value=[candidate_a, candidate_b]):
                 with mock.patch("monitor.proxy_validator.CandidateProbeValidator") as mock_validator_cls:
@@ -539,7 +540,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
                     mock_validator.probe_lightweight.side_effect = fake_probe
                     with mock.patch.object(mock_db, "add_proxy_candidate", return_value=101):
-                        result = monitor_server._scheduler.refresh_dynamic_provider(7)
+                        result = _server_main._scheduler.refresh_dynamic_provider(7)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["status_counts"], {"healthy": 1, "down": 1})
@@ -595,7 +596,7 @@ class TestDynamicProviderApi(unittest.TestCase):
             mock.Mock(status="healthy", latency_ms=500, error_message=None),
             mock.Mock(status="healthy", latency_ms=80, error_message=None),
         ]
-        with mock.patch.object(monitor_server._scheduler, "_db") as mock_db:
+        with mock.patch.object(_server_main._scheduler, "_db") as mock_db:
             mock_db.get_dynamic_proxy_provider.return_value = provider
             with mock.patch(
                 "monitor.provider_templates.fetch_provider_candidates",
@@ -609,7 +610,7 @@ class TestDynamicProviderApi(unittest.TestCase):
 
                     mock_validator.probe_lightweight.side_effect = fake_probe
                     with mock.patch.object(mock_db, "add_proxy_candidate", return_value=101):
-                        result = monitor_server._scheduler.refresh_dynamic_provider(8)
+                        result = _server_main._scheduler.refresh_dynamic_provider(8)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["top_candidate"]["masked_proxy_endpoint"], "http://9.9.9.9:8081")

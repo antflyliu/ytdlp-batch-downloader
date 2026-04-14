@@ -16,6 +16,8 @@ from unittest import mock
 _ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(_ROOT))
 
+import server.__main__ as _server_main  # noqa: E402 — actual implementation location
+
 
 class _ImmediateThread:
     """Run background work synchronously for deterministic tests."""
@@ -81,7 +83,7 @@ class TestBatchUploadApiBehavior(unittest.TestCase):
         ]
         upload_store = monitor_server._BatchUploadStore()
 
-        with mock.patch.object(monitor_server, "_batch_upload_mgr", upload_store):
+        with mock.patch.object(_server_main, "_batch_upload_mgr", upload_store):
             with mock.patch("Youtube_Downloader.read_urls_from_file", return_value=all_urls):
                 handler._handle_multipart_upload()
 
@@ -140,14 +142,14 @@ class TestBatchStartApiBehavior(unittest.TestCase):
                 "manual_direct_fallback": True,
                 "download_cookies_file": "",
             }
-            with mock.patch.object(monitor_server, "_batch_upload_mgr", upload_store):
-                with mock.patch.object(monitor_server, "_task_mgr", task_mgr):
-                    with mock.patch("monitor_server._db.load_config", return_value=cfg):
-                        with mock.patch("monitor_server._db.save_web_batch_task"):
-                            with mock.patch("monitor_server.resolve_for_web_batch_download", return_value=fake_route) as mock_route:
-                                with mock.patch("monitor_server.log_download_decision"):
-                                    with mock.patch("monitor_server.batch_download", side_effect=_fake_batch_download):
-                                        with mock.patch("monitor_server.threading.Thread", _ImmediateThread):
+            with mock.patch.object(_server_main, "_batch_upload_mgr", upload_store):
+                with mock.patch.object(_server_main, "_task_mgr", task_mgr):
+                    with mock.patch("server.__main__._db.load_config", return_value=cfg):
+                        with mock.patch("server.__main__._db.save_web_batch_task"):
+                            with mock.patch("server.__main__.resolve_for_web_batch_download", return_value=fake_route) as mock_route:
+                                with mock.patch("server.__main__.log_download_decision"):
+                                    with mock.patch("server.__main__.batch_download", side_effect=_fake_batch_download):
+                                        with mock.patch("threading.Thread", _ImmediateThread):
                                             handler._api_batch_download_start({
                                                 "upload_id": upload_id,
                                                 "resolution": "1080p",
@@ -212,14 +214,14 @@ class TestBatchStartApiBehavior(unittest.TestCase):
                 "manual_direct_fallback": True,
                 "download_cookies_file": "",
             }
-            with mock.patch.object(monitor_server, "_batch_upload_mgr", upload_store):
-                with mock.patch.object(monitor_server, "_task_mgr", task_mgr):
-                    with mock.patch("monitor_server._db.load_config", return_value=cfg):
-                        with mock.patch("monitor_server._db.save_web_batch_task"):
-                            with mock.patch("monitor_server.resolve_for_web_batch_download", return_value=fake_route) as mock_route:
-                                with mock.patch("monitor_server.log_download_decision"):
-                                    with mock.patch("monitor_server.batch_download", side_effect=_fake_batch_download):
-                                        with mock.patch("monitor_server.threading.Thread", _ImmediateThread):
+            with mock.patch.object(_server_main, "_batch_upload_mgr", upload_store):
+                with mock.patch.object(_server_main, "_task_mgr", task_mgr):
+                    with mock.patch("server.__main__._db.load_config", return_value=cfg):
+                        with mock.patch("server.__main__._db.save_web_batch_task"):
+                            with mock.patch("server.__main__.resolve_for_web_batch_download", return_value=fake_route) as mock_route:
+                                with mock.patch("server.__main__.log_download_decision"):
+                                    with mock.patch("server.__main__.batch_download", side_effect=_fake_batch_download):
+                                        with mock.patch("threading.Thread", _ImmediateThread):
                                             handler._api_batch_download_start({
                                                 "upload_id": upload_id,
                                                 "resolution": "best",
@@ -257,7 +259,7 @@ class TestBatchStartApiBehavior(unittest.TestCase):
             "信息": "下载成功 | 代理: 直连",
         }])
 
-        with mock.patch.object(monitor_server, "_task_mgr", task_mgr):
+        with mock.patch.object(_server_main, "_task_mgr", task_mgr):
             handler._api_batch_task_status(task_id)
 
         status, payload = sent[-1]
@@ -328,9 +330,13 @@ class TestBatchStartApiBehavior(unittest.TestCase):
             db_path = os.path.join(tmpdir, "monitor.db")
             cfg_path = os.path.join(tmpdir, "config.json")
             with ExitStack() as stack:
+                db_conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
                 stack.enter_context(mock.patch.object(db, "_DB_PATH", db_path))
                 stack.enter_context(mock.patch.object(db, "_DATA_DIR", tmpdir))
                 stack.enter_context(mock.patch.object(db, "_CONFIG_PATH", cfg_path))
+                stack.enter_context(mock.patch.object(db_conn, "_DB_PATH", db_path))
+                stack.enter_context(mock.patch.object(db_conn, "_DATA_DIR", tmpdir))
+                stack.enter_context(mock.patch.object(db_conn, "_CONFIG_PATH", cfg_path))
                 db.init_db()
 
                 task_mgr = monitor_server._DownloadTaskManager()
@@ -355,7 +361,7 @@ class TestBatchStartApiBehavior(unittest.TestCase):
                 self.assertEqual(persisted["status"], "done")
 
                 handler, sent = _make_handler(monitor_server)
-                with mock.patch.object(monitor_server, "_task_mgr", task_mgr):
+                with mock.patch.object(_server_main, "_task_mgr", task_mgr):
                     handler._api_batch_task_status(task_id)
 
                 status, payload = sent[-1]
@@ -371,9 +377,13 @@ class TestBatchStartApiBehavior(unittest.TestCase):
             db_path = os.path.join(tmpdir, "monitor.db")
             cfg_path = os.path.join(tmpdir, "config.json")
             with ExitStack() as stack:
+                db_conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
                 stack.enter_context(mock.patch.object(db, "_DB_PATH", db_path))
                 stack.enter_context(mock.patch.object(db, "_DATA_DIR", tmpdir))
                 stack.enter_context(mock.patch.object(db, "_CONFIG_PATH", cfg_path))
+                stack.enter_context(mock.patch.object(db_conn, "_DB_PATH", db_path))
+                stack.enter_context(mock.patch.object(db_conn, "_DATA_DIR", tmpdir))
+                stack.enter_context(mock.patch.object(db_conn, "_CONFIG_PATH", cfg_path))
                 db.init_db()
                 db.save_web_batch_task({
                     "task_id": "stale-task",
@@ -440,13 +450,13 @@ class TestBatchStartApiBehavior(unittest.TestCase):
                 "manual_direct_fallback": True,
                 "download_cookies_file": "",
             }
-            with mock.patch.object(monitor_server, "_batch_upload_mgr", upload_store):
-                with mock.patch.object(monitor_server, "_task_mgr", task_mgr):
-                    with mock.patch("monitor_server._db.load_config", return_value=cfg):
-                        with mock.patch("monitor_server._db.save_web_batch_task"):
-                            with mock.patch("monitor_server.resolve_for_web_batch_download", return_value=fake_route):
-                                with mock.patch("monitor_server.log_download_decision"):
-                                    with mock.patch("monitor_server.batch_download", side_effect=_fake_batch_download):
+            with mock.patch.object(_server_main, "_batch_upload_mgr", upload_store):
+                with mock.patch.object(_server_main, "_task_mgr", task_mgr):
+                    with mock.patch("server.__main__._db.load_config", return_value=cfg):
+                        with mock.patch("server.__main__._db.save_web_batch_task"):
+                            with mock.patch("server.__main__.resolve_for_web_batch_download", return_value=fake_route):
+                                with mock.patch("server.__main__.log_download_decision"):
+                                    with mock.patch("server.__main__.batch_download", side_effect=_fake_batch_download):
                                         start_handler._api_batch_download_start({
                                             "upload_id": upload_id,
                                             "resolution": "best",

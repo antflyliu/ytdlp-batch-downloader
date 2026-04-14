@@ -4,32 +4,41 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "monitor_web" / "index.html"
+DYN_PROV_JS = ROOT / "monitor_web" / "js" / "modules" / "dynamicProvider.js"
+
+
+def _dyn_prov_js() -> str:
+    return DYN_PROV_JS.read_text(encoding="utf-8")
+
+
+def _tpl(name: str) -> str:
+    return (ROOT / "monitor_web" / "templates" / "modals" / name).read_text(encoding="utf-8")
 
 
 def test_dynamic_provider_workbench_has_detail_drawer_hooks():
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    # HTML elements were extracted to templates/modals/dyn-provider-detail-drawer.html
+    drawer_html = _tpl("dyn-provider-detail-drawer.html")
+    for el_id in ["dynProviderDetailDrawer", "dynProviderDetailBody", "dynProviderDetailError",
+                  "dynProviderDetailPreviewSummary", "dynProviderDetailFailures",
+                  "dynProviderDetailActions", "dynProviderDetailFailuresToggle"]:
+        assert f'id="{el_id}"' in drawer_html, f"Missing {el_id} in template"
 
-    assert 'id="dynProviderDetailDrawer"' in html
-    assert 'id="dynProviderDetailBody"' in html
-    assert 'id="dynProviderDetailError"' in html
-    assert 'id="dynProviderDetailPreviewSummary"' in html
-    assert 'id="dynProviderDetailFailures"' in html
-    assert 'id="dynProviderDetailActions"' in html
-    assert 'id="dynProviderDetailFailuresToggle"' in html
-    assert 'function openDynamicProviderDetail(' in html
-    assert 'function closeDynamicProviderDetail(' in html
-    assert 'function refreshDynamicProviderDetail(' in html
-    assert 'function toggleProviderFailureList(' in html
+    # JS functions are in modules/dynamicProvider.js
+    js = _dyn_prov_js()
+    for fn in ["function openDynamicProviderDetail(", "function closeDynamicProviderDetail(",
+               "function refreshDynamicProviderDetail(", "function toggleProviderFailureList("]:
+        assert fn in js, f"Missing {fn} in dynamicProvider.js"
 
 
 def test_refresh_dynamic_provider_opens_detail_drawer_after_success():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    match = re.search(r"async function refreshDynamicProvider\(id\) \{([\s\S]*?)\n  \}", html)
+    js = _dyn_prov_js()
+    match = re.search(r"async function refreshDynamicProvider\(id\) \{([\s\S]*?)\n  \}", js)
     assert match, "refreshDynamicProvider() should exist"
     body = match.group(1)
     assert "openDynamicProviderDetail(id)" in body
 
 
 def test_provider_rows_show_last_refresh_time_hook():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    assert '上次刷新:' in html or 'last refresh' in html.lower()
+    # "上次刷新" label is rendered by the JS module, not in static HTML
+    js = _dyn_prov_js()
+    assert '上次刷新' in js or 'last_refresh' in js.lower()

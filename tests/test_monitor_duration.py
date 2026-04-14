@@ -43,6 +43,10 @@ class _FakeCollector:
     def __init__(self, *args, **kwargs):
         pass
 
+    def probe_uploads_playlist_id(self, channel_id):
+        """与 get_channel_meta mock 中的 uploads_playlist_id 一致，避免走不一致刷新分支。"""
+        return "UU1234567890"
+
     def get_channel_videos(self, channel_id):
         return [
             {
@@ -96,8 +100,11 @@ class MonitorDurationPersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_db_path = os.path.join(tmpdir, "monitor.db")
 
+            _conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
             with patch.object(monitor_db, "_DATA_DIR", tmpdir), patch.object(
                 monitor_db, "_DB_PATH", temp_db_path
+            ), patch.object(_conn, "_DATA_DIR", tmpdir), patch.object(
+                _conn, "_DB_PATH", temp_db_path
             ):
                 monitor_db.init_db()
                 account_id = monitor_db.add_account(
@@ -116,6 +123,9 @@ class MonitorDurationPersistenceTests(unittest.TestCase):
                         "subscriber_count": "1",
                         "video_count": "1",
                         "description": "desc",
+                        # TTL 未过期 + 健康检查间隔内（避免走 get_channel_data）
+                        "cached_at": "2026-04-10T00:00:00+00:00",
+                        "health_checked_at": "2026-04-14T00:00:00+00:00",
                     },
                 ), patch("monitor.fetcher.YouTubeDataCollector", _FakeCollector):
                     videos, _ = YouTubeFetcher(

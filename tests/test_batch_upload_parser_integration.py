@@ -1,9 +1,12 @@
-"""Regression tests for the custom multipart parser integration."""
+"""Regression tests for the custom multipart parser integration.
+
+Phase 2 重构后：_handle_multipart_upload 已迁移到 server/__main__.py
+"""
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER = ROOT / "monitor_server.py"
+SERVER = ROOT / "server" / "__main__.py"
 
 
 def test_multipart_handler_uses_custom_parser_helper():
@@ -15,10 +18,8 @@ def test_multipart_handler_uses_custom_parser_helper():
     assert "file_part.data" in section
 
 
-def test_multipart_handler_keeps_cgi_backup_as_commented_reference_only():
+def test_multipart_handler_no_longer_uses_cgi():
+    """Phase 2 重构后：不再导入 cgi，改用 monitor.http_multipart。"""
     text = SERVER.read_text(encoding="utf-8")
-    start = text.index('def _handle_multipart_upload')
-    end = text.index('def _api_batch_download_start', start)
-    section = text[start:end]
-    assert '# import cgi' in section
-    assert '# form = cgi.FieldStorage(' in section
+    assert 'from monitor.http_multipart import' in text
+    assert 'import cgi' not in text

@@ -3,7 +3,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER = ROOT / "monitor_server.py"
+# 实际实现已移至 server/__main__.py（monitor_server.py 只做转发）
+SERVER = ROOT / "server" / "__main__.py"
 
 
 def test_multipart_upload_checked_before_json_body_parse():

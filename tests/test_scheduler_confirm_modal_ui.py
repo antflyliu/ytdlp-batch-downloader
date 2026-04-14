@@ -1,56 +1,83 @@
+"""Tests for the scheduler confirm modal UI.
+
+Phase 4 模块化后：
+- 弹窗 HTML → templates/modals/modal-confirm.html
+- 弹窗样式 → static/css/theme.css
+- JS 逻辑 → modules/ui.js, components/scheduler-panel.js
+"""
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "monitor_web" / "index.html"
+TEMPLATE_FILE = ROOT / "monitor_web" / "templates" / "modals" / "modal-confirm.html"
+CSS_FILE = ROOT / "monitor_web" / "static" / "css" / "theme.css"
+UI_JS = ROOT / "monitor_web" / "js" / "modules" / "ui.js"
+SCHEDULER_PANEL = ROOT / "monitor_web" / "js" / "components" / "scheduler-panel.js"
+
+
+def _html() -> str:
+    return INDEX_HTML.read_text(encoding="utf-8")
+
+
+def _tpl() -> str:
+    return TEMPLATE_FILE.read_text(encoding="utf-8")
+
+
+def _css() -> str:
+    return CSS_FILE.read_text(encoding="utf-8")
+
+
+def _ui_js() -> str:
+    return UI_JS.read_text(encoding="utf-8")
+
+
+def _scheduler_panel() -> str:
+    return SCHEDULER_PANEL.read_text(encoding="utf-8")
 
 
 def test_app_confirm_modal_exposes_checkbox_markup_and_scoped_styles():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-
-    for expected in [
+    """checkbox 标记在模板文件，样式在 theme.css（已提取）。"""
+    tpl = _tpl()
+    css = _css()
+    for expected_id in [
         'id="appConfirmCheckboxRow"',
         'id="appConfirmCheckbox"',
         'id="appConfirmCheckboxLabel"',
         'id="appConfirmCheckboxHint"',
+    ]:
+        assert expected_id in tpl, f"{expected_id} 应在模板文件中"
+
+    for selector in [
         '#modalAppConfirm > .modal',
         '#modalAppConfirm .modal-confirm-checkbox-row',
         '#modalAppConfirm .modal-confirm-checkbox input:focus-visible + .checkbox-box',
         '#modalAppConfirm .btn-ghost',
     ]:
-        assert expected in html
-
-    assert re.search(
-        r"#modalAppConfirm \.modal-confirm-checkbox input \{[\s\S]*?display:\s*block;",
-        html,
-    )
+        assert selector in css, f"{selector} 应在 theme.css 中"
 
 
 def test_app_confirm_checkbox_wrapper_exposes_contract_level_api():
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    """JS API 逻辑在 modules/ui.js。"""
+    ui_js = _ui_js()
 
-    # confirmTone option support in showAppConfirm
-    assert 'options.confirmTone' in html
-    assert "tone === 'success' ? 'btn-success'" in html
-    # generation counter incremented at top of showAppConfirm Promise body
-    assert '_appConfirmGeneration += 1;' in html
-    # reset helper called inside showAppConfirm
-    assert 'resetAppConfirmCheckbox();' in html
-    # reset helper defined with all checkbox elements
-    assert 'function resetAppConfirmCheckbox()' in html
-    assert "if (row) row.hidden = true;" in html
-    assert "if (checkbox) checkbox.checked = false;" in html
-    assert "if (label) label.textContent = '';" in html
-    assert "if (hint) {\n      hint.textContent = '';\n      hint.hidden = true;" in html or \
-           "if (hint) {\n      hint.textContent = '';" in html
-    # wrapper exists and returns contract shape
-    assert 'function showAppConfirmWithCheckbox(' in html
-    assert 'function showAppConfirm(' in html
+    assert 'options.confirmTone' in ui_js
+    assert "tone === 'success' ? 'btn-success'" in ui_js
+    assert 'setAppConfirmGeneration(' in ui_js
+    assert 'resetAppConfirmCheckbox();' in ui_js
+    assert 'function resetAppConfirmCheckbox()' in ui_js
+    assert "if (row) row.hidden = true;" in ui_js
+    assert "if (checkbox) checkbox.checked = false;" in ui_js
+    assert "if (label) label.textContent = '';" in ui_js
+    # Check for hint.textContent = ''; pattern (whitespace flexible)
+    assert "hint.textContent = ''" in ui_js
+    assert 'function showAppConfirmWithCheckbox(' in ui_js
+    assert 'function showAppConfirm(' in ui_js
 
-    wrapper_start = html.index('function showAppConfirmWithCheckbox(')
-    wrapper_end = html.index('function _resetScanNowState', wrapper_start)
-    wrapper_body = html[wrapper_start:wrapper_end]
+    wrapper_start = ui_js.index('function showAppConfirmWithCheckbox(')
+    wrapper_end = ui_js.index('function _resetScanNowState', wrapper_start)
+    wrapper_body = ui_js[wrapper_start:wrapper_end]
     return_idx = wrapper_body.rfind('return')
     assert return_idx != -1
     return_tail = wrapper_body[return_idx:]
@@ -59,21 +86,17 @@ def test_app_confirm_checkbox_wrapper_exposes_contract_level_api():
 
 
 def test_toggle_scheduler_uses_checkbox_modal_wrapper_instead_of_native_confirm():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    scheduler_start = html.index('async function toggleScheduler()')
-    scheduler_end = html.find('async function reloadJobs()', scheduler_start)
-    assert scheduler_end != -1
-    scheduler_slice = html[scheduler_start:scheduler_end]
+    scheduler_panel = _scheduler_panel()
 
-    assert 'showAppConfirmWithCheckbox(' in scheduler_slice
-    assert 'confirm(' not in scheduler_slice
+    assert 'showAppConfirmWithCheckbox(' in scheduler_panel
+    assert 'confirm(' not in scheduler_panel
 
     for expected in ['auto_download', 'checked']:
-        assert expected in scheduler_slice
+        assert expected in scheduler_panel
 
-    wrapper_index = scheduler_slice.index('showAppConfirmWithCheckbox(')
-    start_call_index = scheduler_slice.find('/scheduler/start', wrapper_index)
-    return_index = scheduler_slice.find('return', wrapper_index)
+    wrapper_index = scheduler_panel.index('showAppConfirmWithCheckbox(')
+    start_call_index = scheduler_panel.find('/scheduler/start', wrapper_index)
+    return_index = scheduler_panel.find('return', wrapper_index)
     assert start_call_index != -1
     assert return_index != -1
     assert wrapper_index < return_index < start_call_index

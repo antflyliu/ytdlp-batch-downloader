@@ -13,7 +13,7 @@ import monitor.db as monitor_db
 
 @pytest.fixture()
 def db_module(tmp_path, monkeypatch):
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 

@@ -31,7 +31,7 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         }
         return {**defaults, **overrides}
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_auto_mode_with_static_proxy(self, mock_db):
         """auto mode + enabled static proxy -> uses account_static."""
         import monitor.proxy_router as pr
@@ -39,14 +39,14 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         mock_db.get_proxy_pool.return_value = {'id': 1, 'enabled': 1, 'proxy_url': 'http://1.2.3.4:8080'}
 
         account = self._make_account('auto', proxy_enabled=1, proxy_pool_id=1)
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(account, is_auto_download=False, cookies_file_present=False)
 
         self.assertEqual(result.resolved_proxy_source, 'account_static')
         self.assertIn('固定代理', result.reason)
         self.assertEqual(result.fallback_depth, 0)
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_auto_mode_static_disabled(self, mock_db):
         """auto mode + disabled static proxy -> should NOT use account_static."""
         import monitor.proxy_router as pr
@@ -54,13 +54,13 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         mock_db.get_proxy_pool.return_value = {'id': 1, 'enabled': 0, 'proxy_url': 'http://1.2.3.4:8080'}
 
         account = self._make_account('auto', proxy_enabled=0, proxy_pool_id=1)
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(account, is_auto_download=False, cookies_file_present=False)
 
         # Should try system proxy or fall back
         self.assertNotEqual(result.resolved_proxy_source, 'account_static')
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_account_only_mode_no_proxy(self, mock_db):
         """account_only mode + no static proxy -> returns failed with correct source (not 'direct')."""
         import monitor.proxy_router as pr
@@ -68,7 +68,7 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         mock_db.get_proxy_pool.return_value = None
 
         account = self._make_account('account_only', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(account, is_auto_download=False, cookies_file_present=False)
 
         # account_only with no static proxy should fail with resolved_mode='failed'
@@ -76,7 +76,7 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         self.assertEqual(result.resolved_proxy_source, 'account_static')  # reflects the attempted path
         self.assertEqual(result.fallback_depth, 1)
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_system_only_mode(self, mock_db):
         """system_only mode ignores static proxy even if available."""
         import monitor.proxy_router as pr
@@ -84,30 +84,30 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         mock_db.get_proxy_pool.return_value = {'id': 1, 'enabled': 1, 'proxy_url': 'http://1.2.3.4:8080'}
 
         account = self._make_account('system_only', proxy_enabled=1, proxy_pool_id=1)
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(account, is_auto_download=False, cookies_file_present=False)
 
         self.assertNotEqual(result.resolved_proxy_source, 'account_static')
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_direct_only_mode(self, mock_db):
         """direct_only mode always returns direct."""
         import monitor.proxy_router as pr
 
         account = self._make_account('direct_only')
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(account, is_auto_download=False, cookies_file_present=False)
 
         self.assertEqual(result.resolved_proxy_source, 'direct')
         self.assertIn('直连', result.reason)
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_user_forced_direct(self, mock_db):
         """user_forced_direct overrides mode to direct."""
         import monitor.proxy_router as pr
 
         account = self._make_account('auto')
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
             result = pr.resolve_proxy_download(
                 account,
                 is_auto_download=False,
@@ -131,9 +131,9 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         }
 
         account = self._make_account('auto', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config',
+        with mock.patch('monitor.proxy.router._get_global_config',
                         return_value=self._make_config(allow_free_proxy_for_auto_download=False)):
-            with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[free_provider]):
+            with mock.patch('monitor.proxy.providers._get_enabled_providers', return_value=[free_provider]):
                 result = pr.resolve_proxy_download(
                     account,
                     is_auto_download=True,
@@ -156,12 +156,12 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         }
 
         account = self._make_account('auto', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config',
+        with mock.patch('monitor.proxy.router._get_global_config',
                         return_value=self._make_config(
                             allow_free_proxy=True,
                             allow_free_proxy_with_cookies=False,
                         )):
-            with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[free_provider]):
+            with mock.patch('monitor.proxy.providers._get_enabled_providers', return_value=[free_provider]):
                 result = pr.resolve_proxy_download(
                     account,
                     is_auto_download=False,
@@ -186,8 +186,8 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         }
 
         account = self._make_account('auto', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
-            with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[cooldown_provider]):
+        with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
+            with mock.patch('monitor.proxy.router._get_enabled_providers', return_value=[cooldown_provider]):
                 result = pr.resolve_proxy_download(
                     account,
                     is_auto_download=False,
@@ -220,12 +220,12 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         }
 
         account = self._make_account('auto', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config',
+        with mock.patch('monitor.proxy.router._get_global_config',
                         return_value=self._make_config(
                             system_dynamic_proxy_enabled=True,
                             allow_free_proxy_for_auto_download=False,
                         )):
-            with mock.patch('monitor.proxy_router._get_enabled_providers',
+            with mock.patch('monitor.proxy.router._get_enabled_providers',
                             return_value=[free_provider, paid_provider]):
                 result = pr.resolve_proxy_download(
                     account,
@@ -254,13 +254,13 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
             'priority': 2, 'cooldown_until': None, 'last_health_status': 'healthy',
         }
 
-        with mock.patch('monitor.proxy_router._get_global_config',
+        with mock.patch('monitor.proxy.router._get_global_config',
                         return_value=self._make_config(
                             system_dynamic_proxy_enabled=True,
                             apply_dynamic_proxy_to_existing_accounts=False,
                             manual_direct_fallback=False,
                         )):
-            with mock.patch('monitor.proxy_router._get_enabled_providers',
+            with mock.patch('monitor.proxy.router._get_enabled_providers',
                             return_value=[paid_provider]):
                 result = pr.resolve_proxy_download(
                     account,
@@ -271,13 +271,13 @@ class TestProxyRouterDecisionLogic(unittest.TestCase):
         self.assertEqual(result.resolved_mode, 'failed')
         self.assertNotEqual(result.resolved_proxy_source, 'system_paid')
 
-    @mock.patch('monitor.proxy_router._db')
+    @mock.patch('monitor.proxy.router._db')
     def test_direct_only_auto_download_strict_mode_returns_failed(self, mock_db):
         """direct_only + auto download + no direct fallback should fail instead of direct."""
         import monitor.proxy_router as pr
 
         account = self._make_account('direct_only', proxy_enabled=0, proxy_pool_id=None)
-        with mock.patch('monitor.proxy_router._get_global_config',
+        with mock.patch('monitor.proxy.router._get_global_config',
                         return_value=self._make_config(auto_direct_fallback=False)):
             result = pr.resolve_proxy_download(
                 account,
@@ -348,7 +348,7 @@ class TestListApiSkeleton(unittest.TestCase):
     def test_resolve_list_api_with_candidates_accepts_scenario_context(self):
         import monitor.proxy_router as pr
 
-        with mock.patch('monitor.proxy_router._select_candidates_for_provider', return_value=[]) as mock_select:
+        with mock.patch('monitor.proxy.providers._select_candidates_for_provider', return_value=[]) as mock_select:
             result = pr._resolve_list_api_with_candidates(
                 provider={
                     'id': 999,
@@ -417,8 +417,8 @@ class TestListApiRouterIntegration(unittest.TestCase):
             'last_health_status': 'healthy',
         }
 
-        with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[provider]):
-            with mock.patch('monitor.proxy_router._resolve_list_api_with_candidates') as mock_list_api:
+        with mock.patch('monitor.proxy.router._get_enabled_providers', return_value=[provider]):
+            with mock.patch('monitor.proxy.providers._resolve_list_api_with_candidates') as mock_list_api:
                 mock_list_api.return_value = [
                     pr.CanonicalProxyCandidate(
                         candidate_key='k1',
@@ -430,7 +430,7 @@ class TestListApiRouterIntegration(unittest.TestCase):
                         proxy_url='http://1.2.3.4:8080',
                     )
                 ]
-                with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config()):
+                with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config()):
                     result = pr.resolve_proxy_download(
                         self._make_account(),
                         is_auto_download=False,
@@ -462,8 +462,8 @@ class TestListApiRouterIntegration(unittest.TestCase):
             'last_health_status': 'healthy',
         }
 
-        with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[provider]):
-            with mock.patch('monitor.proxy_router._select_candidates_for_provider') as mock_sel:
+        with mock.patch('monitor.proxy.router._get_enabled_providers', return_value=[provider]):
+            with mock.patch('monitor.proxy.router._select_candidates_for_provider') as mock_sel:
                 mock_sel.return_value = [
                     pr.CanonicalProxyCandidate(
                         candidate_key='k2',
@@ -475,7 +475,7 @@ class TestListApiRouterIntegration(unittest.TestCase):
                         proxy_url='http://2.3.4.5:8081',
                     )
                 ]
-                with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config(allow_free_proxy_for_auto_download=True)):
+                with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config(allow_free_proxy_for_auto_download=True)):
                     result = pr.resolve_proxy_download(
                         self._make_account(),
                         is_auto_download=False,
@@ -507,9 +507,9 @@ class TestListApiRouterIntegration(unittest.TestCase):
             'last_health_status': 'healthy',
         }
 
-        with mock.patch('monitor.proxy_router._get_enabled_providers', return_value=[provider]):
-            with mock.patch('monitor.proxy_router._select_candidates_for_provider', return_value=[] ) as mock_sel:
-                with mock.patch('monitor.proxy_router._get_global_config', return_value=self._make_config(allow_free_proxy=False, manual_direct_fallback=False)):
+        with mock.patch('monitor.proxy.router._get_enabled_providers', return_value=[provider]):
+            with mock.patch('monitor.proxy.router._select_candidates_for_provider', return_value=[]) as mock_sel:
+                with mock.patch('monitor.proxy.router._get_global_config', return_value=self._make_config(allow_free_proxy=False, manual_direct_fallback=False)):
                     result = pr.resolve_proxy_download(
                         self._make_account(),
                         is_auto_download=False,

@@ -91,11 +91,27 @@ class TestApiKeyCRUD(unittest.TestCase):
         """返回 ExitStack，管理所有需要 patch 的模块路径"""
         import monitor.db as db
         import monitor.quota as quota
+        import utils.paths as up
+        import config.settings as cs
         from contextlib import ExitStack
         stack = ExitStack()
+        db_conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
+        # Patch utils.paths for config/settings module (which uses get_config_path, etc.)
+        stack.enter_context(patch.object(up, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(up, "get_db_path", lambda: self.db_path))
+        stack.enter_context(patch.object(up, "get_data_dir", lambda: self.data_dir))
+        # Patch config.settings local names (imported from utils.paths at module level)
+        stack.enter_context(patch.object(cs, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(cs, "get_data_dir", lambda: self.data_dir))
+        stack.enter_context(patch.object(cs, "get_pkg_dir", lambda: self.data_dir))
+        # Patch db.py and connection.py namespaces
         stack.enter_context(patch.object(db, "_DB_PATH", self.db_path))
         stack.enter_context(patch.object(db, "_DATA_DIR", self.data_dir))
         stack.enter_context(patch.object(db, "_CONFIG_PATH", self.cfg_path))
+        stack.enter_context(patch.object(db_conn, "_DB_PATH", self.db_path))
+        stack.enter_context(patch.object(db_conn, "_DATA_DIR", self.data_dir))
+        stack.enter_context(patch.object(db_conn, "_CONFIG_PATH", self.cfg_path))
+        # Also patch quota module paths
         stack.enter_context(patch.object(quota, "_DB_PATH", self.db_path))
         stack.enter_context(patch.object(quota, "_DATA_DIR", self.data_dir))
         return stack
@@ -103,11 +119,23 @@ class TestApiKeyCRUD(unittest.TestCase):
     def _db_only_ctx(self):
         """仅 patch db 模块（用于不需要 quota 表的测试）"""
         import monitor.db as db
+        import utils.paths as up
+        import config.settings as cs
         from contextlib import ExitStack
         stack = ExitStack()
+        db_conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
+        stack.enter_context(patch.object(up, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(up, "get_db_path", lambda: self.db_path))
+        stack.enter_context(patch.object(up, "get_data_dir", lambda: self.data_dir))
+        stack.enter_context(patch.object(cs, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(cs, "get_data_dir", lambda: self.data_dir))
+        stack.enter_context(patch.object(cs, "get_pkg_dir", lambda: self.data_dir))
         stack.enter_context(patch.object(db, "_DB_PATH", self.db_path))
         stack.enter_context(patch.object(db, "_DATA_DIR", self.data_dir))
         stack.enter_context(patch.object(db, "_CONFIG_PATH", self.cfg_path))
+        stack.enter_context(patch.object(db_conn, "_DB_PATH", self.db_path))
+        stack.enter_context(patch.object(db_conn, "_DATA_DIR", self.data_dir))
+        stack.enter_context(patch.object(db_conn, "_CONFIG_PATH", self.cfg_path))
         return stack
 
     def test_add_and_list_key(self):
@@ -215,6 +243,22 @@ class TestApiKeyCRUD(unittest.TestCase):
             # 无异常即通过
             db.incr_api_key_quota(k["key_value"], calls=5, scans=1)
 
+    def test_list_api_keys_quota_used_from_quota_table_not_stale_column(self):
+        """list_api_keys 的 quota_used 须为 api_quota_usage.api_calls，勿误用 api_keys.quota_used 遗留列。"""
+        import monitor.db as db
+        with self._ctx():
+            db.init_db()
+            key_id = db.add_api_key(
+                "AIzaSyListQuota88888888888888888", "列表配额", 10000
+            )
+            k = db.get_api_key(key_id)
+            db.incr_api_key_quota(k["key_value"], calls=42, scans=3)
+            rows = db.list_api_keys()
+            row = next((x for x in rows if x["id"] == key_id), None)
+            self.assertIsNotNone(row)
+            self.assertEqual(row["quota_used"], 42)
+            self.assertEqual(row["scans_done"], 3)
+
     def test_default_api_key_id_validation(self):
         """不存在的 default_api_key_id 应返回 None"""
         import monitor.db as db
@@ -237,12 +281,23 @@ class TestResolveApiKey(unittest.TestCase):
 
     def _patched(self):
         import monitor.db as db
-        import monitor.scheduler as scheduler
+        import utils.paths as up
+        import config.settings as cs
         from contextlib import ExitStack
         stack = ExitStack()
+        db_conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
+        stack.enter_context(patch.object(up, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(up, "get_db_path", lambda: self.db_path))
+        stack.enter_context(patch.object(up, "get_data_dir", lambda: self.data_dir))
+        stack.enter_context(patch.object(cs, "get_config_path", lambda: self.cfg_path))
+        stack.enter_context(patch.object(cs, "get_data_dir", lambda: self.data_dir))
+        stack.enter_context(patch.object(cs, "get_pkg_dir", lambda: self.data_dir))
         stack.enter_context(patch.object(db, "_DB_PATH", self.db_path))
         stack.enter_context(patch.object(db, "_DATA_DIR", self.data_dir))
         stack.enter_context(patch.object(db, "_CONFIG_PATH", self.cfg_path))
+        stack.enter_context(patch.object(db_conn, "_DB_PATH", self.db_path))
+        stack.enter_context(patch.object(db_conn, "_DATA_DIR", self.data_dir))
+        stack.enter_context(patch.object(db_conn, "_CONFIG_PATH", self.cfg_path))
         return stack
 
     def test_account_key_priority(self):

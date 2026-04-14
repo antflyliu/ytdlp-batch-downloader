@@ -34,7 +34,7 @@ def test_selector_filters_cookie_unsupported(tmp_path, monkeypatch):
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))
@@ -57,7 +57,7 @@ def test_selector_respects_free_proxy_disallow(tmp_path, monkeypatch):
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))
@@ -88,7 +88,7 @@ def test_selector_preview_aligned_orders_healthy_by_latency_then_score(tmp_path,
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))
@@ -117,7 +117,7 @@ def test_selector_prefers_healthy_over_high_score_down(tmp_path, monkeypatch):
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))
@@ -147,7 +147,7 @@ def test_selector_applies_top_n_limit(tmp_path, monkeypatch):
     from monitor.proxy_candidate_pool import ProxyCandidatePool
     from monitor.proxy_selector import ProxySelector
 
-    db = importlib.reload(monitor_db)
+    db = monitor_db
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(db, "_DATA_DIR", str(data_dir))

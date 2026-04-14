@@ -13,6 +13,7 @@ _ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(_ROOT))
 
 import monitor_server
+import server.__main__ as _server_main  # noqa: E402 — 实际实现位置
 
 
 class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -75,7 +76,7 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
 
     def test_account_api_accepts_handle_channel_url(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
+        with mock.patch.object(_server_main, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
             mock_db.add_account.return_value = 123
             mock_scheduler.is_running.return_value = False
             body = json.dumps({
@@ -100,7 +101,7 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         self.assertEqual(mock_db.add_account.call_args.kwargs["channel_url"], "@GoogleDevelopers")
 
     def test_account_api_accepts_uc_channel_id(self):
-        with mock.patch.object(monitor_server, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
+        with mock.patch.object(_server_main, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
             mock_db.add_account.return_value = 124
             mock_scheduler.is_running.return_value = False
             body = json.dumps({
@@ -127,8 +128,8 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
     def test_static_get_ignores_client_aborted_connection(self):
         handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
         handler.path = "/"
-        with mock.patch.object(monitor_server.SimpleHTTPRequestHandler, "do_GET", side_effect=ConnectionAbortedError(10053, "aborted")):
-            with mock.patch.object(monitor_server, "_log") as mock_log:
+        with mock.patch.object(_server_main.SimpleHTTPRequestHandler, "do_GET", side_effect=ConnectionAbortedError(10053, "aborted")):
+            with mock.patch.object(_server_main, "_log") as mock_log:
                 # should not re-raise when browser aborts static response mid-stream
                 handler.do_GET()
         mock_log.warning.assert_called_once()
@@ -136,7 +137,7 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
     def test_static_get_ignores_broken_pipe(self):
         handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
         handler.path = "/"
-        with mock.patch.object(monitor_server.SimpleHTTPRequestHandler, "do_GET", side_effect=BrokenPipeError("pipe closed")):
-            with mock.patch.object(monitor_server, "_log") as mock_log:
+        with mock.patch.object(_server_main.SimpleHTTPRequestHandler, "do_GET", side_effect=BrokenPipeError("pipe closed")):
+            with mock.patch.object(_server_main, "_log") as mock_log:
                 handler.do_GET()
         mock_log.warning.assert_called_once()

@@ -209,12 +209,15 @@ class TestBackupDb(unittest.TestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _ctx(self):
-        """patch db 模块的路径变量到临时目录"""
+        """patch db 和 db.connection 模块的路径变量到临时目录"""
         import monitor.db as _db
         from contextlib import ExitStack
+        _conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
         stack = ExitStack()
         stack.enter_context(patch.object(_db, "_DB_PATH", self._db_path))
         stack.enter_context(patch.object(_db, "_DATA_DIR", self._data_dir))
+        stack.enter_context(patch.object(_conn, "_DB_PATH", self._db_path))
+        stack.enter_context(patch.object(_conn, "_DATA_DIR", self._data_dir))
         return stack
 
     def test_backup_db_creates_backup_file(self):
@@ -259,11 +262,25 @@ class _WebhookConfigTestCase(unittest.TestCase):
 
     def _ctx(self):
         import monitor.db as _db
+        import utils.paths as up
+        import config.settings as cs
+        from contextlib import ExitStack
+        _conn = __import__("monitor.db.connection", fromlist=["_DB_PATH"])
         stack = ExitStack()
+        stack.enter_context(patch.object(up, "get_config_path", lambda: self._config_path))
+        stack.enter_context(patch.object(up, "get_db_path", lambda: self._db_path))
+        stack.enter_context(patch.object(up, "get_data_dir", lambda: self._data_dir))
+        stack.enter_context(patch.object(cs, "get_config_path", lambda: self._config_path))
+        stack.enter_context(patch.object(cs, "get_data_dir", lambda: self._data_dir))
+        stack.enter_context(patch.object(cs, "get_pkg_dir", lambda: self._tmpdir))
         stack.enter_context(patch.object(_db, "_DB_PATH", self._db_path))
         stack.enter_context(patch.object(_db, "_DATA_DIR", self._data_dir))
         stack.enter_context(patch.object(_db, "_CONFIG_PATH", self._config_path))
         stack.enter_context(patch.object(_db, "_PKG_DIR", self._tmpdir))
+        stack.enter_context(patch.object(_conn, "_DB_PATH", self._db_path))
+        stack.enter_context(patch.object(_conn, "_DATA_DIR", self._data_dir))
+        stack.enter_context(patch.object(_conn, "_CONFIG_PATH", self._config_path))
+        stack.enter_context(patch.object(_conn, "_PKG_DIR", self._tmpdir))
         return stack
 
     def _read_raw_config(self):
