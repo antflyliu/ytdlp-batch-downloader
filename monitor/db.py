@@ -1,8 +1,16 @@
 """
-monitor.db — Monitor 数据库初始化与访问助手
+monitor 数据库访问实现主体（磁盘路径：monitor/db.py）。
 
-Config and encryption functions have been moved to config/ package.
-This module re-exports them for backward compatibility.
+如何被加载：
+  本文件不会作为「名为 monitor.db 的顶层模块文件」被直接解析；
+  而是由 monitor/db/__init__.py 用 SourceFileLoader("monitor.db", <本文件路径>) 执行，
+  因此运行时 __name__ 为 "monitor.db"，__file__ 指向本文件。
+
+与 monitor/db/ 子目录的关系：
+  大量逻辑在本文件；连接、db_core 由 __init__.py 在加载本文件之后显式注入顶层命名空间；
+  queries/ 中的模块不注入本模块顶层，请使用 `import monitor.db.queries.<模块>`（__init__.py 为 monitor.db 设置了 __path__）。
+
+说明：若仅阅读代码，请同时打开 monitor/db/__init__.py 理解完整导入链。
 """
 import json
 import importlib.util
@@ -382,6 +390,7 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS web_batch_tasks (
                 task_id          TEXT PRIMARY KEY,
+                task_kind        TEXT NOT NULL DEFAULT 'web_batch',
                 source_name      TEXT,
                 output_path      TEXT,
                 status           TEXT NOT NULL,

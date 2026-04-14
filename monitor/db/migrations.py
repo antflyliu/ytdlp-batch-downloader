@@ -335,6 +335,7 @@ def run_all_migrations(conn):
         conn.execute(
             """CREATE TABLE IF NOT EXISTS web_batch_tasks (
                 task_id          TEXT PRIMARY KEY,
+                task_kind        TEXT NOT NULL DEFAULT 'web_batch',
                 source_name      TEXT,
                 output_path      TEXT,
                 status           TEXT NOT NULL,
@@ -347,7 +348,7 @@ def run_all_migrations(conn):
                 cancel_requested INTEGER NOT NULL DEFAULT 0,
                 cancel_message   TEXT,
                 results_json     TEXT NOT NULL DEFAULT '[]',
-                urls_json        TEXT NOT NULL DEFAULT '[]',
+                urls             TEXT NOT NULL DEFAULT '[]',
                 created_at       TEXT NOT NULL,
                 finished_at      TEXT,
                 updated_at       TEXT NOT NULL
@@ -377,15 +378,15 @@ def run_all_migrations(conn):
             ("v12_monitor_accounts_dingtalk_sign_secret", today),
         )
 
-    # v13: web_batch_tasks.urls_json for storing video URLs
-    if "v13_web_batch_tasks_urls_json" not in _get_applied_versions(conn):
+    # v13: web_batch_tasks.urls for storing video URLs
+    if "v13_web_batch_tasks_urls" not in _get_applied_versions(conn):
         cur = conn.execute("PRAGMA table_info(web_batch_tasks)")
         cols = {row[1] for row in cur.fetchall()}
-        if "urls_json" not in cols:
-            conn.execute("ALTER TABLE web_batch_tasks ADD COLUMN urls_json TEXT NOT NULL DEFAULT '[]'")
+        if "urls" not in cols:
+            conn.execute("ALTER TABLE web_batch_tasks ADD COLUMN urls TEXT NOT NULL DEFAULT '[]'")
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            ("v13_web_batch_tasks_urls_json", today),
+            ("v13_web_batch_tasks_urls", today),
         )
 
 
