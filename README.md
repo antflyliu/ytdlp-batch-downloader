@@ -209,7 +209,7 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 
   **API Key 管理功能**：
   - 多 Key 存储：支持添加多个 YouTube Data API v3 Key，每个可独立设置每日配额上限
-  - 配额追踪：per-key 配额统计，每日 0 点自动重置
+  - 配额追踪：per-key 按 **日历日** 累计 **配额单位（Quota units）**，与 HTTP 调用次数不同（例如 `search.list` 约消耗 100 units/次，`playlistItems.list` 多为 1 unit）。可在「全局配置」中切换 **配额统计时区**（`local` 或 `America/Los_Angeles`），便于与 Google Cloud 控制台对照
   - 三层兜底：账户指定 Key → 系统默认 Key → 环境变量 `YOUTUBE_Data_API_V3`
   - Key 值只读：创建后不可修改 Key 值（防止配额数据孤岛），如需更换请删除后重新创建
   - 掩码显示：前端显示 `AIza••••••••xxxx` 格式，完整 Key 值仅存于数据库
@@ -228,6 +228,7 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 | **Webhook 加密** | Fernet 对称加密存储，`enc:` 前缀标识已加密值 |
 | **路径遍历防护** | `os.path.realpath` 解析符号链接，防止目录穿越 |
 | **输入验证** | `channel_url` 正则校验，LIKE 通配符转义 |
+| **Webhook 告警内容** | 扫描失败、配额、元数据不一致等通知可能含频道 URL、错误摘要或 ID；Webhook 若经第三方转发或公网可解析地址，请自行评估暴露面 |
 
 ### REST API 端点
 
