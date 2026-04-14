@@ -328,7 +328,7 @@ def _send_webhook(
     url: str,
     payload: dict,
     platform: "Platform",
-    timeout: int = 10,
+    timeout: int = 60,
 ) -> tuple[bool, str]:
     """通用的 Webhook 发送函数"""
     if not url:
