@@ -1,4 +1,5 @@
 import yt_dlp
+from yt_dlp.utils import DownloadCancelled
 from tqdm import tqdm
 import os
 import pandas as pd
@@ -357,7 +358,9 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
         progress_hooks = list(ydl_opts_base.get("progress_hooks") or [])
 
         def _cancel_hook(_progress):
-            _raise_if_cancelled()
+            # yt-dlp 仅在 progress hook 中识别 DownloadCancelled 并中止下载；勿在此抛 BatchDownloadCancelled
+            if should_cancel and should_cancel():
+                raise DownloadCancelled("下载任务已取消")
 
         progress_hooks.append(_cancel_hook)
         ydl_opts_base["progress_hooks"] = progress_hooks
@@ -461,6 +464,7 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                             else:
                                 sub_status = f"yt-dlp: {os.path.basename(existing_sub)}"
                         else:
+                            _raise_if_cancelled()
                             srt_path = generate_subtitle_with_whisper(
                                 video_path, output_path,
                                 model_name=whisper_model,
@@ -478,6 +482,8 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                     finished = True
                     break
 
+                except DownloadCancelled:
+                    raise BatchDownloadCancelled("下载任务已取消", results=results)
                 except BatchDownloadCancelled:
                     raise
                 except (yt_dlp.utils.DownloadError, Exception) as e:
