@@ -5,6 +5,7 @@ monitor.fetcher — YouTube API 获取器
 import os
 import re
 import sys
+from collections.abc import Callable
 from typing import Literal
 
 from utils.paths import get_exe_dir
@@ -68,7 +69,12 @@ class YouTubeFetcher:
         self.published_after_days = published_after_days
         self.view_threshold = view_threshold
 
-    def _make_youtube_collector(self, log_cb, **extra) -> YouTubeDataCollector:
+    def _make_youtube_collector(
+        self,
+        log_cb,
+        should_cancel: Callable[[], bool] | None = None,
+        **extra,
+    ) -> YouTubeDataCollector:
         """构造与当前 Fetcher 参数一致的收集器；extra 可传 uploads_playlist_id 等。"""
         return YouTubeDataCollector(
             api_key=self.api_key,
@@ -78,6 +84,7 @@ class YouTubeFetcher:
             view_threshold=self.view_threshold,
             published_after_days=self.published_after_days,
             fetch_mode=self.fetch_mode,
+            should_cancel=should_cancel,
             **extra,
         )
 
@@ -100,6 +107,7 @@ class YouTubeFetcher:
         channel_info: dict,
         channel_url: str,
         log_cb,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> dict:
         """
         P3-7：在配置允许且到达间隔时探针 uploads_playlist_id；不一致则刷新缓存并可告警。
@@ -111,7 +119,7 @@ class YouTubeFetcher:
         if not channel_cache.should_run_uploads_health_check(cached, interval_h):
             return channel_info
 
-        api = self._make_youtube_collector(log_cb)
+        api = self._make_youtube_collector(log_cb, should_cancel=should_cancel)
         live_up = api.probe_uploads_playlist_id(channel_info["channel_id"])
         cached_up = channel_info.get("uploads_playlist_id")
         if live_up is not None and cached_up != live_up:
@@ -156,11 +164,16 @@ class YouTubeFetcher:
         channel_cache.touch_channel_meta_health_checked(channel_url)
         return channel_info
 
-    def fetch(self, channel_url: str) -> tuple[list[dict], dict | None]:
+    def fetch(
+        self,
+        channel_url: str,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> tuple[list[dict], dict | None]:
         """
         获取频道视频
 
         :param channel_url: 频道 URL (@xxx / UCxxxx / https://...)
+        :param should_cancel: 可选；返回 True 时中止长时间 API 循环（如调度器已停止）。
         :return: (videos, channel_info)
                  videos: 视频列表，每条包含 video_id/title/url/published_at/view_count 等
                  channel_info: 频道元信息 dict
@@ -180,7 +193,8 @@ class YouTubeFetcher:
                 _log.info(f"缓存命中: {channel_url} → {cached['channel_id']}（0 API units）")
                 channel_info = self._channel_info_from_cache(cached)
                 channel_info = self._maybe_run_channel_meta_health_check(
-                    cfg, cached, channel_info, channel_url, log_cb
+                    cfg, cached, channel_info, channel_url, log_cb,
+                    should_cancel=should_cancel,
                 )
                 if channel_info is None:
                     return [], None
@@ -191,7 +205,9 @@ class YouTubeFetcher:
                     )
                 # ── 2. 缓存未命中或已过期，调用 API ───────────────
                 _log.info(f"拉取频道信息（API）: {channel_url}")
-                channel_info = self._make_youtube_collector(log_cb).get_channel_data(
+                channel_info = self._make_youtube_collector(
+                    log_cb, should_cancel=should_cancel,
+                ).get_channel_data(
                     channel_url
                 )
                 if not channel_info:
@@ -212,6 +228,7 @@ class YouTubeFetcher:
             # ── 3. 创建 collector 获取视频列表（带 uploads 绑定；与探针/元数据拉取分开以避免状态干扰）──
             collector = self._make_youtube_collector(
                 log_cb,
+                should_cancel=should_cancel,
                 uploads_playlist_id=channel_info.get("uploads_playlist_id"),
                 uploads_playlist_channel_id=channel_info["channel_id"],
             )

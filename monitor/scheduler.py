@@ -677,7 +677,10 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
             fetch_limit=account["fetch_limit"],
             view_threshold=0,
         )
-        videos, channel_info = fetcher.fetch(account["channel_url"])
+        videos, channel_info = fetcher.fetch(
+            account["channel_url"],
+            should_cancel=is_scheduler_cancelled,
+        )
 
         if not videos:
             _db.finish_event(event_id, "success", 0, 0, duration_ms=int((time.perf_counter() - start_time) * 1000))
