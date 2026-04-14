@@ -1,26 +1,23 @@
 """
 monitor.quota — YouTube API Quota 追踪模块
-按 API Key + 日期追踪 API 调用次数，支持预算上限和报警
+按 API Key + 日期追踪配额单位（Quota units，非裸 HTTP 次数），支持预算上限和报警。
+api_quota_usage.api_calls 列存的是累计 units（如 search.list 计 100）。
 """
 import logging
 import os
 import sys
 import sqlite3
+import time
 from datetime import datetime
 from typing import Literal
 
 # ── 路径（与 db.py 保持一致）────────────────────────────────────
-if getattr(sys, "frozen", False):
-    _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")
-    _EXE_DIR = os.path.dirname(sys.executable)
-else:
-    _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = _PKG_DIR
+from utils.paths import get_pkg_dir, get_exe_dir, get_data_dir, get_db_path
 
-_DATA_DIR = os.path.join(_EXE_DIR, "data")
-os.makedirs(_DATA_DIR, exist_ok=True)
-
-_DB_PATH = os.path.join(_DATA_DIR, "monitor.db")
+_PKG_DIR = get_pkg_dir()
+_EXE_DIR = get_exe_dir()
+_DATA_DIR = get_data_dir()
+_DB_PATH = get_db_path()
 _log = logging.getLogger("monitor.quota")
 
 # ── 数据库 schema ───────────────────────────────────────────────
@@ -50,18 +47,90 @@ def _ensure_schema():
 
 _ensure_schema()
 
+# 读配置用于配额「统计日」：incr 热路径避免每次磁盘 IO，save_config 后应 invalidate
+_config_cache_for_quota: dict | None = None
+_config_cache_mono: float = 0.0
+_CONFIG_CACHE_TTL_SEC = 5.0
+_invalid_quota_tz_logged: set[str] = set()
+
+
+def invalidate_config_cache() -> None:
+    """配置变更后调用，使配额统计日使用最新 quota_usage_timezone。"""
+    global _config_cache_for_quota, _config_cache_mono
+    _config_cache_for_quota = None
+    _config_cache_mono = 0.0
+
+
+def _load_config_for_quota() -> dict:
+    global _config_cache_for_quota, _config_cache_mono
+    now = time.monotonic()
+    if (
+        _config_cache_for_quota is not None
+        and (now - _config_cache_mono) < _CONFIG_CACHE_TTL_SEC
+    ):
+        return _config_cache_for_quota
+    try:
+        import monitor.db as _db
+
+        _config_cache_for_quota = _db.load_config()
+    except Exception:
+        _config_cache_for_quota = {}
+    _config_cache_mono = now
+    return _config_cache_for_quota
+
+
+def validate_quota_usage_timezone(raw: str | None) -> tuple[bool, str | None]:
+    """
+    校验配置中的配额统计时区。
+    返回 (是否合法, 错误说明)；合法时第二项为 None。
+    空/local/localtime 表示本地时区，合法。
+    """
+    if raw is None:
+        return True, None
+    s = str(raw).strip()
+    if s in ("", "local", "localtime"):
+        return True, None
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(s)
+    except Exception:
+        return (
+            False,
+            f"无效的 quota_usage_timezone: {raw!r}（请使用 IANA 名称，例如 America/Los_Angeles）",
+        )
+    return True, None
+
 
 # ── 工具 ───────────────────────────────────────────────────────
 
-def _today() -> str:
-    return datetime.now().astimezone().strftime("%Y-%m-%d")
+def _quota_date_key() -> str:
+    """统计用日历日。默认本地时区；可在配置中设 quota_usage_timezone=America/Los_Angeles 与 Google 控制台对齐。"""
+    cfg = _load_config_for_quota()
+    tz_name = (cfg or {}).get("quota_usage_timezone") or "local"
+    if tz_name in ("", "local", "localtime"):
+        return datetime.now().astimezone().strftime("%Y-%m-%d")
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    except Exception:
+        if tz_name not in _invalid_quota_tz_logged:
+            _invalid_quota_tz_logged.add(tz_name)
+            _log.warning("quota_usage_timezone 无效，回退本地时区: %s", tz_name)
+        return datetime.now().astimezone().strftime("%Y-%m-%d")
+
+
+def get_quota_date_key() -> str:
+    """供调度器等模块获取当前配额统计日（与 incr/check 使用同一规则）。"""
+    return _quota_date_key()
 
 
 # ── 核心 API ───────────────────────────────────────────────────
 
 def get_usage(api_key_value: str, date_key: str | None = None) -> dict:
     """获取某 API Key 某日的 quota 使用情况"""
-    date_key = date_key or _today()
+    date_key = date_key or _quota_date_key()
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
@@ -83,7 +152,7 @@ def get_usage(api_key_value: str, date_key: str | None = None) -> dict:
 
 def get_all_usage(date_key: str | None = None) -> list[dict]:
     """获取所有 API Key 今日的使用情况"""
-    date_key = date_key or _today()
+    date_key = date_key or _quota_date_key()
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
@@ -98,7 +167,7 @@ def get_all_usage(date_key: str | None = None) -> list[dict]:
 
 def incr(api_key_value: str, calls: int = 1, scans: int = 0) -> None:
     """增加 API 调用计数（当日）"""
-    today = _today()
+    today = _quota_date_key()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     try:
@@ -120,7 +189,7 @@ def incr(api_key_value: str, calls: int = 1, scans: int = 0) -> None:
 
 def incr_blocked(api_key_value: str) -> None:
     """增加被阻止的扫描次数"""
-    today = _today()
+    today = _quota_date_key()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     try:
@@ -188,7 +257,8 @@ def build_quota_alert_payload(
     text = (
         f"[预警] YouTube API Quota\n\n"
         f"API Key: `{_mask_key(api_key_value)}`\n"
-        f"今日已用: {usage['api_calls']} / {budget} ({percent}%)\n"
+        f"今日已用配额单位: {usage['api_calls']} / {budget} ({percent}%)\n"
+        f"（units，非 HTTP 次数；search.list≈100 units/次）\n"
         f"扫描次数: {usage['scans_done']} 次\n"
         f"已阻止: {usage['blocked_scans']} 次\n"
         f"时间: {usage.get('updated_at', 'N/A')}"
@@ -234,3 +304,134 @@ def send_alert(
             _log.info(f"quota 报警已发送: {resp.status}")
     except Exception as e:
         _log.warning(f"发送 quota 报警失败: {e}")
+
+
+def send_scan_error_alert(
+    account_name: str,
+    channel_url: str,
+    error_message: str,
+    webhook_url: str | None,
+    *,
+    platform: str = "feishu",
+    dingtalk_sign_secret: str | None = None,
+) -> None:
+    """扫描失败时发送纯文本告警（与 Quota 告警共用 Webhook 投递方式）。
+
+    正文含账户名、频道 URL、错误摘要（最多 2000 字）；若 Webhook 经第三方或不可信网络，请自行评估暴露面。
+    """
+    if not webhook_url:
+        return
+    import json
+    from datetime import datetime as _dt
+
+    from monitor import notifier as _notifier
+
+    post_url = webhook_url
+    if platform == "dingtalk":
+        post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+
+    now = _dt.now().astimezone().isoformat(timespec="seconds")
+    text = (
+        f"[异常] 频道扫描失败\n\n"
+        f"账户: {account_name}\n"
+        f"频道: {channel_url}\n"
+        f"错误: {error_message[:2000]}\n"
+        f"时间: {now}"
+    )
+    if platform == "dingtalk":
+        msg = {"msgtype": "text", "text": {"content": text}}
+    elif platform == "wecom":
+        msg = {"msgtype": "text", "text": {"content": text}}
+    else:
+        msg = {"msg_type": "text", "content": {"text": text}}
+
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            post_url,
+            data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _log.info(f"扫描失败告警已发送: {resp.status}")
+    except Exception as e:
+        _log.warning(f"发送扫描失败告警失败: {e}")
+
+
+def send_channel_meta_mismatch_alert(
+    channel_url: str,
+    channel_id: str,
+    cached_uploads_playlist_id: str | None,
+    live_uploads_playlist_id: str | None,
+) -> None:
+    """
+    频道元数据缓存中的 uploads_playlist_id 与线上一致性校验不一致时告警。
+    使用全局 Webhook（飞书 → 钉钉 → 企微 优先顺序）。
+
+    正文含频道 URL、channel_id、列表 ID；Webhook 渠道请按需限制访问。
+    """
+    try:
+        import monitor.db as _db
+        cfg = _db.load_config()
+    except Exception:
+        return
+    if not cfg.get("notify_on_channel_meta_mismatch", True):
+        return
+
+    webhook_url = None
+    platform = "feishu"
+    dingtalk_sign_secret = None
+    if cfg.get("global_feishu_url"):
+        webhook_url = cfg.get("global_feishu_url")
+        platform = "feishu"
+    elif cfg.get("global_dingtalk_url"):
+        webhook_url = cfg.get("global_dingtalk_url")
+        platform = "dingtalk"
+        dingtalk_sign_secret = cfg.get("global_dingtalk_sign_secret") or None
+    elif cfg.get("global_wecom_url"):
+        webhook_url = cfg.get("global_wecom_url")
+        platform = "wecom"
+
+    if not webhook_url:
+        _log.warning("channel_meta 不一致告警：未配置全局 Webhook，跳过")
+        return
+
+    import json
+    from datetime import datetime as _dt
+
+    from monitor import notifier as _notifier
+
+    post_url = webhook_url
+    if platform == "dingtalk":
+        post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+
+    now = _dt.now().astimezone().isoformat(timespec="seconds")
+    text = (
+        "[告警] 频道元数据 uploads 列表不一致\n\n"
+        f"频道 URL: {channel_url}\n"
+        f"channel_id: {channel_id}\n"
+        f"缓存 uploads_playlist_id: {cached_uploads_playlist_id!r}\n"
+        f"线上一致结果: {live_uploads_playlist_id!r}\n"
+        "已触发重新拉取并写回 SQLite。\n"
+        f"时间: {now}"
+    )
+    if platform == "dingtalk":
+        msg = {"msgtype": "text", "text": {"content": text}}
+    elif platform == "wecom":
+        msg = {"msgtype": "text", "text": {"content": text}}
+    else:
+        msg = {"msg_type": "text", "content": {"text": text}}
+
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            post_url,
+            data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _log.info(f"channel_meta 不一致告警已发送: {resp.status}")
+    except Exception as e:
+        _log.warning(f"发送 channel_meta 不一致告警失败: {e}")

@@ -3,25 +3,15 @@ monitor.cache — YouTube 频道元信息缓存
 handle → channel_id + uploads_playlist_id 持久化缓存，减少 API 调用
 """
 import logging
+import sqlite3
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
-# 动态路径（与 monitor/db.py 保持一致）
-if getattr(sys, "frozen", False):
-    _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")
-    _EXE_DIR = os.path.dirname(sys.executable)
-else:
-    _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = _PKG_DIR
+from utils.paths import get_data_dir, get_db_path
 
-_DATA_DIR = os.path.join(_EXE_DIR, "data")
-os.makedirs(_DATA_DIR, exist_ok=True)
-
-# 内部使用 sqlite，直接操作不通过 db.py（避免循环 import）
-import sqlite3
-
-# ★ _DB_PATH 和 _log 必须在模块加载早期定义（_ensure_schema 调用前就需要）
-_DB_PATH = os.path.join(_DATA_DIR, "monitor.db")
+_DATA_DIR = get_data_dir()
+_DB_PATH = get_db_path()
 _log = logging.getLogger("monitor.cache")
 
 # ── 确保数据库 schema 初始化（创建 channel_meta_cache 表）───────
@@ -46,6 +36,8 @@ def _ensure_schema():
             ON channel_meta_cache(channel_id)
         """)
 
+        _migrate_channel_meta_health_checked_at(conn)
+
         # ── Schema 迁移：为 monitor_videos 添加下载状态字段（如不存在）────
         _migrate_monitor_videos(conn)
 
@@ -54,6 +46,20 @@ def _ensure_schema():
         _log.warning(f"_ensure_schema 失败: {e}")
     finally:
         conn.close()
+
+
+def _migrate_channel_meta_health_checked_at(conn):
+    """为 channel_meta_cache 增加 health_checked_at（uploads 健康检查时间）"""
+    try:
+        cur = conn.execute("PRAGMA table_info(channel_meta_cache)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "health_checked_at" not in cols:
+            conn.execute(
+                "ALTER TABLE channel_meta_cache ADD COLUMN health_checked_at TEXT"
+            )
+            _log.info("Schema 迁移成功: channel_meta_cache.health_checked_at")
+    except Exception as e:
+        _log.warning(f"_migrate_channel_meta_health_checked_at 失败: {e}")
 
 
 def _migrate_monitor_videos(conn):
@@ -104,6 +110,72 @@ def _normalize_handle(raw: str) -> str:
     return raw.lstrip("@")
 
 
+def is_channel_meta_stale(cached: dict | None, max_age_days: int) -> bool:
+    """
+    判断 channel_meta_cache 行是否超过 TTL，应重新拉取 channels 元数据。
+
+    :param cached: get_channel_meta 返回的 dict，或 None
+    :param max_age_days: 最大保留天数；<=0 表示不按 TTL 过期（始终视为未过期）
+    """
+    if not cached or max_age_days <= 0:
+        return False
+    raw = cached.get("cached_at")
+    if not raw:
+        return True
+    try:
+        s = raw.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(dt.tzinfo)
+        return (now - dt) >= timedelta(days=max_age_days)
+    except Exception:
+        _log.warning("解析 cached_at 失败，将刷新频道元数据: %s", raw)
+        return True
+
+
+def should_run_uploads_health_check(cached: dict, interval_hours: float) -> bool:
+    """
+    是否应执行 uploads_playlist_id 与线上一致性检查。
+    :param interval_hours: 两次检查最小间隔；<=0 时按 24 小时处理
+
+    无 ``health_checked_at``（例如迁移旧库）时，用 ``cached_at`` 作为上次“元数据相关”时间，
+    避免迁移后每次扫描都触发探针。
+    """
+    if interval_hours <= 0:
+        interval_hours = 24.0
+    raw = cached.get("health_checked_at") or cached.get("cached_at")
+    if not raw:
+        return True
+    try:
+        s = raw.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(dt.tzinfo)
+        return (now - dt) >= timedelta(hours=interval_hours)
+    except Exception:
+        return True
+
+
+def touch_channel_meta_health_checked(handle: str) -> None:
+    """更新 health_checked_at 为当前时间（校验通过或跳过失败重试时使用）。"""
+    normalized = _normalize_handle(handle)
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE channel_meta_cache SET health_checked_at=? WHERE handle=?",
+                (now, normalized),
+            )
+    except Exception as e:
+        _log.warning(f"touch_channel_meta_health_checked 失败: {e}")
+
+
 def get_channel_meta(handle: str) -> dict | None:
     """
     根据 handle 查询缓存
@@ -141,6 +213,7 @@ def save_channel_meta(
     subscriber_count: str | None = None,
     video_count: str | None = None,
     description: str | None = None,
+    health_checked_at: str | None = None,
 ) -> None:
     """
     写入/更新缓存
@@ -148,15 +221,17 @@ def save_channel_meta(
     normalized = _normalize_handle(handle)
     from datetime import datetime
     cached_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    if health_checked_at is None:
+        health_checked_at = cached_at
     try:
         with _get_conn() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO channel_meta_cache
                    (handle, channel_id, channel_name, uploads_playlist_id,
-                    subscriber_count, video_count, description, cached_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                    subscriber_count, video_count, description, cached_at, health_checked_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
                 (normalized, channel_id, channel_name, uploads_playlist_id,
-                 subscriber_count, video_count, description, cached_at),
+                 subscriber_count, video_count, description, cached_at, health_checked_at),
             )
         _log.info(f"缓存已保存: {normalized} → {channel_id}")
     except Exception as e:
