@@ -9,7 +9,7 @@ import sys
 root = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
-    ['monitor_server.py'],
+    ['monitor_ui.py'],
     pathex=[root],
     binaries=[],
     datas=[
@@ -60,24 +60,14 @@ a = Analysis(
         'monitor.db.queries.proxy_pools',
         'monitor.db.queries.videos',
         'monitor.db.queries.web_batch',
-        # HTTP 服务器
-        'monitor_server',
-        # server package (Phase 2)
+        # server package (仅保留实际存在的模块)
         'server',
         'server.__init__',
         'server.__main__',
-        'server.download_task',
-        'server.batch_store',
         'server.middleware',
         'server.middleware.__init__',
         'server.middleware.rate_limit',
         'server.middleware.auth',
-        'server.routes',
-        'server.routes.__init__',
-        'server.routes.accounts',
-        'server.routes.batch',
-        'server.routes.providers',
-        'server.routes.system',
         # monitor.notification (Phase 3)
         'monitor.notification',
         'monitor.notification.__init__',
@@ -95,10 +85,21 @@ a = Analysis(
         # ytb_api 依赖
         'ytb_api',
         'logging_config',
+        # 批量下载依赖
+        'Youtube_Downloader',
     ],
     hookspath=[],
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # 排除未使用的可选依赖，避免警告
+        'tensorboard',
+        'torch',
+        'js',
+        'urllib3.contrib.emscripten',
+        'pysqlite2',
+        'MySQLdb',
+        'curl_cffi',
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
