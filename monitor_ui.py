@@ -1094,6 +1094,8 @@ def run_standalone(force_restart: bool = False):
     """启动 Web UI（代替 Tkinter 弹框）"""
     import time
     port = 18999
+    server = None
+    server_thread = None
     # 检查是否已在运行
     try:
         import urllib.request
@@ -1120,10 +1122,11 @@ def run_standalone(force_restart: bool = False):
             """与 monitor_server.serve() 一致：每请求一线程，避免长时间 refresh 阻塞整站 API。"""
 
             daemon_threads = True
+            allow_reuse_address = True
 
         server = ThreadedHTTPServer(("127.0.0.1", port), MonitorHandler)
-        t = threading.Thread(target=server.serve_forever, daemon=True)
-        t.start()
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
         time.sleep(0.8)
     else:
         print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
@@ -1137,7 +1140,35 @@ def run_standalone(force_restart: bool = False):
         while True:
             time.sleep(3600)
     except KeyboardInterrupt:
-        print("\n已停止。")
+        print("\n正在停止 Web UI...")
+    finally:
+        if server is not None:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                server.server_close()
+            except Exception:
+                pass
+            if server_thread is not None:
+                server_thread.join(timeout=2)
+        try:
+            if _scheduler.is_running():
+                _scheduler.stop()
+        except Exception:
+            pass
+        # 停止监控时已对线程池 shutdown(wait=False)，非 daemon worker 仍会拖住进程退出
+        try:
+            from monitor.scheduler import join_auto_download_workers
+
+            join_auto_download_workers(timeout_sec=30.0)
+        except KeyboardInterrupt:
+            print("\n收到再次中断，立即退出（后台下载将被切断）…")
+            os._exit(130)
+        except Exception:
+            pass
+        print("已停止。")
 
 
 if __name__ == "__main__":
@@ -1173,6 +1204,9 @@ class BatchDownloadDialog(tk.Toplevel):
         self._total = 0
         self._current_title = ""
         self._log_entries: list[str] = []
+        self._cancel_requested = False
+        self._cancel_event = threading.Event()
+        self._download_thread: threading.Thread | None = None
 
         self._build_ui()
         self._populate_proxy_pools()
@@ -1518,7 +1552,7 @@ class BatchDownloadDialog(tk.Toplevel):
 
     def _on_close(self):
         """关闭弹窗。"""
-        self.destroy()
+        self._on_cancel()
 
 # ── 进度 UI 更新 ────────────────────────────────────────────
 
@@ -1598,6 +1632,8 @@ class BatchDownloadDialog(tk.Toplevel):
         self._completed = 0
         self._failed = 0
         self._log_entries = []
+        self._cancel_requested = False
+        self._cancel_event.clear()
         self._set_state("downloading")
         self._log_text.configure(state="normal")
         self._log_text.delete("1.0", tk.END)
@@ -1624,6 +1660,7 @@ class BatchDownloadDialog(tk.Toplevel):
                     sub_langs=sub_langs,
                     no_subs=no_subs,
                     cookies_file=cookie_path or None,
+                    should_cancel=self._cancel_event.is_set,
                 )
                 success = sum(1 for r in results if r.get("状态") == "成功")
                 failed = len(results) - success
@@ -1632,11 +1669,17 @@ class BatchDownloadDialog(tk.Toplevel):
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                self.parent.after(0, lambda: self._on_download_error(str(ex)))
+                try:
+                    from Youtube_Downloader import BatchDownloadCancelled
+                except Exception:
+                    BatchDownloadCancelled = None
+                if BatchDownloadCancelled and isinstance(ex, BatchDownloadCancelled):
+                    self.parent.after(0, self._on_download_cancelled)
+                else:
+                    self.parent.after(0, lambda: self._on_download_error(str(ex)))
 
-        import threading
-        t = threading.Thread(target=download_thread, daemon=True)
-        t.start()
+        self._download_thread = threading.Thread(target=download_thread, daemon=True)
+        self._download_thread.start()
 
     def _on_download_complete(self, success: int, failed: int, summary: str):
         """下载完成回调。"""
@@ -1654,6 +1697,24 @@ class BatchDownloadDialog(tk.Toplevel):
         self._set_state("idle")
         self._append_log(f"❌ 下载异常: {err}")
 
+    def _on_download_cancelled(self):
+        """下载取消回调。"""
+        self._set_state("idle")
+        self._append_log("⚠️ 下载已取消，当前视频已中断")
+        self._counter_label.configure(
+            text=f"✓ 已完成: {self._completed}/{self._total}  ·  ✗ 失败: {self._failed}  ·  已取消",
+            fg=self.c["warning"],
+        )
+
     def _on_cancel(self):
-        """取消（关闭弹窗）。"""
+        """取消或关闭弹窗。"""
+        if self._state == "downloading":
+            if self._cancel_requested:
+                return
+            self._cancel_requested = True
+            self._cancel_event.set()
+            self._cancel_btn.configure(text="取消中...", bg=self.c["warning"], fg="#ffffff")
+            self._append_log("正在取消下载任务，尝试立即中断当前视频...")
+            self._current_title_label.configure(text="正在取消下载任务…")
+            return
         self.destroy()
