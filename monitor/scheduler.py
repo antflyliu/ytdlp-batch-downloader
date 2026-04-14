@@ -3,7 +3,7 @@ monitor.scheduler — APScheduler 后台调度器
 在独立线程中运行，负责按配置间隔扫描各账户
 """
 import os
-import sys
+import random
 import threading
 import json
 import time
@@ -21,6 +21,7 @@ import monitor.notifier as _notifier
 import monitor.quota as _quota
 from concurrent.futures import ThreadPoolExecutor
 from Youtube_Downloader import batch_download, build_aria2_opts
+from utils.paths import get_pkg_dir, get_exe_dir, get_log_dir
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -65,27 +66,34 @@ def _ensure_global_webhooks() -> None:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True
 
-# PyInstaller 兼容路径（统一基于 __file__ 推导，确保源码/打包模式一致）
-#   源码：__file__ = monitor/scheduler.py → _PKG_DIR = monitor/ → _EXE_DIR = 项目根/
-#   打包（onedir）：sys._MEIPASS = exe所在目录/ + 打包资源 → _PKG_DIR = exe所在目录/Monitor → _EXE_DIR = exe所在目录
-#   打包（onefile）：sys._MEIPASS = _MEIPASS temp dir → _PKG_DIR = temp/Monitor → _EXE_DIR = temp（错误！）
-#   → 解决方案：_EXE_DIR 在打包模式用 sys.executable 的父目录，但 videos/ 路径应始终基于项目根目录
-if getattr(sys, "frozen", False):
-    _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")
-    _EXE_DIR = os.path.dirname(sys.executable)
-else:
-    _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = os.path.dirname(_PKG_DIR)
+# PyInstaller 兼容路径（统一基于 utils.paths）
+_PKG_DIR = get_pkg_dir()
+_EXE_DIR = get_exe_dir()
 
 # 项目根目录（用于下载等应始终指向项目源码根的路径，不依赖 sys.executable）
 _MONITOR_ROOT = _PKG_DIR  # = monitor/
 
 # 日志目录（exe 同级 logs/）
-_LOG_DIR = os.path.join(_EXE_DIR, "logs")
+_LOG_DIR = get_log_dir()
 
 
-# 已发送过的 quota 报警（key = f"{api_key}:{date}:{threshold}"，每日重置避免内存泄漏）
+# 已发送过的 quota 报警（key = f"{api_key}:{date}:{threshold}"）
 _quota_alerted: set[str] = set()
+# 与 quota 统计日对齐：换日时清空集合，避免长年运行只增不减
+_quota_alerted_for_date_key: str | None = None
+
+
+def _prune_quota_alerted_for_new_quota_day() -> None:
+    """配额统计日切换时丢弃已记录 key，与 get_quota_date_key 口径一致。"""
+    global _quota_alerted_for_date_key
+    today = _quota.get_quota_date_key()
+    if _quota_alerted_for_date_key != today:
+        _quota_alerted.clear()
+        _quota_alerted_for_date_key = today
+
+# 扫描失败告警防抖（account_id -> 上次发送时间戳）
+_scan_error_notify_lock = threading.Lock()
+_scan_error_last_notify: dict[int, float] = {}
 
 
 def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> None:
@@ -147,23 +155,36 @@ def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
 
     # 3. 兜底：旧环境变量方式（兼容）
     if not api_key:
-        api_key = os.environ.get(account["api_key_env"], "")
+        api_key = os.environ.get(account.get("api_key_env") or "", "")
         if api_key:
-            _log.info(f"使用环境变量兜底: {account['api_key_env']}")
+            _log.info(f"使用环境变量兜底: {account.get('api_key_env')}")
 
     return api_key, api_key_record, budget
 
 
 def _check_quota_alert(account: dict, api_key: str, budget: int) -> None:
-    """检查是否需要发送 quota 预警（80%/90%/100%）。每日重置，避免内存泄漏。"""
+    """检查是否需要发送 quota 预警（阈值来自配置 quota_alert_thresholds，默认 80/90/100）。"""
+    _prune_quota_alerted_for_new_quota_day()
+    cfg = _get_config()
+    raw = cfg.get("quota_alert_thresholds")
+    if isinstance(raw, list) and len(raw) > 0:
+        try:
+            thresholds = sorted({int(x) for x in raw if 1 <= int(x) <= 100})
+        except (TypeError, ValueError):
+            thresholds = [80, 90, 100]
+    else:
+        thresholds = [80, 90, 100]
+    if not thresholds:
+        thresholds = [80, 90, 100]
+
     _, usage = _quota.check_budget(api_key, budget)
     used = usage["api_calls"]
-    today = datetime.now().astimezone().strftime("%Y-%m-%d")
-    for threshold in (80, 90, 100):
+    today = _quota.get_quota_date_key()
+    for threshold in thresholds:
         alert_key = f"{api_key}:{today}:{threshold}"
         if alert_key in _quota_alerted:
             continue
-        if threshold == 100:
+        if threshold >= 100:
             should_alert = used >= budget
         else:
             should_alert = used >= int(budget * threshold / 100)
@@ -172,6 +193,41 @@ def _check_quota_alert(account: dict, api_key: str, budget: int) -> None:
             _send_quota_alert(account, api_key, usage, budget)
             _log.warning(f"quota 预警已发送: {threshold}% ({used}/{budget}) — {account['name']}")
             break
+
+
+def _maybe_notify_scan_error(account: dict, error_message: str) -> None:
+    """扫描异常时按配置发送 Webhook，带防抖（scan_error_notify_cooldown_seconds）。"""
+    cfg = _get_config()
+    if not cfg.get("notify_on_scan_error"):
+        return
+    cooldown = int(cfg.get("scan_error_notify_cooldown_seconds") or 300)
+    account_id = int(account["id"])
+    now = time.monotonic()
+    with _scan_error_notify_lock:
+        last = _scan_error_last_notify.get(account_id)
+        if last is not None and (now - last) < cooldown:
+            _log.info(f"扫描失败告警已防抖跳过: {account['name']} ({cooldown}s 内)")
+            return
+        _scan_error_last_notify[account_id] = now
+
+    platform = account.get("notify_platform", "feishu")
+    webhook_url = (
+        account.get("webhook_url")
+        or _GLOBAL_WEBHOOKS.get(platform)
+        or _GLOBAL_WEBHOOKS.get("feishu")
+    )
+    if not webhook_url:
+        _log.warning(f"扫描失败告警无 Webhook URL，跳过: {account['name']}")
+        return
+    use_global_dingtalk_secret = platform == "dingtalk" and not account.get("webhook_url")
+    _quota.send_scan_error_alert(
+        account["name"],
+        account.get("channel_url", ""),
+        error_message,
+        webhook_url,
+        platform=platform,
+        dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+    )
 
 def set_global_feishu_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["feishu"] = url
@@ -349,10 +405,94 @@ _scheduler: "BackgroundScheduler | None" = None
 _scheduler_lock = threading.Lock()
 
 # 稳妥配置：2 线程池 × 2 分片 = 4 并发（安全不触发 YouTube 429）
-_auto_dl_pool = ThreadPoolExecutor(max_workers=2)
+_auto_dl_pool: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=2)
+
+# stop() 时对池子使用 shutdown(wait=False) 后，worker 仍可能运行；需保留引用以便进程退出时 join
+_pending_join_pools: list[ThreadPoolExecutor] = []
 
 # 调度器运行期间的自动下载开关（由 start() 设置，stop() 重置）
 _auto_download_on_scan: bool = False
+
+# 调度器关闭取消标志（由 stop() 设置，运行中的任务应周期性检查并提前退出）
+_scheduler_cancelled: bool = False
+
+
+def _ensure_auto_download_pool() -> ThreadPoolExecutor:
+    global _auto_dl_pool
+    if _auto_dl_pool is None:
+        _auto_dl_pool = ThreadPoolExecutor(max_workers=2)
+    return _auto_dl_pool
+
+
+def is_scheduler_cancelled() -> bool:
+    """检查调度器是否已请求取消（用于运行中的任务提前退出）。"""
+    return _scheduler_cancelled
+
+
+def _shutdown_auto_download_pool(wait: bool = False) -> None:
+    global _auto_dl_pool
+    pool = _auto_dl_pool
+    _auto_dl_pool = None
+    if pool is None:
+        return
+    try:
+        pool.shutdown(wait=wait, cancel_futures=True)
+    except TypeError:
+        pool.shutdown(wait=wait)
+    if not wait:
+        _pending_join_pools.append(pool)
+
+
+def join_auto_download_workers(timeout_sec: float | None = 30.0) -> None:
+    """
+    进程退出前调用：等待自动下载线程池里尚未结束的工作线程。
+
+    「停止监控」时 _shutdown_auto_download_pool(wait=False) 不会等待正在执行的
+    batch_download；ThreadPoolExecutor 的 worker 为非 daemon 线程，会导致解释器
+    在 main 返回后仍阻塞。此处对 wait=False 阶段遗留的池子逐个 join worker。
+
+    注意：绝不能用 shutdown(wait=True) 无超时等待——若 batch_download/yt-dlp
+    卡死，会无限阻塞，Ctrl+C 后用户会看到「正在等待…」永远结束不了。
+    统一用 shutdown(wait=False)+按 deadline join 各 worker，总耗时受 timeout_sec 约束。
+    """
+    global _auto_dl_pool
+
+    if _auto_dl_pool is not None:
+        pool = _auto_dl_pool
+        _auto_dl_pool = None
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            pool.shutdown(wait=False)
+        _pending_join_pools.append(pool)
+
+    if not _pending_join_pools:
+        return
+
+    deadline = time.monotonic() + (timeout_sec if timeout_sec is not None else 86400.0)
+    if timeout_sec is not None:
+        print(f"正在等待后台自动下载结束（最多 {timeout_sec:.0f} 秒）...")
+    else:
+        print("正在等待后台自动下载结束...")
+
+    # stop() / 上一段已对池 shutdown(wait=False)：join 各 worker（实现细节 _threads），受 deadline 约束。
+    while _pending_join_pools:
+        pool = _pending_join_pools.pop(0)
+        threads = getattr(pool, "_threads", None) or ()
+        for t in list(threads):
+            while t.is_alive():
+                remaining = max(0.0, deadline - time.monotonic())
+                if remaining <= 0:
+                    _pending_join_pools.insert(0, pool)
+                    _log.warning(
+                        "join_auto_download_workers: 超时，仍有后台下载线程未结束，强制结束进程"
+                    )
+                    print("⚠️ 等待超时，强制结束进程（未完成的下载可能被中断）")
+                    os._exit(0)
+                t.join(timeout=remaining)
+        _log.debug("join_auto_download_workers: 已 join 一个线程池")
+
+    _log.info("join_auto_download_workers: 完成")
 
 
 def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -> None:
@@ -445,7 +585,7 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
                     download_error=f"自动下载失败: {type(exc).__name__}",
                 )
 
-        _auto_dl_pool.submit(_dl_batch, chunk, chunk_ids)
+        _ensure_auto_download_pool().submit(_dl_batch, chunk, chunk_ids)
 
     _log.info(f"自动下载任务已全部提交: {len(urls)} 个视频")
 
@@ -467,6 +607,13 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
 
     # 确保全局 Webhook 配置已加载（无论从 UI 还是调度器触发）
     _ensure_global_webhooks()
+
+    # 调度器关闭时，提前退出（避免无意义地继续执行）
+    if _scheduler_cancelled:
+        _log.info(f"调度器已关闭，跳过账户扫描: id={account_id}")
+        return
+
+    _log.info(f"开始扫描账户: id={account_id}")
 
     account = _db.get_account(account_id)
     if not account:
@@ -511,6 +658,16 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
         f"扫描开始: 账户={account['name']} 模式={account['fetch_mode']} "
         f"限制={account['fetch_limit']} event_id={event_id}"
     )
+
+    cfg_scan = _get_config()
+    # 错峰：在扫描 worker 内同步 sleep，会延长本账户本回合占用线程的时间；
+    # 账户/任务量较大时请适度减小 scan_jitter_seconds 以免拖长排队。
+    jmax = int(cfg_scan.get("scan_jitter_seconds") or 0)
+    if jmax > 0:
+        delay = random.randint(0, jmax)
+        if delay > 0:
+            _log.info(f"扫描错峰延迟 {delay}s: {account['name']}")
+            time.sleep(delay)
 
     try:
         # ── 1. 获取视频 ────────────────────────────────────
@@ -629,28 +786,52 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
 
     except Exception as e:
         _log.error(f"扫描异常: 账户={account['name']} — {e}")
+        err_text = str(e)
         _db.finish_event(
             event_id,
             status="error",
             total_videos=0, new_videos=0,
-            error_message=str(e),
+            error_message=err_text,
             duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
+        _ensure_global_webhooks()
+        try:
+            _maybe_notify_scan_error(account, err_text)
+        except Exception as notify_exc:
+            _log.warning(f"扫描失败告警发送异常: {notify_exc}")
 
 
-def start(auto_download: bool = False) -> bool:
+def start(auto_download: bool = False) -> tuple[bool, bool]:
     """
     启动调度器
+
     auto_download: 启动后每次扫描到新视频是否自动下载（当前扫描有效，非全局持久化）
+
+    Returns:
+        (ok, already_running): ok 为 True 表示成功；already_running 为 True 表示本次为幂等调用
+        （调度器已在运行，仅同步了 auto_download 选项）。
     """
-    global _scheduler, _auto_download_on_scan
+    global _scheduler, _auto_download_on_scan, _scheduler_cancelled
+
+    # 防御：确保启动时取消标志为 False（进程重启后可省此行，兼作安全兜底）
+    if _scheduler_cancelled:
+        _log.warning("start() 发现 _scheduler_cancelled=True（可能上次 stop 未完全清理），强制重置")
+        _scheduler_cancelled = False
+    else:
+        _log.info(f"调度器启动中... _scheduler={_scheduler is not None}")
 
     with _scheduler_lock:
         if _scheduler and _scheduler.running:
-            _log.warning("调度器已在运行中")
-            return False
+            # 幂等：重复「启动」请求视为成功，避免 Web UI 收到 ok:false（重复点击/双请求等）
+            _auto_download_on_scan = auto_download
+            _log.info(
+                "调度器已在运行中，已同步自动下载选项并返回成功（幂等启动）"
+                f"{'（自动下载开）' if auto_download else ''}"
+            )
+            return True, True
 
         _auto_download_on_scan = auto_download
+        _ensure_auto_download_pool()
 
         # 初始化日志
         _notifier.setup_file_logging(_LOG_DIR)
@@ -751,14 +932,14 @@ def start(auto_download: bool = False) -> bool:
             f"调度器已启动，共注册 {len(accounts)} 个任务"
             f"{'（自动下载已开启）' if auto_download else ''}"
         )
-        return True
+        return True, False
 
 
 def stop() -> bool:
     """
     停止调度器
     """
-    global _scheduler, _auto_download_on_scan
+    global _scheduler, _auto_download_on_scan, _scheduler_cancelled
 
     with _scheduler_lock:
         if not _scheduler or not _scheduler.running:
@@ -766,10 +947,17 @@ def stop() -> bool:
             return False
 
         _auto_download_on_scan = False
-        _scheduler.shutdown(wait=True)
+        _scheduler_cancelled = True
+        scheduler = _scheduler
+        _scheduler = None
+
+    try:
+        scheduler.shutdown(wait=False)
+    finally:
+        _shutdown_auto_download_pool(wait=False)
         _db.set_scheduler_state({"running": False, "stopped_at": _db.now_iso()})
         _log.info("调度器已停止")
-        return True
+    return True
 
 
 def reload_jobs() -> int:

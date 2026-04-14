@@ -1,148 +1,72 @@
 """
 monitor.db — Monitor 数据库初始化与访问助手
+
+Config and encryption functions have been moved to config/ package.
+This module re-exports them for backward compatibility.
 """
 import json
+import importlib.util
 import os
 import sys
 import sqlite3
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 
+# Load db_core first to get shared sentinel _UNSET
+_db_core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db")
+_db_core_path = os.path.join(_db_core_dir, "db_core.py")
+_spec = importlib.util.spec_from_file_location("monitor.db.db_core", _db_core_path)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+sys.modules["monitor.db.db_core"] = _mod
+_UNSET = _mod._UNSET
+
 import logging_config
 _log = logging_config.get_logger("monitor.db")
 
-# 哨兵值：区分 update_account 中「参数未传入」和「显式传 None 清空字段」
-_UNSET = type("_Unset", (), {"__repr__": lambda s: "<UNSET>", "__bool__": lambda s: False})()
+# ── Re-export config/ functions for backward compatibility ────────
+# These were extracted to config/ package. Import from there.
+from config.settings import (
+    _config_default as _config_default,
+    load_config as load_config,
+    save_config as save_config,
+    _write_config as _write_config,
+)
+from config.encryption import (
+    _encrypt_webhook as _encrypt_webhook,
+    _decrypt_webhook as _decrypt_webhook,
+    _encrypt_config_secrets as _encrypt_config_secrets,
+    _decrypt_config_secrets as _decrypt_config_secrets,
+    _encrypt_config_value as _encrypt_config_value,
+    _decrypt_config_value as _decrypt_config_value,
+    _encrypt_candidate_secret as _encrypt_candidate_secret,
+    _decrypt_candidate_secret as _decrypt_candidate_secret,
+    _merge_masked_config_secrets as _merge_masked_config_secrets,
+    _SECRET_FIELD_NAMES as _SECRET_FIELD_NAMES,
+    _GLOBAL_WEBHOOK_KEYS as _GLOBAL_WEBHOOK_KEYS,
+)
+from config import DEFAULT_PROXY_PROTOCOL_ORDER
 
 # ── PyInstaller 兼容路径 ──────────────────────────────────────
-# exe 内：sys._MEIPASS/...；源码：__file__/...
-if getattr(sys, "frozen", False):
-    _PKG_DIR = os.path.join(sys._MEIPASS, "monitor")   # 打包资源目录
-    _EXE_DIR = os.path.dirname(sys.executable)           # exe 所在目录（写用户数据）
-else:
-    _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-    _EXE_DIR = _PKG_DIR
+from utils.paths import get_pkg_dir, get_exe_dir, get_data_dir, get_db_path, get_schema_path, get_config_path
 
-_DATA_DIR = os.path.join(_EXE_DIR, "data")
-os.makedirs(_DATA_DIR, exist_ok=True)
-
-_DB_PATH = os.path.join(_DATA_DIR, "monitor.db")
-_SCHEMA_PATH = os.path.join(_PKG_DIR, "schema.sql")
-# config.json: 优先用户可写位置(exe_dir)，回退到只读资源(_PKG_DIR)
-_CONFIG_PATH = os.path.join(_EXE_DIR, "config.json")
-
-# 动态代理候选与全局协议优先级默认（与固定代理 URL 解析支持的协议一致，含 SOCKS4）
-DEFAULT_PROXY_PROTOCOL_ORDER = ("http", "https", "socks5", "socks4")
-
-_GLOBAL_WEBHOOK_KEYS = (
-    "global_feishu_url",
-    "global_dingtalk_url",
-    "global_dingtalk_sign_secret",
-    "global_wecom_url",
-)
+_PKG_DIR = get_pkg_dir()
+_EXE_DIR = get_exe_dir()
+_DATA_DIR = get_data_dir()
+_DB_PATH = get_db_path()
+_SCHEMA_PATH = get_schema_path()
+_CONFIG_PATH = get_config_path()
 
 
-def _write_config(path: str, cfg: dict) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-
-def _encrypt_config_webhooks(cfg: dict) -> dict:
-    cfg = {**_config_default(), **cfg}
-    for key in _GLOBAL_WEBHOOK_KEYS:
-        cfg[key] = _encrypt_webhook(cfg.get(key)) or ""
-    return cfg
-
-
-def _decrypt_config_webhooks(cfg: dict) -> dict:
-    cfg = {**_config_default(), **cfg}
-    for key in _GLOBAL_WEBHOOK_KEYS:
-        cfg[key] = _decrypt_webhook(cfg.get(key)) or ""
-    return cfg
-
-
-def _config_default() -> dict:
-    """默认的全局配置"""
-    return {
-        "global_feishu_url": "",
-        "global_dingtalk_url": "",
-        "global_dingtalk_sign_secret": "",
-        "global_wecom_url": "",
-        "default_fetch_mode": "playlist",
-        "default_fetch_limit": 5,
-        "default_scan_interval": 5,
-        "quota_budget_per_day": 8000,
-        "download_cookies_file": "",
-        "download_output_path": "",
-        "default_sub_langs": "zh-Hans,en",
-        "default_api_key_id": None,   # 系统默认 API Key（账户未指定时使用）
-        # ── 系统默认动态代理配置 ────────────────────────────────
-        "system_dynamic_proxy_enabled": False,
-        "apply_dynamic_proxy_to_new_accounts": True,
-        "apply_dynamic_proxy_to_existing_accounts": False,
-        "manual_download_route_policy": "balanced",
-        "auto_download_route_policy": "strict",
-        "allow_free_proxy": True,
-        "allow_free_proxy_for_auto_download": False,
-        "allow_free_proxy_with_cookies": False,
-        "manual_direct_fallback": True,
-        "auto_direct_fallback": False,
-        "default_proxy_country_codes": [],
-        "default_proxy_protocol_order": list(DEFAULT_PROXY_PROTOCOL_ORDER),
-        "default_session_mode": "sticky",
-        "default_sticky_minutes": 10,
-        "candidate_prefetch_count": 5,
-        "candidate_validate_count": 3,
-        "validated_pool_ttl_seconds": 300,
-        "provider_cooldown_seconds": 600,
-        "proxy_probe_timeout_seconds": 8,
-        "mask_proxy_in_logs": True,
-    }
-
-
+# ── Backward-compatible public API re-exports ───────────────────
 def get_db_path() -> str:
+    """返回数据库路径（兼容旧接口）"""
     return _DB_PATH
 
 
 def get_config_path() -> str:
-    """返回 config.json 路径（优先 exe 同目录下，用户可写）"""
+    """返回 config.json 路径（兼容旧接口）"""
     return _CONFIG_PATH
-
-
-def load_config() -> dict:
-    """加载全局配置（支持 PyInstaller exe 和源码两种模式）"""
-    source_path = None
-    raw_cfg = None
-    if os.path.exists(_CONFIG_PATH):
-        source_path = _CONFIG_PATH
-        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-            raw_cfg = json.load(f)
-    else:
-        pkg_cfg = os.path.join(_PKG_DIR, "config.json")
-        if os.path.exists(pkg_cfg):
-            source_path = pkg_cfg
-            with open(pkg_cfg, "r", encoding="utf-8") as f:
-                raw_cfg = json.load(f)
-    if raw_cfg is None:
-        return _config_default()
-
-    raw_cfg = {**_config_default(), **raw_cfg}
-    encrypted_cfg = _encrypt_config_webhooks(raw_cfg)
-    if source_path and encrypted_cfg != raw_cfg:
-        _write_config(source_path, encrypted_cfg)
-    return _decrypt_config_webhooks(raw_cfg)
-
-
-def save_config(cfg: dict) -> None:
-    """保存全局配置，Webhook URL 落盘时加密。"""
-    from monitor.validators import normalize_dingtalk_sign_secret
-
-    cfg = {**_config_default(), **(cfg or {})}
-    cfg["global_dingtalk_sign_secret"] = (
-        normalize_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret")) or ""
-    )
-    _write_config(_CONFIG_PATH, _encrypt_config_webhooks(cfg))
 
 
 def init_db() -> None:
@@ -499,6 +423,23 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v12_monitor_accounts_dingtalk_sign_secret", today),
         )
 
+    # v13: web_batch_tasks 新增 task_kind + urls 列（支持任务来源分类 + 重启功能）
+    if "v13_web_batch_tasks_urls" not in applied:
+        cur = conn.execute("PRAGMA table_info(web_batch_tasks)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "task_kind" not in cols:
+            conn.execute(
+                "ALTER TABLE web_batch_tasks ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'web_batch'"
+            )
+        if "urls" not in cols:
+            conn.execute(
+                "ALTER TABLE web_batch_tasks ADD COLUMN urls TEXT NOT NULL DEFAULT '[]'"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v13_web_batch_tasks_urls", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
@@ -557,13 +498,23 @@ def _today_str() -> str:
 
 def list_api_keys() -> list[dict]:
     """列出所有 API Key（含今日配额使用情况）"""
-    today = _today_str()
+    from monitor import quota as _quota
+    today = _quota.get_quota_date_key()
     with get_connection() as conn:
+        # 禁止 SELECT ak.*：api_keys 表含遗留列 quota_used，与下方别名 quota_used 重名时，
+        # sqlite3.Row 按列名取值为「第一列」，导致 UI 永远显示表内冻结的 0 而非 api_quota_usage.api_calls。
         rows = conn.execute(
-            """SELECT ak.*,
+            """SELECT ak.id,
+                      ak.key_value,
+                      ak.name,
+                      ak.daily_quota,
+                      ak.quota_reset_at,
+                      ak.is_active,
+                      ak.created_at,
+                      ak.updated_at,
                       COALESCE(aqu.api_calls, 0) AS quota_used,
-                      aqu.scans_done,
-                      aqu.blocked_scans
+                      COALESCE(aqu.scans_done, 0) AS scans_done,
+                      COALESCE(aqu.blocked_scans, 0) AS blocked_scans
                FROM api_keys ak
                LEFT JOIN api_quota_usage aqu
                  ON aqu.api_key_value = ak.key_value
@@ -1078,23 +1029,6 @@ def get_enabled_providers(billing_tier: str | None = None) -> list[dict]:
 
 # ── dynamic_proxy_candidates helpers ───────────────────────────
 
-def _encrypt_candidate_secret(value: str | None) -> str | None:
-    """Fernet 加密候选密码，返回 'enc:<base64>' 格式。"""
-    if not value:
-        return None
-    if value.startswith("enc:"):
-        return value
-    return _encrypt_config_value(value)
-
-
-def _decrypt_candidate_secret(encrypted: str | None) -> str | None:
-    """Fernet 解密候选密码，非加密值或解密失败原样返回。"""
-    if not encrypted:
-        return None
-    if not encrypted.startswith("enc:"):
-        return encrypted
-    return _decrypt_config_value(encrypted)
-
 
 def _build_runtime_proxy_url(
     protocol: str,
@@ -1441,6 +1375,10 @@ def _normalize_web_batch_task_row(row) -> dict | None:
         item["results"] = json.loads(item.get("results_json") or "[]")
     except Exception:
         item["results"] = []
+    try:
+        item["urls"] = json.loads(item.get("urls") or "[]")
+    except Exception:
+        item["urls"] = []
     item.pop("results_json", None)
     item["cancel_requested"] = bool(item.get("cancel_requested"))
     return item
@@ -1450,6 +1388,7 @@ def save_web_batch_task(task: dict) -> None:
     """Insert or update a persisted Web batch task snapshot."""
     payload = {
         "task_id": task.get("task_id"),
+        "task_kind": task.get("task_kind", "web_batch"),
         "source_name": task.get("source_name"),
         "output_path": task.get("output_path"),
         "status": task.get("status", "running"),
@@ -1461,6 +1400,7 @@ def save_web_batch_task(task: dict) -> None:
         "error": task.get("error"),
         "cancel_requested": int(bool(task.get("cancel_requested"))),
         "cancel_message": task.get("cancel_message"),
+        "urls": json.dumps(task.get("urls", []) or [], ensure_ascii=False),
         "results_json": json.dumps(task.get("results", []) or [], ensure_ascii=False),
         "created_at": task.get("created_at") or now_iso(),
         "finished_at": task.get("finished_at"),
@@ -1469,13 +1409,14 @@ def save_web_batch_task(task: dict) -> None:
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO web_batch_tasks
-               (task_id, source_name, output_path, status, total, completed, success, failed,
-                current_video, error, cancel_requested, cancel_message, results_json,
+               (task_id, task_kind, source_name, output_path, status, total, completed, success, failed,
+                current_video, error, cancel_requested, cancel_message, urls, results_json,
                 created_at, finished_at, updated_at)
-               VALUES (:task_id, :source_name, :output_path, :status, :total, :completed, :success, :failed,
-                       :current_video, :error, :cancel_requested, :cancel_message, :results_json,
-                       :created_at, :finished_at, :updated_at)
+               VALUES (:task_id, :task_kind, :source_name, :output_path, :status, :total, :completed,
+                       :success, :failed, :current_video, :error, :cancel_requested, :cancel_message,
+                       :urls, :results_json, :created_at, :finished_at, :updated_at)
                ON CONFLICT(task_id) DO UPDATE SET
+                 task_kind=excluded.task_kind,
                  source_name=excluded.source_name,
                  output_path=excluded.output_path,
                  status=excluded.status,
@@ -1487,6 +1428,7 @@ def save_web_batch_task(task: dict) -> None:
                  error=excluded.error,
                  cancel_requested=excluded.cancel_requested,
                  cancel_message=excluded.cancel_message,
+                 urls=excluded.urls,
                  results_json=excluded.results_json,
                  created_at=excluded.created_at,
                  finished_at=excluded.finished_at,
@@ -1933,153 +1875,6 @@ def set_api_token(token: str) -> None:
         )
 
 
-# ── Webhook URL 加密（M-5）──────────────────────────────────────
-
-def _get_webhook_enc_key() -> bytes:
-    """
-    获取 Webhook URL 加密密钥（从 app_state 读取，不存在则自动生成）。
-    使用 Fernet.generate_key() 生成符合规范的 base64 编码密钥。
-    """
-    from cryptography.fernet import Fernet
-    ensure_app_state_table()
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT value FROM app_state WHERE key='webhook_enc_key'"
-        ).fetchone()
-        if row:
-            return row[0].encode("utf-8")
-    key_str = Fernet.generate_key().decode("utf-8")
-    with get_connection() as conn:
-        conn.execute(
-            """INSERT OR REPLACE INTO app_state (key, value) VALUES ('webhook_enc_key', ?)""",
-            (key_str,),
-        )
-    return key_str.encode("utf-8")
-
-
-def _encrypt_webhook(url: str | None) -> str | None:
-    """加密 Webhook URL，明文为空或已加密则原样返回"""
-    if not url:
-        return None
-    if url.startswith("enc:"):
-        return url  # 已加密，跳过
-    from cryptography.fernet import Fernet
-    key = _get_webhook_enc_key()
-    f = Fernet(key)
-    encrypted = f.encrypt(url.encode("utf-8"))
-    return "enc:" + encrypted.decode("utf-8")
-
-
-def _decrypt_webhook(encrypted: str | None) -> str | None:
-    """解密 Webhook URL，非加密值或解密失败则原样返回"""
-    if not encrypted:
-        return None
-    if not encrypted.startswith("enc:"):
-        return encrypted  # 明文原样返回
-    try:
-        from cryptography.fernet import Fernet
-        key = _get_webhook_enc_key()
-        f = Fernet(key)
-        return f.decrypt(encrypted[4:].encode("utf-8")).decode("utf-8")
-    except Exception:
-        return encrypted  # 解密失败时返回原始值（可能已损坏）
-
-
-# ── config_json 敏感字段加密 ─────────────────────────────────
-
-# 已知敏感字段名列表（匹配测试期望）
-_SECRET_FIELD_NAMES = frozenset(["password", "auth_secret", "api_key", "secret", "token"])
-
-
-def _encrypt_config_value(value: str) -> str:
-    """Fernet 加密单个字符串值，返回 'enc:<base64>' 格式。"""
-    if not value:
-        return value
-    if value.startswith("enc:"):
-        return value
-    key = _get_webhook_enc_key()
-    from cryptography.fernet import Fernet
-    return "enc:" + Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
-
-
-def _decrypt_config_value(value: str) -> str:
-    """Fernet 解密单个字符串值，非加密值或解密失败原样返回。"""
-    if not value:
-        return value
-    if not value.startswith("enc:"):
-        return value
-    try:
-        key = _get_webhook_enc_key()
-        from cryptography.fernet import Fernet
-        return Fernet(key).decrypt(value[4:].encode("utf-8")).decode("utf-8")
-    except Exception:
-        return value
-
-
-def _encrypt_config_secrets(cfg: dict) -> dict:
-    """递归加密 config_json 中的敏感字符串字段（不修改非字符串值）。"""
-    if not isinstance(cfg, dict):
-        return cfg
-    result = {}
-    for k, v in cfg.items():
-        if isinstance(v, str) and k.lower() in _SECRET_FIELD_NAMES:
-            result[k] = _encrypt_config_value(v)
-        elif isinstance(v, dict):
-            result[k] = _encrypt_config_secrets(v)
-        elif isinstance(v, list):
-            result[k] = [
-                _encrypt_config_value(item) if isinstance(item, str) and k.lower() in _SECRET_FIELD_NAMES else item
-                for item in v
-            ]
-        else:
-            result[k] = v
-    return result
-
-
-def _decrypt_config_secrets(cfg: dict) -> dict:
-    """递归解密 config_json 中的敏感字符串字段。"""
-    if not isinstance(cfg, dict):
-        return cfg
-    result = {}
-    for k, v in cfg.items():
-        if isinstance(v, str) and (v.startswith("enc:") or k.lower() in _SECRET_FIELD_NAMES):
-            result[k] = _decrypt_config_value(v)
-        elif isinstance(v, dict):
-            result[k] = _decrypt_config_secrets(v)
-        elif isinstance(v, list):
-            result[k] = [_decrypt_config_value(item) if isinstance(item, str) else item for item in v]
-        else:
-            result[k] = v
-    return result
-
-
-def _merge_masked_config_secrets(new_cfg, old_cfg):
-    """将前端回传的 '***' 敏感占位符替换为旧配置中的真实值。"""
-    if isinstance(new_cfg, dict):
-        old_map = old_cfg if isinstance(old_cfg, dict) else {}
-        result = {}
-        for k, v in new_cfg.items():
-            old_v = old_map.get(k)
-            if (
-                isinstance(v, str)
-                and v == "***"
-                and k.lower() in _SECRET_FIELD_NAMES
-                and old_v is not None
-            ):
-                result[k] = old_v
-            else:
-                result[k] = _merge_masked_config_secrets(v, old_v)
-        return result
-    if isinstance(new_cfg, list):
-        old_list = old_cfg if isinstance(old_cfg, list) else []
-        return [
-            _merge_masked_config_secrets(item, old_list[idx] if idx < len(old_list) else None)
-            for idx, item in enumerate(new_cfg)
-        ]
-    return new_cfg
-
-
-# 确保 app_state 表存在（懒创建）
 def ensure_app_state_table() -> None:
     """兼容旧代码：app_state 表已移入 schema.sql，此函数无操作"""
 

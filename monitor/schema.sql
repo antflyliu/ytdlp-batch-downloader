@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS channel_meta_cache (
     subscriber_count     TEXT,                 -- 抓取时的订阅数文本，主要用于展示
     video_count          TEXT,                 -- 抓取时的视频总数文本，主要用于展示
     description          TEXT,                 -- 频道简介快照
-    cached_at            TEXT NOT NULL         -- 缓存写入时间，ISO8601
+    cached_at            TEXT NOT NULL,        -- 缓存写入时间，ISO8601
+    health_checked_at    TEXT                  -- 上次 uploads 列表一致性检查时间（可选，旧库由迁移添加）
 );
 
 CREATE INDEX IF NOT EXISTS idx_channel_cache_channel_id ON channel_meta_cache(channel_id);
@@ -302,23 +303,37 @@ CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_started_at ON provider_sc
 CREATE INDEX IF NOT EXISTS idx_provider_scheduler_runs_provider_id ON provider_scheduler_runs(provider_id, started_at DESC);
 
 -- ── Web 批量下载任务持久化 ─────────────────────────────────
+-- 记录 Web UI 触发的批量下载任务，供后续查询/重启/历史使用
 CREATE TABLE IF NOT EXISTS web_batch_tasks (
-    task_id           TEXT PRIMARY KEY,              -- Web 批量下载任务 id（同时作为外部 API 标识）
-    source_name       TEXT,                          -- 任务来源文件名，如 urls.xlsx
-    output_path       TEXT,                          -- 最终下载输出目录
-    status            TEXT    NOT NULL,              -- 任务状态：running / cancelling / cancelled / done / error
-    total             INTEGER NOT NULL DEFAULT 0,    -- 计划处理的视频总数
-    completed         INTEGER NOT NULL DEFAULT 0,    -- 当前已完成处理的视频数（成功+失败）
-    success           INTEGER NOT NULL DEFAULT 0,    -- 成功数
-    failed            INTEGER NOT NULL DEFAULT 0,    -- 失败数
-    current_video     TEXT,                          -- 当前进度文案 / 当前处理视频摘要
-    error             TEXT,                          -- 任务级异常信息（若 status=error）
-    cancel_requested  INTEGER NOT NULL DEFAULT 0,    -- 是否已请求取消：0=否，1=是
-    cancel_message    TEXT,                          -- 取消中 / 已取消文案
-    results_json      TEXT    NOT NULL DEFAULT '[]', -- 序列化后的结果列表 JSON（每项含 url/status/info）
-    created_at        TEXT    NOT NULL,              -- 创建时间
-    finished_at       TEXT,                          -- 结束时间；运行中为空
-    updated_at        TEXT    NOT NULL               -- 最近一次状态刷新时间
+    task_id           TEXT PRIMARY KEY,                              -- 任务全局唯一 id（外部 API 标识，如 uuid）
+    task_kind         TEXT    NOT NULL DEFAULT 'web_batch',           -- 任务来源类型：
+                                                                       --   web_batch    = Web UI 手动批量上传触发
+                                                                       --   monitor_auto = 监控账户自动发现新视频后触发下载
+                                                                       --   （扩展预留，便于将来按来源筛选/统计）
+    source_name       TEXT,                                           -- 任务来源文件名，如 urls.xlsx；自动下载则记录对应账户名
+    output_path       TEXT,                                           -- 用户指定的下载输出目录（相对路径，相对于下载根目录）
+    status            TEXT    NOT NULL,                               -- 任务状态枚举：
+                                                                       --   running    = 下载进行中
+                                                                       --   cancelling = 取消请求已发出，正在停止
+                                                                       --   cancelled  = 已手动取消
+                                                                       --   done       = 全部完成（含成功+失败）
+                                                                       --   error      = 遭遇任务级异常（如代理失效、磁盘错误）
+    total             INTEGER NOT NULL DEFAULT 0,                     -- 计划处理的视频总数量（从上传文件解析出的有效 URL 数）
+    completed         INTEGER NOT NULL DEFAULT 0,                     -- 当前已完成处理的视频数量（= success + failed）
+    success           INTEGER NOT NULL DEFAULT 0,                     -- 成功下载的视频数量
+    failed            INTEGER NOT NULL DEFAULT 0,                     -- 下载失败的视频数量
+    current_video     TEXT,                                           -- 当前正在处理的视频标题/URL 摘要（供 UI 进度条展示）
+    error             TEXT,                                           -- 任务级异常信息（当 status=error 时填入；单视频失败不置 status=error）
+    cancel_requested  INTEGER NOT NULL DEFAULT 0,                     -- 是否已请求取消：0=否，1=是（在 running 时由 cancel API 置位）
+    cancel_message    TEXT,                                           -- 取消状态的展示文案，如"正在取消下载任务…" / "下载任务已取消"
+    urls              TEXT    NOT NULL DEFAULT '[]',                   -- 原始上传 URL 列表的 JSON 数组
+                                                                       -- （注意：results_json 中每条结果也含 url，此字段用于任务重启，
+                                                                       --   避免依赖 results_json 的完整性）
+    results_json      TEXT    NOT NULL DEFAULT '[]',                  -- 单个视频下载结果的 JSON 数组，每项结构：
+                                                                       --   {"url": "...", "status": "success"|"error"|"cancelled", "info": {...}, "error": "..."}
+    created_at        TEXT    NOT NULL,                               -- 任务创建时间，ISO8601
+    finished_at       TEXT,                                           -- 任务结束时间（done/error/cancelled），运行中为空
+    updated_at        TEXT    NOT NULL                               -- 最近一次状态/进度刷新的时间，ISO8601
 );
 
 CREATE INDEX IF NOT EXISTS idx_web_batch_tasks_created_at ON web_batch_tasks(created_at DESC);
