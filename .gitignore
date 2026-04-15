@@ -45,6 +45,8 @@ YouTube批量下载器.spec
 
 # Local agent/review artifacts
 .agents/
+node_modules/
+package*.json
 .full-review/
 .specstory/
 .vscode/
