@@ -2,71 +2,62 @@
 
 一款基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的 YouTube 工具集，包含：
 
-1. **批量下载**：从 Excel / TXT 导入 URL，图形界面或命令行批量下载视频（可选 aria2 多连接加速）。
-2. **频道监控**（可选）：多账户、定时扫描频道新视频、SQLite 持久化、YouTube Data API 配额统计，并支持飞书 / 钉钉 / 企业微信通知与 Web 管理界面。
+1. **批量下载**：从 Excel / CSV / TXT / SQLite 导入 URL，图形界面或命令行批量下载视频（可选 aria2 多连接加速），支持代理池轮换、Cookie 认证、WhisperX ASR 字幕生成。
+2. **频道监控**：多账户、定时扫描频道新视频、SQLite 持久化、YouTube Data API 配额统计与保险分配方案，支持飞书 / 钉钉 / 企业微信通知与 Web 管理界面。
+3. **频道视频获取**：输入频道 URL，自动获取频道全部视频链接并存储为 CSV 或 SQLite，支持后台增量补全上传日期。
+4. **数据库管理**：SQLite 数据库浏览器，支持标题/日期/频道/播放量筛选、分页、排序、全选/反选、批量下载。
 
 ---
 
-## 最近更新（2026-04-05）
+## 最近更新（2026-04-14）
 
-### 安全修复（Critical/High）
+> **配额分配保险建议**：详见 [docs/quota-analysis.md](docs/quota-analysis.md)。默认 API Key 每日 10,000 units，`playlist` 模式（~3 units/次）可支撑 **5 个频道 × 5 分钟间隔**（85% 上限）。
 
-| 问题 | 修复内容 | 文件 |
-|------|----------|------|
-| **C-1 API Key 明文存储** | 缓解措施：备份文件排除 `api_keys` 表 + `.gitignore` 排除 `data/*.db` + README 安全警告 + Bearer token 防护 | `monitor/db.py` |
-| **C-2 REST API 零认证** | 新增 Bearer token 认证，所有 `/api/*` 端点（除 `/api/status`）需携带 `Authorization: Bearer <token>` | `monitor_server.py:234-248` |
-| **C-3 API Key 明文暴露** | REST API 返回掩码 Key（首4+末4字符），如 `AIza••••••••xxxx` | `monitor_server.py:250-254, 637` |
-| **C-4 除零/NaN 渲染** | 前端配额进度条增加默认值 `daily_quota || 10000` | `monitor_web/index.html` |
-| **H-1 前端 Key 暴露** | 编辑表单不预填 Key 值，placeholder 提示"留空保持不变" | `monitor_web/index.html` |
-| **H-2 备份含明文 Key** | `backup_db()` 跳过 `api_keys` 表的 CREATE/INSERT 语句 | `monitor/db.py:649-676` |
-| **H-4 调度器私有访问** | 新增公开方法 `trigger_scan()` 替代 `_scan_account()` 直接访问 | `monitor/scheduler.py:282-287` |
+### 架构演进
 
-### 架构与性能优化
+| 变更 | 说明 |
+|------|------|
+| **服务拆分** | `monitor_server.py` 转发到 `server/__main__.py`，`server/` 下有中间件（rate_limit、auth） |
+| **下载任务管理** | 后台下载任务管理器（`_DownloadTaskManager`），支持任务取消、进度跟踪、结果持久化 |
+| **批量上传存储** | `_BatchUploadStore` 管理历史任务，支持重新下载 |
 
-| 问题 | 修复内容 | 文件 |
-|------|----------|------|
-| **Migration 异常吞噬** | 只捕获 `IntegrityError`，其余异常记录 warning 日志 | `monitor/db.py` |
-| **配额重复写入** | 架构已重构，每次扫描仅一次写入 | `monitor/quota.py` |
-| **Migration 版本追踪** | 新增 `schema_migrations` 表，幂等迁移 | `monitor/schema.sql` |
-| **告警缓存泄漏** | 加日期维度 `f"{key}:{date}:{threshold}"` | `monitor/quota.py` |
-| **配置缓存** | 模块级缓存 + invalidation，避免重复读取 | `monitor/scheduler.py` |
-| **N+1 查询优化** | `/api/quota` 预加载所有 Key 到内存字典 | `monitor_server.py:612-627` |
-
-### 安全增强
+### 批量下载 GUI 新增
 
 | 功能 | 说明 |
 |------|------|
-| **API 速率限制** | 每 IP 每分钟 60 次，返回 429 + `Retry-After` header |
-| **CORS 白名单** | 仅允许 `localhost`/`127.0.0.1`/`[::1]` origin |
-| **Webhook URL 加密** | Fernet 加密存储，`enc:` 前缀格式，迁移 v4 自动加密现有值 |
-| **ThreadingHTTPServer** | 每请求一线程替代单线程，避免阻塞 |
-| **路径遍历防护** | `os.path.realpath` 解析符号链接 |
-| **channel_url 验证** | YouTube URL 正则校验 + `javascript:` 伪协议防护 |
-| **LIKE 通配符转义** | `_escape_like()` 防止 `%`/`_` 通配符注入 |
+| **频道视频获取** | 输入频道 URL → YouTube API → SQLite/CSV，支持限制数量（`前 N 条`）和后台补全上传日期 |
+| **数据库浏览器** | 打开 SQLite 文件，筛选（标题/日期/频道/播放量/数据状态/下载状态）、分页、排序、全选/反选、导出 CSV |
+| **多格式支持** | Excel (`.xlsx`/`.xls`)、CSV、纯文本 (`.txt`)、SQLite 数据库 |
+| **Cookie 文件** | 支持 `.txt`（Netscape 格式）和 `.json`（YouTube 官方导出），自动转换 |
+| **代理池** | 从文件加载多个代理，自动轮换，代理失败自动切换下一代理，直连兜底 |
+| **WhisperX ASR** | 视频无官方字幕时自动调用 WhisperX 生成字幕（支持 GPU/CPU），VTT 格式自动转 SRT |
 
-### 前端 UI 增强
+### 下载核心增强
 
 | 功能 | 说明 |
 |------|------|
-| **API Key 卡片** | 结构化 CSS 类（`.ak-card`、`.ak-ring`、`.ak-quota-*`），环形配额图 |
-| **配额进度条** | 颜色编码统计（已用/限额/剩余），accent/warning/error 分级 |
-| **空状态优化** | 独特图标容器、清晰引导文案 |
-| **表单模态框** | 分区布局（身份信息/配额设置），左侧色条标识 |
-| **交互效果** | 卡片悬停边框高亮 + 微妙阴影 |
+| **SOCKS 代理** | 检测 SOCKS 代理 URL，自动禁用 aria2c（不支持）改用 yt-dlp 内置分片 |
+| **代理熔断** | 代理可重试错误（429 限流/超时/连接重置/SOCKS 错误）时自动换下一个，全部失败后直连兜底 |
+| **Cookie 导出** | JSON Cookie → 临时 Netscape 格式文件，下载后自动清理 |
+| **多格式字幕** | 优先下载官方字幕（`.srt`/`.vtt`），无官方字幕时触发 WhisperX ASR |
 
-### 测试覆盖
+### API 配额管理
 
-- **33 个测试全部通过**（pytest 验证）
-- 新增 `tests/test_api_key_crud.py`：17 个测试（CRUD、掩码、转义、FK ON DELETE SET NULL、fallback 链）
-- 新增 `tests/test_batch_download_api.py::TestBackupDb`：2 个测试（备份文件创建、api_keys 排除）
+| 功能 | 说明 |
+|------|------|
+| **配额分析文档** | 详见 `docs/quota-analysis.md`：playlist 模式 3-4 units/次，search 模式 102-103 units/次 |
+| **保险分配表** | 5 分钟扫描 ≤ 5 个频道/Key，10 分钟 ≤ 11 个，15 分钟 ≤ 17 个（基于 85% 上限） |
+| **per-key 配额** | 每个 API Key 独立设置每日配额上限，支持配额统计日时区配置 |
 
 ---
 
 ## 目录
 
 - [功能特性](#功能特性)
+- [最近更新](#最近更新2026-04-14)
 - [前置依赖](#前置依赖)
 - [快速开始](#快速开始)
+- [打包 exe 使用指南](docs/exe使用指南.md)
 - [YouTube 频道监控](#youtube-频道监控)
 - [使用说明（批量下载）](#使用说明批量下载)
 - [打包指南](#打包指南保姆手册)
@@ -82,21 +73,22 @@
 
 ### 批量下载
 
-- 支持 Excel (`.xlsx`/`.xls`) 和纯文本 (`.txt`) 两种 URL 文件格式
-- 自定义视频分辨率（720p / 1080p / 1440p）
-- 自定义下载数量、HTTP 代理与代理池
+- 支持 Excel (`.xlsx`/`.xls`)、CSV (`.csv`)、纯文本 (`.txt`)、SQLite 数据库四种 URL 文件格式
+- 自定义视频分辨率（720p / 1080p / 1440p），默认最高画质
+- HTTP 代理与代理池（自动轮换 + 直连兜底）
 - 可视化下载进度条（`ytdownload_ui.py`）
-- **字幕**：Web UI 批量下载默认不下载字幕；开启「字幕」后，yt-dlp 使用 cookies 拉取官方字幕
-- **WhisperX ASR**：仅在用户显式开启字幕且视频无官方字幕时，由流程触发 ASR 生成字幕
-- **aria2**：CLI 默认使用 `aria2c` 外部下载器；可用 `--no-aria2` 改为 yt-dlp 内置分片，并用 `--concurrent-fragments` 调节并发
+- **字幕**：支持官方字幕下载（yt-dlp），无官方字幕时自动触发 WhisperX ASR 生成字幕
+- **aria2**：CLI 默认使用 `aria2c` 外部下载器；可用 `--no-aria2` 改为 yt-dlp 内置分片
+- **Cookie**：支持 `.txt`（Netscape 格式）和 `.json`（YouTube 官方导出），自动转换
 
 ### 频道监控（`monitor/`）
 
 - 多监控账户、可配置扫描间隔与每次获取条数
 - **SQLite** 存储账户与视频记录；**APScheduler** 定时扫描
-- **YouTube Data API** 调用与每日配额统计（`monitor/quota.py`）
+- **YouTube Data API v3** 调用与每日配额统计（`monitor/quota.py`）；推荐 `playlist` 模式（~3 units/次）节省配额
 - **通知**：飞书（含 JSON 2.0 卡片 / 模板）、钉钉、企业微信 Webhook
-- **Web UI**：`monitor_server.py` + `monitor_web/`，支持后台下载任务、全局配置（含「启用 aria2」等）
+- **Web UI**：`server/__main__.py` + `monitor_web/`，支持账户管理、API Key 管理、通知配置、全局配置（含「启用 aria2」等）、后台下载任务（含取消功能）
+- **代理池**：动态代理提供商（`_provider_scheduler`）定时刷新候选，支持按健康/最快策略自动选择代理用于下载和扫描
 - 可选阅读：[扫描后自动下载方案说明](docs/auto-download-on-scan-plan-v2.md)
 
 ---
@@ -111,7 +103,7 @@
 | **ffmpeg** | 合并与编码；见 [FFmpeg 安装指南](docs/ffmpeg安装指南.md) |
 | **yt-dlp** | 下载引擎 |
 
-安装 Python 依赖（版本以仓库内 `requirements.txt` 为准）：
+安装 Python 依赖（版本以仓库内 `requirements.txt` 为准）。**使用打包 exe 时仅需安装 ffmpeg，无需 Python 环境**，详见 [打包 exe 使用指南](docs/exe使用指南.md)：
 
 ```bash
 pip install -r requirements.txt
@@ -163,7 +155,11 @@ pip install -r requirements.txt
 python ytdownload_ui.py
 ```
 
-主窗口内可打开 **监控 Web UI**（本地 HTTP，详见下文）。
+主窗口内可打开 **监控 Web UI**（本地 HTTP，详见下文）。GUI 功能包括：
+
+- **获取频道视频**：输入频道 URL → YouTube API → SQLite/CSV，支持补全上传日期
+- **数据库浏览器**：打开 SQLite 文件，筛选/排序/分页/全选，批量下载所选视频
+- **批量下载**：Excel/CSV/TXT/SQLite 多格式，代理池轮换，WhisperX ASR 字幕
 
 ### 方式二：CLI 命令行下载
 
@@ -185,8 +181,10 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 
 ### 方式三：打包 exe
 
-- 批量下载 GUI：按下文 [打包指南](#打包指南保姆手册) 使用 `YouTube批量下载器.spec` / 文档中的 PyInstaller 示例，生成 `dist/YouTube批量下载器.exe`。
-- 仅监控服务：仓库提供 `YouTubeMonitor.spec`（入口为 `monitor_server.py`，需一并打包 `monitor/`、`monitor_web/` 等数据文件），用于独立运行监控 Web UI。
+详细使用说明见 [打包 exe 使用指南](docs/exe使用指南.md)。打包步骤：
+
+- 批量下载 GUI：使用 `YouTube批量下载器.spec`，生成 `dist/YouTube批量下载器.exe`
+- 仅监控服务：使用 `YouTubeMonitor.spec`，生成 `dist/YouTubeMonitor.exe`
 
 ---
 
@@ -223,7 +221,7 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 |------|------|
 | **Bearer Token** | 所有 API 端点（除 `/api/status`）需认证，防止未授权访问 |
 | **API Key 掩码** | REST API 返回 `AIza••••••••xxxx` 格式，完整 Key 仅存于 DB |
-| **速率限制** | 每 IP 每分钟 60 次请求，超限返回 429 + `Retry-After` |
+| **速率限制** | 每 IP 每分钟 60 次请求，超限返回 429 + `Retry-After`（`server/middleware/rate_limit.py`） |
 | **CORS 白名单** | 仅允许 `localhost`/`127.0.0.1`/`[::1]` origin |
 | **Webhook 加密** | Fernet 对称加密存储，`enc:` 前缀标识已加密值 |
 | **路径遍历防护** | `os.path.realpath` 解析符号链接，防止目录穿越 |
@@ -256,6 +254,15 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 | POST | `/api/scheduler/start` | 启动调度器 |
 | POST | `/api/scheduler/stop` | 停止调度器 |
 | GET | `/api/download-tasks/{id}` | 下载任务进度 |
+| POST | `/api/download-tasks/{id}/cancel` | 取消下载任务 |
+| GET | `/api/batch-uploads` | 历史批量下载任务 |
+| GET | `/api/batch-uploads/{id}` | 历史任务详情（含结果） |
+| POST | `/api/batch-uploads/{id}/re-download` | 重新下载历史任务 |
+| GET | `/api/proxy-providers` | 动态代理提供商列表 |
+| POST | `/api/proxy-providers` | 新增代理提供商 |
+| PUT | `/api/proxy-providers/{id}` | 更新代理提供商 |
+| DELETE | `/api/proxy-providers/{id}` | 删除代理提供商 |
+| POST | `/api/proxy-providers/{id}/refresh` | 手动刷新代理候选 |
 
 调用示例：
 ```bash
@@ -268,22 +275,28 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:5000/api/api-keys
 
 ### 与批量下载的关系
 
-监控模块在需要拉取视频流时复用 `Youtube_Downloader.batch_download` 与 `build_aria2_opts()`，保证 CLI、监控后台、Web 触发的下载行为一致。
+监控模块复用 `Youtube_Downloader.batch_download` 与 `build_aria2_opts()`，保证 CLI、监控后台、Web 触发的下载行为一致。Web UI 的批量下载通过 `_DownloadTaskManager` 管理后台任务，支持取消。
 
 ---
 
 ## 使用说明（批量下载）
 
-### 1. 准备 URL 文件
+### 1. 获取频道视频（可选）
+
+GUI 主窗口输入频道 URL（如 `@频道名` 或完整频道链接），设置「前 N 条」，点击「获取视频」。数据以 SQLite 格式存储时可后台自动补全上传日期。
+
+### 2. 准备 URL 文件
 
 **Excel**：需包含名为 `url` 的列。  
-**TXT**：每行一条链接。
+**CSV**：需包含名为 `url` 的列。  
+**TXT**：每行一条链接。  
+**SQLite**：由频道获取功能生成，支持在 GUI 中打开、筛选、选择后下载。
 
 详见 [视频链接使用说明](docs/视频链接使用说明.md)。
 
-### 2. 在 GUI 中操作
+### 3. 在 GUI 中操作
 
-选择格式与文件、保存路径、分辨率与数量（留空表示不限制条数），必要时填写代理并保存，点击「开始下载」。
+选择格式与文件、保存路径、分辨率（默认最高画质），必要时填写代理并保存，点击「开始下载」。
 
 ---
 
@@ -347,19 +360,29 @@ pyinstaller YouTubeMonitor.spec
 
 ```
 ytdlp-batch-downloader/
-├── ytdownload_ui.py           # 批量下载 GUI 入口
-├── Youtube_Downloader.py      # 下载核心（含 build_aria2_opts、batch_download）
+├── ytdownload_ui.py           # 批量下载 GUI（含频道获取、数据库浏览器）
+├── Youtube_Downloader.py       # 下载核心（batch_download、代理池、WhisperX、aria2）
 ├── ytb_api.py                 # YouTube Data API 辅助（监控等使用）
+├── yt_channel_fetch.py        # 频道视频批量获取（CSV/SQLite 导出）
 ├── requirements.txt
 ├── proxy_config.json          # 代理配置（运行时可生成）
 ├── scripts/
-│   └── cli.py                # 统一 CLI 入口（Skill 调用此脚本）
+│   ├── cli.py               # 统一 CLI 入口（Skill 调用此脚本）
+│   └── whisperx_worker.py   # WhisperX ASR 子进程工作器
 ├── monitor/                   # 频道监控包
-│   ├── __main__.py            # python -m monitor CLI
-│   ├── db.py / scheduler.py / notifier.py / quota.py / …
+│   ├── __main__.py           # python -m monitor CLI
+│   ├── db.py / scheduler.py / notifier.py / quota.py / detector.py / cache.py
+│   ├── proxy_selector.py / proxy_validator.py / proxy_candidate_pool.py
+│   ├── dynamic_provider_resolver.py  # 动态代理解析
+│   ├── provider_scheduler.py / provider_health.py / provider_templates.py
 │   ├── config.json            # 全局监控配置（本地敏感信息勿泄露）
 │   └── schema.sql
-├── monitor_server.py          # 监控 Web HTTP API + 静态页面
+├── server/                    # Web 服务（`monitor_server.py` 转发至此）
+│   ├── __main__.py           # HTTP API 入口（`server/__main__.py`）
+│   └── middleware/
+│       ├── rate_limit.py     # 速率限制中间件
+│       └── auth.py           # Bearer Token 认证中间件
+├── monitor_server.py          # 兼容入口（转发到 server/__main__.py）
 ├── monitor_web/               # 监控前端（index.html 等）
 ├── monitor_ui.py              # 监控 Tk 页面或独立 Web 启动器
 ├── .claude/skills/            # Claude Code Skill 定义
@@ -370,6 +393,7 @@ ytdlp-batch-downloader/
 │   └── openclaw-config.json
 ├── tests/                     # pytest 用例
 ├── docs/                      # 使用说明与方案文档
+│   └── quota-analysis.md     # YouTube Data API 配额分析
 ├── schema.sql                 # 根目录 SQL（若与 monitor 并存以实际为准）
 └── dist/                      # 打包输出（本地生成）
 ```
@@ -382,11 +406,13 @@ ytdlp-batch-downloader/
 |------|------|
 | 批量 GUI | tkinter |
 | 下载 | yt-dlp、可选 aria2c、ffmpeg |
-| 监控服务 | 标准库 `http.server`、SQLite、APScheduler |
+| 监控服务 | 标准库 `http.server`（ThreadingHTTPServer）、SQLite、APScheduler |
 | API | Google YouTube Data API v3（`google-api-python-client`） |
 | 通知 | requests → 飞书 / 钉钉 / 企业微信 Webhook |
 | 表格 | pandas、openpyxl |
-| 字幕 ASR（可选） | WhisperX |
+| 字幕 ASR（可选） | WhisperX（GPU/CPU） |
+| 代理 | 动态代理提供商、自动探活、评分排序 |
+| 安全 | Bearer Token 认证、速率限制、Fernet 加密 |
 
 ---
 
