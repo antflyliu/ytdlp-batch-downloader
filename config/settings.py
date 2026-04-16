@@ -89,6 +89,9 @@ def _config_default() -> dict:
         "llm_base_url": "",
         "llm_min_score": 7.0,
         "llm_category": "knowledge",
+        # ── 自动切片配置 ─────────────────────────────────────
+        "auto_clip_enabled": False,          # 下载完成后自动触发 AI 切片
+        "auto_clip_notify_enabled": False,    # 切片完成后发送通知
     }
 
 

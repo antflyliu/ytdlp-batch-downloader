@@ -536,7 +536,7 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
     后台线程池执行：并发下载新视频（max_workers=2，每视频 2 分片）
     避免触发 YouTube 429 限流。
 
-    字幕：始终不下载字幕（no_subs=True），不触发 WhisperX，专注快速下载视频。
+    字幕：auto_clip后载字幕（SRT），其余情况跳过以加快下载。
 
     Args:
         video_records: 要下载的视频记录列表
@@ -583,7 +583,7 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
                     proxy=proxy,
                     cookies_file=cookies_file,
                     concurrent_fragments=2,
-                    no_subs=True,  # 自动下载不下载字幕，避免触发 WhisperX CPU 推理
+                    no_subs=not cfg.get("auto_clip_enabled", False),  # auto-clip 时连带下载字幕
                     extra_ydl_opts=extra_ydl_opts,
                 )
 
@@ -605,6 +605,9 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
                         download_at=now_str,
                         download_path=output_path,
                     )
+                    # Stage 3.2: trigger auto-clip
+                    success_records = _db.get_videos_by_ids(success_ids)
+                    _maybe_trigger_auto_clip(success_records, cfg)
                 if failed_ids:
                     _db.update_videos_download_status(
                         failed_ids, "failed",
@@ -1105,3 +1108,87 @@ def get_next_run_times(limit: int = 20) -> list[dict]:
         }
         for j in jobs
     ]
+# ── Auto-clip trigger (Stage 3.2) ─────────────────────────────────────────────
+# Append to monitor/scheduler.py
+
+def _run_auto_clip_for_video(video_record: dict, cfg: dict) -> None:
+    """对单个已下载视频执行 AI 切片 pipeline（后台线程运行）"""
+    from pathlib import Path
+
+    video_path_str = video_record.get("download_path")
+    if not video_path_str:
+        return
+
+    video_path = Path(video_path_str)
+    if not video_path.exists():
+        _log.warning(f"[auto-clip] 视频文件不存在，跳过: {video_path}")
+        return
+
+    srt_path = video_path.with_suffix(".srt")
+    if not srt_path.exists():
+        _log.info(f"[auto-clip] 字幕文件不存在，跳过 auto-clip: {srt_path}")
+        return
+
+    try:
+        from scripts.llm_client import create_llm_client
+        from scripts.clip_pipeline import ClipPipeline
+
+        llm_client = create_llm_client(
+            provider=cfg.get("llm_provider"),
+            model=cfg.get("llm_model") or None,
+            api_key=cfg.get("llm_api_key") or None,
+            base_url=cfg.get("llm_base_url") or None,
+        )
+
+        output_dir = video_path.parent / "clips"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        pipeline = ClipPipeline(
+            llm_client=llm_client,
+            output_dir=str(output_dir),
+            min_score=float(cfg.get("llm_min_score", 7.0)),
+        )
+
+        _log.info(f"[auto-clip] 开始切片: {video_path.name}")
+        ctx = pipeline.run(
+            str(video_path),
+            str(srt_path),
+            category=cfg.get("llm_category", "knowledge"),
+        )
+
+        _log.info(
+            f"[auto-clip] 完成: {video_path.name} — "
+            f"{len(ctx.generated_clips)} 切片, "
+            f"{len(ctx.generated_collections)} 合集"
+        )
+
+        if cfg.get("auto_clip_notify_enabled"):
+            from scripts.clip_notifier import notify_pipeline_result
+            try:
+                notify_pipeline_result(
+                    ctx,
+                    video_title=video_record.get("title") or video_path.stem,
+                )
+                _log.info("[auto-clip] 通知发送完成")
+            except Exception as exc:
+                _log.warning(f"[auto-clip] 通知发送失败: {exc}")
+
+    except FileNotFoundError as exc:
+        _log.warning(f"[auto-clip] 文件缺失跳过: {exc}")
+    except Exception as exc:
+        _log.error(f"[auto-clip] pipeline 异常: {video_path.name} — {exc}", exc_info=True)
+
+
+def _maybe_trigger_auto_clip(video_records: list[dict], cfg: dict) -> None:
+    """检查配置后为已下载视频异步触发 auto-clip"""
+    if not cfg.get("auto_clip_enabled"):
+        return
+
+    for record in video_records:
+        if record.get("download_status") == "downloaded" and record.get("download_path"):
+            threading.Thread(
+                target=_run_auto_clip_for_video,
+                args=(record, cfg),
+                daemon=True,
+                name=f"auto-clip-{record.get('id', '?')}",
+            ).start()
