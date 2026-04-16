@@ -9,6 +9,12 @@
 
 ---
 
+## 系统架构
+
+![架构图](docs/architecture/architecture.svg)
+
+---
+
 ## 最近更新（2026-04-14）
 
 > **配额分配保险建议**：详见 [docs/quota-analysis.md](docs/quota-analysis.md)。默认 API Key 每日 10,000 units，`playlist` 模式（~3 units/次）可支撑 **5 个频道 × 5 分钟间隔**（85% 上限）。
