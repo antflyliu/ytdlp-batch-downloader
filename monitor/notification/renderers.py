@@ -28,7 +28,7 @@ from .dingtalk import (
     _build_dingtalk_text,
     finalize_dingtalk_webhook_url,
 )
-from .telegram import _build_telegram_message
+from .telegram import _build_telegram_message, _escape_telegram_markdownv2
 from .wecom import _build_wecom_textcard
 
 
@@ -438,3 +438,306 @@ def _log_result(
             (event_id, account_id, account_name, video_count, platform, redacted_webhook,
              http_status, resp_text, now_str),
         )
+
+
+# ── AI Clip Notification Builders ──────────────────────────────────────────────
+
+from typing import Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+# 限制展示数量
+_MAX_CLIPS_NOTIFY = 8
+_MAX_COLLS_NOTIFY = 4
+
+
+def _clip_score_emoji(score: float | None) -> str:
+    if score is None:
+        return "⚪"
+    if score >= 8.5:
+        return "🟢"
+    if score >= 7.0:
+        return "🟡"
+    if score >= 5.5:
+        return "🟠"
+    return "⚪"
+
+
+def _clip_score_label(score: float | None) -> str:
+    if score is None:
+        return "未评分"
+    return f"{score:.1f}"
+
+
+def _clip_duration_label(seconds: float | int | None) -> str:
+    if seconds is None:
+        return "未知"
+    if isinstance(seconds, float):
+        seconds = int(seconds)
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+# ── Feishu ─────────────────────────────────────────────────────────────────────
+
+def _build_clip_feishu_card(
+    video_title: str | None,
+    clips: list[dict],
+    collections: list[dict],
+) -> dict:
+    """飞书 JSON 2.0 卡片（Markdown），展示切片结果"""
+    color = _FEISHU_HEADER_COLORS.get("new_video", "purple")
+    shown = clips[:_MAX_CLIPS_NOTIFY]
+    shown_colls = collections[:_MAX_COLLS_NOTIFY]
+
+    # 摘要区
+    clip_md_parts = [
+        f"**视频**：{_escape_feishu_md_v2(video_title or '未知视频')}",
+        f"**切片数**：{len(clips)} 个（展示 {len(shown)} 个）",
+        f"**合集数**：{len(collections)} 个（展示 {len(shown_colls)} 个）",
+        f"**发送时间**：{_feishu_now_str()}",
+    ]
+    clip_md_parts.append("")
+    clip_md_parts.append("## 🎬 高分切片")
+    clip_md_parts.append("")
+
+    for idx, clip in enumerate(shown, 1):
+        title = _escape_feishu_md_v2(clip.get("title") or f"切片 {idx}")
+        score = clip.get("score")
+        duration = clip.get("duration")
+        start = clip.get("start_time")
+        emoji = _clip_score_emoji(score)
+        score_lbl = _clip_score_label(score)
+        dur_lbl = _clip_duration_label(duration)
+        start_lbl = _clip_duration_label(start) if start is not None else "—"
+
+        clip_md_parts.append(
+            f"**{idx}.** {title} {emoji} {score_lbl}分"
+        )
+        clip_md_parts.append(
+            f"⏱ {dur_lbl} | ⏳ 从 {start_lbl} 开始"
+        )
+        clip_md_parts.append("")
+
+    if len(clips) > _MAX_CLIPS_NOTIFY:
+        clip_md_parts.append(f"_...还有 {len(clips) - _MAX_CLIPS_NOTIFY} 个切片未展示_")
+        clip_md_parts.append("")
+
+    if shown_colls:
+        clip_md_parts.append("## 🎞️ 视频合集")
+        clip_md_parts.append("")
+        for idx, coll in enumerate(shown_colls, 1):
+            coll_title = _escape_feishu_md_v2(coll.get("title") or f"合集 {idx}")
+            coll_desc = _escape_feishu_md_v2(coll.get("description") or "")
+            coll_dur = _clip_duration_label(coll.get("duration"))
+            clip_md_parts.append(f"**{idx}.** {coll_title} ⏱ {coll_dur}")
+            if coll_desc:
+                clip_md_parts.append(f"_{coll_desc}_")
+            clip_md_parts.append("")
+
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "schema": _FEISHU_CARD_SCHEMA,
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"✂️ AI 切片完成 — {len(clips)} 个切片",
+                },
+                "template": color,
+            },
+            "body": {
+                "elements": [{
+                    "tag": "markdown",
+                    "content": "\n".join(clip_md_parts),
+                    "text_align": "left",
+                }],
+            },
+        },
+    }
+
+
+# ── DingTalk ─────────────────────────────────────────────────────────────────
+
+def _build_clip_dingtalk_markdown(
+    video_title: str | None,
+    clips: list[dict],
+    collections: list[dict],
+) -> dict:
+    """钉钉 Markdown 格式切片通知"""
+    shown = clips[:_MAX_CLIPS_NOTIFY]
+    shown_colls = collections[:_MAX_COLLS_NOTIFY]
+
+    lines: list[str] = [
+        f"## ✂️ AI 切片完成",
+        "",
+        f"**视频**：{video_title or '未知视频'}",
+        f"**切片数**：{len(clips)} 个 | **合集数**：{len(collections)} 个",
+        "",
+        "### 🎬 高分切片",
+        "",
+    ]
+
+    for idx, clip in enumerate(shown, 1):
+        title = clip.get("title") or f"切片 {idx}"
+        score = clip.get("score")
+        duration = clip.get("duration")
+        start = clip.get("start_time")
+        emoji = _clip_score_emoji(score)
+        score_lbl = _clip_score_label(score)
+        dur_lbl = _clip_duration_label(duration)
+        start_lbl = _clip_duration_label(start) if start is not None else "—"
+
+        lines.append(
+            f"{idx}. **{title}** {emoji} {score_lbl}分"
+        )
+        lines.append(
+            f"   ⏱ {dur_lbl} | ⏳ 从 {start_lbl} 开始"
+        )
+        lines.append("")
+
+    if len(clips) > _MAX_CLIPS_NOTIFY:
+        lines.append(f"> _...还有 {len(clips) - _MAX_CLIPS_NOTIFY} 个切片未展示_")
+        lines.append("")
+
+    if shown_colls:
+        lines.append("### 🎞️ 视频合集")
+        lines.append("")
+        for idx, coll in enumerate(shown_colls, 1):
+            coll_title = coll.get("title") or f"合集 {idx}"
+            coll_dur = _clip_duration_label(coll.get("duration"))
+            lines.append(f"{idx}. **{coll_title}** ⏱ {coll_dur}")
+            if coll.get("description"):
+                lines.append(f"   _{coll.get('description')}_")
+            lines.append("")
+
+    return {
+        "msgtype": "markdown",
+        "markdown": {
+            "title": f"AI 切片完成 — {video_title or '未知视频'}",
+            "text": "\n".join(lines),
+        },
+    }
+
+
+# ── Telegram ───────────────────────────────────────────────────────────────────
+
+def _build_clip_telegram_message(
+    video_title: str | None,
+    clips: list[dict],
+    collections: list[dict],
+) -> dict:
+    """Telegram MarkdownV2 格式切片通知"""
+    shown = clips[:_MAX_CLIPS_NOTIFY]
+    shown_colls = collections[:_MAX_COLLS_NOTIFY]
+
+    safe_title = _escape_telegram_markdownv2(video_title or "未知视频")
+    lines: list[str] = [
+        f"✂️ *AI 切片完成*",
+        "",
+        f"*📺 视频*：{safe_title}",
+        f"*📊 切片*：{len(clips)} 个（展示 {len(shown)} 个）",
+        f"*🎞️ 合集*：{len(collections)} 个（展示 {len(shown_colls)} 个）",
+        "",
+        "*🎬 高分切片*",
+        "",
+    ]
+
+    for idx, clip in enumerate(shown, 1):
+        title = _escape_telegram_markdownv2(clip.get("title") or f"切片 {idx}")
+        score = clip.get("score")
+        duration = clip.get("duration")
+        start = clip.get("start_time")
+        emoji = _clip_score_emoji(score)
+        score_lbl = _clip_score_label(score)
+        dur_lbl = _clip_duration_label(duration)
+        start_lbl = _clip_duration_label(start) if start is not None else "—"
+
+        lines.append(
+            f"{idx}\\. *{title}* {emoji} {score_lbl}分"
+        )
+        lines.append(
+            f"   ⏱ {dur_lbl} | ⏳ 从 {start_lbl} 开始"
+        )
+        lines.append("")
+
+    if len(clips) > _MAX_CLIPS_NOTIFY:
+        lines.append(f"_...还有 {len(clips) - _MAX_CLIPS_NOTIFY} 个切片_")
+        lines.append("")
+
+    if shown_colls:
+        lines.append("*🎞️ 视频合集*")
+        lines.append("")
+        for idx, coll in enumerate(shown_colls, 1):
+            coll_title = _escape_telegram_markdownv2(coll.get("title") or f"合集 {idx}")
+            coll_dur = _clip_duration_label(coll.get("duration"))
+            lines.append(f"{idx}\\. *{coll_title}* ⏱ {coll_dur}")
+            if coll.get("description"):
+                desc = _escape_telegram_markdownv2(coll.get("description"))
+                lines.append(f"   _{desc}_")
+            lines.append("")
+
+    return {
+        "parse_mode": "MarkdownV2",
+        "text": "\n".join(lines),
+    }
+
+
+# ── WeCom ─────────────────────────────────────────────────────────────────────
+
+def _build_clip_wecom_textcard(
+    video_title: str | None,
+    clips: list[dict],
+    collections: list[dict],
+) -> dict:
+    """企业微信 TextCard 格式切片通知"""
+    shown = clips[:_MAX_CLIPS_NOTIFY]
+
+    clip_lines: list[str] = []
+    for idx, clip in enumerate(shown, 1):
+        title = clip.get("title") or f"切片 {idx}"
+        score = clip.get("score")
+        emoji = _clip_score_emoji(score)
+        dur_lbl = _clip_duration_label(clip.get("duration"))
+        clip_lines.append(f"{idx}. {title} {emoji} {score}分 ⏱{dur_lbl}")
+
+    clip_summary = "\n".join(clip_lines) if clip_lines else "无切片"
+
+    return {
+        "msgtype": "textcard",
+        "textcard": {
+            "title": f"✂️ AI 切片完成 — {video_title or '未知视频'}",
+            "description": (
+                f"📺 视频：{video_title or '未知视频'}\n"
+                f"🎬 切片：{len(clips)} 个 | 🎞️ 合集：{len(collections)} 个\n"
+                f"---\n{clip_summary}"
+            ),
+            "btntxt": "查看详情",
+            "url": "https://github.com",
+        },
+    }
+
+
+# ── Public Factory ─────────────────────────────────────────────────────────────
+
+def build_clip_notify_payload(
+    platform: Literal["feishu", "dingtalk", "wecom", "telegram"],
+    clips: list[dict],
+    collections: list[dict],
+    video_title: str | None = None,
+) -> dict:
+    """构建 AI 切片结果通知消息体"""
+    if platform == "feishu":
+        return _build_clip_feishu_card(video_title, clips, collections)
+    if platform == "dingtalk":
+        return _build_clip_dingtalk_markdown(video_title, clips, collections)
+    if platform == "telegram":
+        return _build_clip_telegram_message(video_title, clips, collections)
+    if platform == "wecom":
+        return _build_clip_wecom_textcard(video_title, clips, collections)
+    raise ValueError(f"不支持的平台: {platform}")
+

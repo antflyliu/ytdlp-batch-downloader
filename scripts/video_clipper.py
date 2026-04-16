@@ -93,6 +93,9 @@ def cmd_clip(
     chunk_minutes: float,
     skip_steps: list[str],
     verbose: bool,
+    notify: str | None = None,
+    notify_webhook: str | None = None,
+    notify_title: str | None = None,
 ) -> int:
     """运行切片 Pipeline"""
     from scripts.llm_client import create_llm_client
@@ -144,6 +147,27 @@ def cmd_clip(
             for c in colls:
                 print(f"  {c.name}")
 
+        # 发送通知
+        if notify:
+            video_title = (
+                notify_title
+                or Path(video_path).stem
+                or None
+            )
+            try:
+                from scripts.clip_notifier import notify_pipeline_result
+                result = notify_pipeline_result(
+                    ctx,
+                    platform=notify,  # type: ignore
+                    webhook_url=notify_webhook,
+                    video_title=video_title,
+                )
+                for plat, (ok, msg) in result.items():
+                    status = "✅" if ok else "❌"
+                    print(f"\n{status} 通知 [{plat}]: {msg}")
+            except Exception as e:
+                logger.warning(f"通知发送失败: {e}")
+
         return 0
     except Exception as e:
         logger.exception(f"Pipeline 执行失败: {e}")
@@ -192,6 +216,20 @@ def main() -> int:
     # 通用
     parser.add_argument("-v", "--verbose", action="store_true", help="详细输出")
 
+    # 通知参数
+    parser.add_argument(
+        "--notify", choices=["feishu", "dingtalk", "wecom", "telegram"],
+        help="Pipeline 完成后自动发送通知到指定平台（自动从全局配置读取 Webhook URL）"
+    )
+    parser.add_argument(
+        "--notify-webhook",
+        help="指定通知 Webhook URL（覆盖全局配置）"
+    )
+    parser.add_argument(
+        "--notify-title",
+        help="通知中显示的视频标题（默认从文件名提取）"
+    )
+
     args = parser.parse_args()
 
     # 依赖检查
@@ -230,6 +268,9 @@ def main() -> int:
         chunk_minutes=args.chunk_minutes,
         skip_steps=args.skip_steps,
         verbose=args.verbose,
+        notify=args.notify,
+        notify_webhook=args.notify_webhook,
+        notify_title=args.notify_title,
     )
 
 
