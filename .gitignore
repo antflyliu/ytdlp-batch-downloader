@@ -39,6 +39,8 @@ YouTube批量下载器.spec
 
 *.xlsx
 *.txt
+# AI clipper prompt templates (keep these tracked)
+!scripts/prompts/
 
 # MCP (contains API keys)
 .mcp.json
