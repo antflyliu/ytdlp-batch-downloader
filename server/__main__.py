@@ -814,6 +814,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "notify_enabled": bool(a["notify_enabled"]),
             "notify_platform": a["notify_platform"],
             "webhook_url": a["webhook_url"] or "",
+            "telegram_bot_token": a.get("telegram_bot_token") or "",
+            "dingtalk_sign_secret": a.get("dingtalk_sign_secret") or "",
             "feishu_message_mode": a.get("feishu_message_mode", "card_json"),
             "feishu_template_id": a.get("feishu_template_id") or "",
             "feishu_scan_template_id": a.get("feishu_scan_template_id") or "",
@@ -867,6 +869,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         cfg = _db.load_config()
         for key in [
             "global_feishu_url", "global_dingtalk_url", "global_dingtalk_sign_secret", "global_wecom_url",
+            "global_telegram_token", "global_telegram_chat_id",
             "quota_budget_per_day", "download_cookies_file", "download_output_path",
             "enable_aria2", "default_sub_langs", "default_api_key_id",
             "system_dynamic_proxy_enabled", "apply_dynamic_proxy_to_new_accounts",
@@ -934,6 +937,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
         _scheduler.set_global_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret") or None)
         _scheduler.set_global_wecom_url(cfg.get("global_wecom_url") or None)
+        _scheduler.set_global_telegram_chat_id(cfg.get("global_telegram_chat_id") or None)
+        _scheduler.set_global_telegram_token(cfg.get("global_telegram_token") or None)
         _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})
 
@@ -1011,6 +1016,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     notify_enabled=bool(body.get("notify_enabled")) if "notify_enabled" in body else None,
                     notify_platform=body.get("notify_platform"),
                     webhook_url=body.get("webhook_url") or None,
+                    telegram_bot_token=body.get("telegram_bot_token") or None,
+                    dingtalk_sign_secret=body.get("dingtalk_sign_secret") or None,
                     feishu_message_mode=body.get("feishu_message_mode"),
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
@@ -1033,6 +1040,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     notify_enabled=bool(body.get("notify_enabled", True)),
                     notify_platform=body.get("notify_platform", "feishu"),
                     webhook_url=body.get("webhook_url") or None,
+                    telegram_bot_token=body.get("telegram_bot_token") or None,
+                    dingtalk_sign_secret=body.get("dingtalk_sign_secret") or None,
                     feishu_message_mode=body.get("feishu_message_mode", "card_json"),
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,

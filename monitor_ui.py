@@ -160,9 +160,9 @@ class AccountDialog(tk.Toplevel):
         platform_frame = tk.Frame(frame, bg=c["bg"])
         platform_frame.grid(row=13, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
         for plat, label, color in [
-            ("feishu",   "飞书",   "#7B68EE"),
-            ("dingtalk", "钉钉",   "#1677FF"),
-            ("wecom",    "企微",   "#52C41A"),
+            ("feishu",   "飞书",      "#7B68EE"),
+            ("dingtalk", "钉钉",      "#1677FF"),
+            ("telegram", "Telegram",  "#26A5E4"),
         ]:
             btn = tk.Label(platform_frame, text=label, bg=c["surface2"], fg=c["text"],
                           font=("Segoe UI", 8), padx=10, pady=4, cursor="hand2",
@@ -413,7 +413,7 @@ class AccountDialog(tk.Toplevel):
         c = _COLORS
         selected = self._vars["notify_platform"].get()
         plat_colors = {"feishu": "#7B68EE", "dingtalk": "#1677FF", "wecom": "#52C41A"}
-        for plat, label, color in [("feishu", "飞书", "#7B68EE"), ("dingtalk", "钉钉", "#1677FF"), ("wecom", "企微", "#52C41A")]:
+        for plat, label, color in [("feishu", "飞书", "#7B68EE"), ("dingtalk", "钉钉", "#1677FF"), ("telegram", "Telegram", "#26A5E4")]:
             btn = self._vars.get(f"_plat_btn_{plat}")
             if btn:
                 is_sel = (plat == selected)
@@ -445,7 +445,7 @@ class GlobalConfigDialog(tk.Toplevel):
         c = _COLORS
         self.configure(bg=c["bg"])
         self.title("全局 Webhook 配置")
-        self.geometry("500x360")
+        self.geometry("560x420")
         self.grab_set()
 
         frame = tk.Frame(self, bg=c["bg"])
@@ -460,6 +460,8 @@ class GlobalConfigDialog(tk.Toplevel):
             ("钉钉 Webhook URL",   "global_dingtalk_url",           "#1677FF", False),
             ("钉钉加签密钥（全局）", "global_dingtalk_sign_secret", "#1677FF", True),
             ("企微 Webhook URL",   "global_wecom_url",              "#52C41A", False),
+            ("Telegram Bot Token", "global_telegram_token",          "#26A5E4", True),
+            ("Telegram Chat ID",   "global_telegram_chat_id",        "#26A5E4", False),
         ]
 
         for i, (label, key, color, mask) in enumerate(webhook_fields):
@@ -484,7 +486,7 @@ class GlobalConfigDialog(tk.Toplevel):
 
         tk.Label(frame, text="账户级 URL 会覆盖此处全局配置；全局钉钉加签仅在使用全局钉钉 Webhook 时生效",
                  bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
-                ).grid(row=4, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
+                ).grid(row=6, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
 
         btn_frame = tk.Frame(self, bg=c["bg"])
         btn_frame.pack(fill=tk.X, pady=16)
@@ -495,6 +497,8 @@ class GlobalConfigDialog(tk.Toplevel):
             cfg["global_dingtalk_url"] = self._vars["global_dingtalk_url"].get().strip()
             cfg["global_dingtalk_sign_secret"] = self._vars["global_dingtalk_sign_secret"].get().strip()
             cfg["global_wecom_url"] = self._vars["global_wecom_url"].get().strip()
+            cfg["global_telegram_token"] = self._vars["global_telegram_token"].get().strip()
+            cfg["global_telegram_chat_id"] = self._vars["global_telegram_chat_id"].get().strip()
             try:
                 _save_config(cfg)
             except ValueError as ve:

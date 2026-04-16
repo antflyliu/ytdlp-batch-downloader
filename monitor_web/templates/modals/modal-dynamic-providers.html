@@ -19,15 +19,21 @@
           <div id="dynSchedulerHint" style="font-size:12px;color:#b0aea5;line-height:1.55;margin-bottom:12px">调度器未运行：刷新间隔不会自动生效</div>
           <div id="dynProviderNextRun" style="font-size:11px;color:#87867f;line-height:1.5">下一次执行：—</div>
         </div>
-        <div class="dyn-toolbar-right" style="align-items:flex-start;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-          <button class="dyn-ghost-btn" id="btnDynProviderSchedulerToggle" onclick="toggleDynamicProviderScheduler()">启动动态代理调度</button>
-          <button class="dyn-ghost-btn" onclick="reloadDynamicProviderJobs()">重载动态代理任务</button>
-          <button class="dyn-ghost-btn" onclick="runDynamicProviderJobsOnce()">立即刷新全部列表 API</button>
-          <button class="dyn-ghost-btn" onclick="healthCheckAllProviders()">
-            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            全量健康检查
-          </button>
-          <button class="btn btn-sm" style="background:rgba(201,100,66,0.12);border-color:rgba(201,100,66,0.18);color:#f5f4ed;font-weight:600" onclick="openAddDynamicProvider()">+ 添加提供方</button>
+        <div class="dyn-toolbar-right" style="align-items:flex-end;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+          <!-- Row 1: 三个调度控制按钮，等宽紧凑 -->
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" id="btnDynProviderSchedulerToggle" onclick="toggleDynamicProviderScheduler()">启动动态代理调度</button>
+            <button class="btn btn-ghost btn-sm" onclick="reloadDynamicProviderJobs()">重载动态代理任务</button>
+            <button class="btn btn-ghost btn-sm" onclick="runDynamicProviderJobsOnce()">立即刷新全部列表 API</button>
+          </div>
+          <!-- Row 2: 健康检查（次要）+ 添加提供方（主操作） -->
+          <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="healthCheckAllProviders()">
+              <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              全量健康检查
+            </button>
+            <button class="btn btn-sm" style="background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600" onclick="openAddDynamicProvider()">+ 添加提供方</button>
+          </div>
         </div>
       </div>
 

@@ -19,7 +19,7 @@ export function openProxyDemo() {
   if (ppDemoSection) ppDemoSection.style.display = 'none';
   const mb = document.querySelector('#modalProxyPools .modal-body');
   if (mb) mb.style.overflow = 'hidden';
-  const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+  const demoBtn = document.querySelector('#ppDemoBtn');
   if (demoBtn) demoBtn.style.display = 'none';
 }
 
@@ -33,7 +33,7 @@ export function closeProxyDemo() {
   const mb = document.querySelector('#modalProxyPools .modal-body');
   if (mb) mb.style.overflow = 'auto';
   const empty = el('emptyProxyPools');
-  const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+  const demoBtn = document.querySelector('#ppDemoBtn');
   if (demoBtn) demoBtn.style.display = (empty && empty.style.display !== 'none') ? 'none' : '';
 }
 
@@ -52,13 +52,13 @@ export async function loadProxyPoolTable() {
     if (tbody) tbody.innerHTML = '';
     if (empty) empty.style.display = '';
     if (wrap) wrap.style.display = 'none';
-    const demoBtn = document.querySelector('#modalProxyPools .pp-ghost-action');
+    const demoBtn = document.querySelector('#ppDemoBtn');
     if (demoBtn) demoBtn.style.display = 'none';
     return;
   }
   if (wrap) wrap.style.display = 'table';
   if (empty) empty.style.display = 'none';
-  const demoBtn2 = document.querySelector('#modalProxyPools .pp-ghost-action');
+  const demoBtn2 = document.querySelector('#ppDemoBtn');
   if (demoBtn2) demoBtn2.style.display = '';
   if (tbody) {
     tbody.innerHTML = pools.map(p => `

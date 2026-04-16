@@ -5,6 +5,33 @@ import { toast } from '../modules/ui.js';
 
 const el = (id) => document.getElementById(id);
 
+// Raw account data cached for client-side search filtering
+let _accountsCache = [];
+
+/**
+ * Filter the displayed account table rows by name or channel URL.
+ * @param {string} query
+ */
+export function filterAccountTable(query) {
+  const tbody = el('accountsTable');
+  if (!tbody) return;
+  const q = query.trim().toLowerCase();
+  const rows = tbody.querySelectorAll('tr');
+  let visible = 0;
+  rows.forEach(row => {
+    // Data is stored in data-* attributes on the <tr>
+    const name = (row.dataset.name || '').toLowerCase();
+    const url = (row.dataset.url || '').toLowerCase();
+    const match = !q || name.includes(q) || url.includes(q);
+    row.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  const countEl = el('accountCount');
+  if (countEl) {
+    countEl.textContent = q ? `${visible} / ${_accountsCache.length}` : `共 ${_accountsCache.length} 个账户`;
+  }
+}
+
 /**
  * Load and render the accounts table.
  * @returns {Promise<void>}
@@ -41,6 +68,17 @@ export async function loadAccounts() {
   if (empty) empty.style.display = 'none';
   if (tableWrap) tableWrap.style.display = 'block';
 
+  // Cache raw data for search filtering
+  _accountsCache = accounts;
+
+  // Update count display
+  const countEl = el('accountCount');
+  if (countEl) countEl.textContent = `共 ${accounts.length} 个账户`;
+
+  // Clear search input when reload
+  const searchEl = el('accountSearch');
+  if (searchEl) searchEl.value = '';
+
   tbody.innerHTML = accounts.map(a => {
     const modeTag = a.fetch_mode === 'playlist'
       ? '<span class="tag tag-muted">playlist</span>'
@@ -49,6 +87,8 @@ export async function loadAccounts() {
       ? '<span class="tag tag-feishu">飞书</span>'
       : a.notify_platform === 'dingtalk'
       ? '<span class="tag tag-dingtalk">钉钉</span>'
+      : a.notify_platform === 'telegram'
+      ? '<span class="tag tag-telegram">Telegram</span>'
       : '<span class="tag tag-wecom">企微</span>';
     const statusTag = a.enabled
       ? '<span class="tag tag-success">启用</span>'
@@ -62,7 +102,7 @@ export async function loadAccounts() {
     const proxyTag = a.proxy_enabled && a.proxy_pool_id
       ? '<span class="account-proxy-cell"><span class="proxy-dot on" title="代理已启用"></span><span style="font-size:11px;color:var(--proxy-text)">启用</span></span>'
       : '<span class="account-proxy-cell"><span class="proxy-dot off" title="不使用代理"></span><span style="font-size:11px;color:var(--text-dim)">—</span></span>';
-    return `<tr>
+    return `<tr data-name="${esc(a.name || '')}" data-url="${esc(a.channel_url || '')}">
       <td class="td-mono">${a.id}</td>
       <td class="td-name">${esc(a.name)}</td>
       <td class="td-url" title="${esc(a.channel_url)}">${esc(a.channel_url)}</td>

@@ -15,7 +15,7 @@ import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, d
 import { openDynamicProviders, updateProviderSchedulerHint, loadProviderSchedulerLogs, loadDynamicProviderTable, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
 
 // ── Component modules ───────────────────────────────────────────────
-import { loadAccounts } from './components/account-list.js';
+import { loadAccounts, filterAccountTable } from './components/account-list.js';
 import { loadEvents } from './components/event-log.js';
 import { schedulerRunning, loadStatus, updateSchedulerUI } from './modules/ui.js';
 import { toggleScheduler, reloadJobs, toggleDynamicProviderScheduler, reloadDynamicProviderJobs, runDynamicProviderJobsOnce } from './components/scheduler-panel.js';
@@ -48,6 +48,7 @@ window.runDynamicProviderJobsOnce = runDynamicProviderJobsOnce;
 
 // Accounts
 window.refreshAccounts = refreshAccounts;
+window.filterAccountTable = filterAccountTable;
 window.loadStats = loadStats;
 window.refresh = refresh;
 window.openAddAccount = openAddAccount;
@@ -63,8 +64,6 @@ window.saveAccount = saveAccount;
 window.deleteAccount = deleteAccount;
 window.scanNow = scanNow;
 window.confirmScanNow = confirmScanNow;
-window.startAutoRefresh = startAutoRefresh;
-window.stopAutoRefresh = stopAutoRefresh;
 window.startAutoRefresh = startAutoRefresh;
 window.stopAutoRefresh = stopAutoRefresh;
 

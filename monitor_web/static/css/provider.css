@@ -4,6 +4,9 @@
 
 /* ══════════════════════════════════════════════════════════════════
    PROXY POOL
+   DEPRECATED: proxy-* vars now map to --accent (indigo #6366f1).
+   Migrate to canonical .btn / .btn-ghost / .modal--accent system.
+   Remaining proxy-* classes will be migrated in a future pass.
    ══════════════════════════════════════════════════════════════════ */
 
 /* 代理池状态指示点 */
@@ -17,6 +20,7 @@
 .proxy-dot.off { background: var(--proxy-dot-off); }
 
 /* 代理池 header 按钮增强 */
+/* DEPRECATED: .btn-ghost-proxy → .btn.btn-ghost (HTML 已迁移) */
 .btn-ghost-proxy {
   background: transparent;
   color: var(--text-muted);
@@ -52,9 +56,9 @@
 /* 代理池演示入口 */
 #ppDemoSection {
   background:
-    linear-gradient(135deg, rgba(45,212,191,0.08), rgba(45,212,191,0.02)),
+    linear-gradient(135deg, rgba(99,102,241,0.08), rgba(99,102,241,0.02)),
     rgba(9,14,20,0.92);
-  border: 1px solid rgba(45,212,191,0.18);
+  border: 1px solid rgba(99,102,241,0.18);
   border-radius: 14px;
   padding: 16px 20px;
   margin-bottom: 16px;
@@ -66,7 +70,7 @@
 #ppDemoIcon {
   width: 44px; height: 44px;
   border-radius: 12px;
-  background: rgba(45,212,191,0.15);
+  background: rgba(99,102,241,0.15);
   border: 1px solid var(--proxy-border);
   display: flex;
   align-items: center;
@@ -75,7 +79,7 @@
   transition: all 0.2s;
 }
 #ppDemoSection:hover #ppDemoIcon {
-  background: rgba(45,212,191,0.25);
+  background: rgba(99,102,241,0.25);
   transform: scale(1.05);
 }
 #ppDemoIcon svg {
@@ -98,7 +102,7 @@
 }
 #ppDemoText p {
   font-size: 11px;
-  color: rgba(45,212,191,0.6);
+  color: rgba(99,102,241,0.6);
   line-height: 1.4;
 }
 #ppDemoBtn {
@@ -119,9 +123,9 @@
   white-space: nowrap;
 }
 #ppDemoBtn:hover {
-  background: rgba(45,212,191,0.12);
+  background: rgba(99,102,241,0.12);
   border-color: var(--proxy-text);
-  box-shadow: 0 0 12px rgba(45,212,191,0.15);
+  box-shadow: 0 0 12px rgba(99,102,241,0.15);
 }
 #ppDemoBtn svg {
   width: 14px; height: 14px;
@@ -278,9 +282,9 @@
 /* 账户表单代理区域 */
 .proxy-section {
   background:
-    linear-gradient(180deg, rgba(45,212,191,0.08), rgba(45,212,191,0.03)),
+    linear-gradient(180deg, rgba(99,102,241,0.08), rgba(99,102,241,0.03)),
     rgba(9,14,20,0.9);
-  border: 1px solid rgba(45,212,191,0.18);
+  border: 1px solid rgba(99,102,241,0.18);
   border-radius: 14px;
   padding: 16px 16px 14px;
   margin: 4px 0;
@@ -293,7 +297,7 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(45,212,191,0.35), transparent);
+  background: linear-gradient(90deg, transparent, rgba(99,102,241,0.35), transparent);
   pointer-events: none;
 }
 .proxy-section .form-label {
@@ -315,7 +319,7 @@
   box-shadow: 0 0 6px var(--proxy-dot-on);
 }
 .proxy-section .form-hint {
-  color: rgba(45,212,191,0.6);
+  color: rgba(99,102,241,0.6);
 }
 .proxy-toggle-row {
   display: flex;
@@ -337,7 +341,7 @@
 }
 .proxy-toggle-sub {
   font-size: 11px;
-  color: rgba(45,212,191,0.72);
+  color: rgba(99,102,241,0.72);
   line-height: 1.5;
   max-width: 42ch;
 }
@@ -354,7 +358,7 @@
 }
 .proxy-select-wrap select {
   width: 100%;
-  border-color: rgba(45,212,191,0.22);
+  border-color: rgba(99,102,241,0.22);
   background: rgba(8,12,18,0.78);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
 }
@@ -365,9 +369,9 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(45,212,191,0.08);
-  border: 1px solid rgba(45,212,191,0.14);
-  color: rgba(45,212,191,0.82);
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.14);
+  color: rgba(99,102,241,0.82);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -380,7 +384,7 @@
   height: 5px;
   border-radius: 50%;
   background: var(--proxy-text);
-  box-shadow: 0 0 8px rgba(45,212,191,0.42);
+  box-shadow: 0 0 8px rgba(99,102,241,0.42);
 }
 
 /* 代理池工作台层级 */
@@ -413,10 +417,11 @@
   gap: 8px;
   flex-shrink: 0;
 }
+/* DEPRECATED: .pp-ghost-action → .btn.btn-ghost (HTML 已迁移) */
 .pp-ghost-action {
   background: transparent;
-  border: 1px solid rgba(45,212,191,0.18);
-  color: rgba(45,212,191,0.88);
+  border: 1px solid rgba(99,102,241,0.18);
+  color: rgba(99,102,241,0.88);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 11px;
@@ -429,7 +434,7 @@
   font-family: var(--font);
 }
 .pp-ghost-action:hover {
-  background: rgba(45,212,191,0.08);
+  background: rgba(99,102,241,0.08);
   border-color: var(--proxy-border);
 }
 .pp-ghost-action svg {
@@ -451,7 +456,7 @@
   align-items: center;
   gap: 6px;
   font-size: 10px;
-  color: rgba(45,212,191,0.65);
+  color: rgba(99,102,241,0.65);
   font-family: var(--mono);
   letter-spacing: 0.02em;
 }
@@ -467,9 +472,9 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(45,212,191,0.16);
-  background: rgba(45,212,191,0.06);
-  color: rgba(45,212,191,0.82);
+  border: 1px solid rgba(99,102,241,0.16);
+  background: rgba(99,102,241,0.06);
+  color: rgba(99,102,241,0.82);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -481,7 +486,7 @@
   height: 5px;
   border-radius: 50%;
   background: var(--proxy-text);
-  box-shadow: 0 0 6px rgba(45,212,191,0.45);
+  box-shadow: 0 0 6px rgba(99,102,241,0.45);
 }
 
 /* 账户表格代理列 */
@@ -500,9 +505,9 @@
   padding: 22px 24px;
   margin-top: 14px;
   border-radius: 16px;
-  border: 1px solid rgba(45,212,191,0.14);
+  border: 1px solid rgba(99,102,241,0.14);
   background:
-    linear-gradient(180deg, rgba(45,212,191,0.06), rgba(45,212,191,0.02)),
+    linear-gradient(180deg, rgba(99,102,241,0.06), rgba(99,102,241,0.02)),
     linear-gradient(90deg, rgba(255,255,255,0.015), rgba(255,255,255,0));
   position: relative;
   overflow: hidden;
@@ -512,8 +517,8 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: linear-gradient(180deg, rgba(45,212,191,0.9), rgba(45,212,191,0.18));
-  box-shadow: 0 0 18px rgba(45,212,191,0.14);
+  background: linear-gradient(180deg, rgba(99,102,241,0.9), rgba(99,102,241,0.18));
+  box-shadow: 0 0 18px rgba(99,102,241,0.14);
 }
 .proxy-empty::after {
   content: '';
@@ -523,7 +528,7 @@
   width: 128px;
   height: 128px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(45,212,191,0.08), transparent 70%);
+  background: radial-gradient(circle, rgba(99,102,241,0.08), transparent 70%);
   pointer-events: none;
 }
 .proxy-empty-header {
@@ -541,8 +546,8 @@
   height: 54px;
   margin: 0;
   border-radius: 16px;
-  background: rgba(45,212,191,0.08);
-  border: 1.5px dashed rgba(45,212,191,0.22);
+  background: rgba(99,102,241,0.08);
+  border: 1.5px dashed rgba(99,102,241,0.22);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -575,9 +580,9 @@
   padding: 4px 10px;
   margin-bottom: 10px;
   border-radius: 999px;
-  border: 1px solid rgba(45,212,191,0.14);
-  background: rgba(45,212,191,0.06);
-  color: rgba(45,212,191,0.82);
+  border: 1px solid rgba(99,102,241,0.14);
+  background: rgba(99,102,241,0.06);
+  color: rgba(99,102,241,0.82);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -589,7 +594,7 @@
   height: 5px;
   border-radius: 50%;
   background: var(--proxy-text);
-  box-shadow: 0 0 8px rgba(45,212,191,0.4);
+  box-shadow: 0 0 8px rgba(99,102,241,0.4);
 }
 .proxy-empty-title {
   font-size: 17px;
@@ -631,8 +636,8 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: rgba(45,212,191,0.08);
-  border: 1px solid rgba(45,212,191,0.2);
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
   color: var(--proxy-text);
   font-size: 10px;
   font-weight: 700;
@@ -707,6 +712,7 @@
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── Dynamic Provider Components ─────────────────────────────────── */
+/* DEPRECATED: .dyn-ghost-btn / .btn-dyn-primary → .btn.btn-ghost / .btn.btn-primary (HTML 已迁移) */
 .dyn-scheduler-split {
   margin: 14px 0 16px;
   display: grid;
@@ -1057,9 +1063,9 @@
 .dp-summary {
   margin-top: 12px;
   padding: 12px 14px;
-  border: 1px solid rgba(45,212,191,0.12);
+  border: 1px solid rgba(99,102,241,0.12);
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(45,212,191,0.05), rgba(255,255,255,0.015));
+  background: linear-gradient(180deg, rgba(99,102,241,0.05), rgba(255,255,255,0.015));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1149,7 +1155,7 @@
 .dp-preview {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--proxy-text);
+  color: var(--dyn-text);
   margin-top: 4px;
   word-break: break-all;
 }
@@ -1163,9 +1169,9 @@
 .dp-empty {
   text-align: center;
   padding: 38px 20px;
-  border: 1px dashed rgba(45,212,191,0.16);
+  border: 1px dashed rgba(99,102,241,0.16);
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(45,212,191,0.04), rgba(255,255,255,0.01));
+  background: linear-gradient(180deg, rgba(99,102,241,0.04), rgba(255,255,255,0.01));
 }
 .routing-preview {
   margin-top: 12px;

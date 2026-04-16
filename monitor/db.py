@@ -449,6 +449,19 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v13_web_batch_tasks_urls", today),
         )
 
+    # v14: monitor_accounts.telegram_bot_token（与 webhook_url 解耦）
+    if "v14_telegram_bot_token" not in applied:
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "telegram_bot_token" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN telegram_bot_token TEXT DEFAULT NULL"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v14_telegram_bot_token", today),
+        )
+
 
 def _migrate_legacy_api_keys(conn) -> None:
     """从已有的 monitor_accounts.api_key_env 环境变量名迁移 Key 到 api_keys 表"""
@@ -627,10 +640,14 @@ def list_accounts(enabled_only: bool = False) -> list[dict]:
 
 
 def _decrypt_account_webhook(account: dict) -> dict:
-    """解密账户的 webhook_url"""
-    if account and account.get("webhook_url"):
-        account = dict(account)
+    """解密账户的 webhook_url 和 telegram_bot_token；dingtalk_sign_secret 为明文存储，无需解密"""
+    if not account:
+        return account
+    account = dict(account)
+    if account.get("webhook_url"):
         account["webhook_url"] = _decrypt_webhook(account["webhook_url"])
+    if account.get("telegram_bot_token"):
+        account["telegram_bot_token"] = _decrypt_webhook(account["telegram_bot_token"])
     return account
 
 
@@ -652,6 +669,8 @@ def add_account(
     notify_enabled: bool = True,
     notify_platform: str = "feishu",
     webhook_url: str | None = None,
+    telegram_bot_token: str | None = None,
+    dingtalk_sign_secret: str | None = None,
     feishu_message_mode: str = "card_json",
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
@@ -665,12 +684,15 @@ def add_account(
             """INSERT INTO monitor_accounts
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
+                telegram_bot_token, dingtalk_sign_secret,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
                 api_key_id, proxy_pool_id, proxy_enabled, download_proxy_mode, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform,
              _encrypt_webhook(webhook_url),
+             _encrypt_webhook(telegram_bot_token) if telegram_bot_token else None,
+             dingtalk_sign_secret,
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
              api_key_id, proxy_pool_id, int(proxy_enabled), download_proxy_mode,
              now_iso(), now_iso()),
@@ -690,6 +712,8 @@ def update_account(
     notify_enabled: bool | None = None,
     notify_platform: str | None = None,
     webhook_url=_UNSET,
+    telegram_bot_token=_UNSET,
+    dingtalk_sign_secret=_UNSET,
     feishu_message_mode: str | None = None,
     feishu_template_id=_UNSET,
     feishu_scan_template_id=_UNSET,
@@ -700,7 +724,7 @@ def update_account(
 ) -> None:
     """更新账户字段。
 
-    对于可空字段（webhook_url / feishu_template_id / feishu_scan_template_id / api_key_id / proxy_pool_id），
+    对于可空字段（webhook_url / telegram_bot_token / feishu_template_id / feishu_scan_template_id / api_key_id / proxy_pool_id），
     使用 _UNSET 表示「不修改」，传 None 表示「清空为 NULL」。
     """
     fields, values = [], []
@@ -734,6 +758,12 @@ def update_account(
     if webhook_url is not _UNSET:
         fields.append("webhook_url=?")
         values.append(_encrypt_webhook(webhook_url))
+    if telegram_bot_token is not _UNSET:
+        fields.append("telegram_bot_token=?")
+        values.append(_encrypt_webhook(telegram_bot_token) if telegram_bot_token else None)
+    if dingtalk_sign_secret is not _UNSET:
+        fields.append("dingtalk_sign_secret=?")
+        values.append(dingtalk_sign_secret)
     if feishu_message_mode is not None:
         fields.append("feishu_message_mode=?")
         values.append(feishu_message_mode)

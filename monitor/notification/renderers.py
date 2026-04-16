@@ -1,6 +1,12 @@
 """
 monitor.notification.renderers — High-level card builders and payload factory
 """
+import logging_config
+import time
+from urllib.parse import urlsplit
+
+import requests as _requests
+
 from .base import (
     FEISHU_MODE_CARD,
     FEISHU_MODE_TEMPLATE,
@@ -22,6 +28,7 @@ from .dingtalk import (
     _build_dingtalk_text,
     finalize_dingtalk_webhook_url,
 )
+from .telegram import _build_telegram_message
 from .wecom import _build_wecom_textcard
 
 
@@ -314,14 +321,13 @@ def build_notify_payload(
         return _build_dingtalk_markdown(account_name, channel_url, videos)
     elif platform == "wecom":
         return _build_wecom_textcard(account_name, channel_url, videos)
+    elif platform == "telegram":
+        return _build_telegram_message(account_name, channel_url, videos, channel_name=channel_name)
     else:
         raise ValueError(f"不支持的平台: {platform}")
 
 
 # ── HTTP Sending Utilities ─────────────────────────────────────────────────────
-
-import requests as _requests
-from urllib.parse import urlsplit
 
 
 def _send_webhook(
@@ -329,38 +335,70 @@ def _send_webhook(
     payload: dict,
     platform: "Platform",
     timeout: int = 60,
+    retry_intervals: tuple[int, ...] = (5, 10, 15),
+    account_name: str | None = None,
+    telegram_chat_id: str | None = None,
 ) -> tuple[bool, str]:
-    """通用的 Webhook 发送函数"""
+    """通用的 Webhook 发送函数，带重试机制（间隔 5s/10s/15s）"""
     if not url:
         return False, "未配置 Webhook URL"
 
-    try:
-        resp = _requests.post(url, json=payload, timeout=timeout)
+    last_error = ""
+    _log = logging_config.get_logger("monitor.notification")
+    acc_label = f" {account_name} →" if account_name else ""
 
-        if platform == "feishu":
-            data = resp.json()
-            if resp.status_code == 200 and data.get("code") in (0, None):
-                return True, str(data)
-            return False, f"Feishu错误: {data}"
+    # Telegram：注入 chat_id 到 payload，并构造完整的 API URL
+    if platform == "telegram" and telegram_chat_id:
+        payload = {**payload, "chat_id": telegram_chat_id}
+        # url 是 Bot Token，构造标准 Telegram Bot API 端点
+        api_url = f"https://api.telegram.org/bot{url}/sendMessage"
+    else:
+        api_url = url
 
-        elif platform == "dingtalk":
-            data = resp.json()
-            if resp.status_code == 200 and data.get("errcode") == 0:
-                return True, str(data)
-            return False, f"DingTalk错误: code={data.get('errcode')} msg={data.get('errmsg')}"
+    for attempt, wait_sec in enumerate([0, *retry_intervals], start=1):
+        if wait_sec > 0:
+            time.sleep(wait_sec)
 
-        elif platform == "wecom":
-            data = resp.json()
-            if resp.status_code == 200 and data.get("errcode") == 0:
-                return True, str(data)
-            return False, f"WeCom错误: code={data.get('errcode')} msg={data.get('errmsg')}"
+        try:
+            resp = _requests.post(api_url, json=payload, timeout=timeout)
 
-        return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+            if platform == "feishu":
+                data = resp.json()
+                if resp.status_code == 200 and data.get("code") in (0, None):
+                    return True, str(data)
+                last_error = f"Feishu错误: {data}"
 
-    except _requests.Timeout:
-        return False, "请求超时"
-    except Exception as e:
-        return False, str(e)
+            elif platform == "dingtalk":
+                data = resp.json()
+                if resp.status_code == 200 and data.get("errcode") == 0:
+                    return True, str(data)
+                last_error = f"DingTalk错误: code={data.get('errcode')} msg={data.get('errmsg')}"
+
+            elif platform == "wecom":
+                data = resp.json()
+                if resp.status_code == 200 and data.get("errcode") == 0:
+                    return True, str(data)
+                last_error = f"WeCom错误: code={data.get('errcode')} msg={data.get('errmsg')}"
+
+            elif platform == "telegram":
+                data = resp.json()
+                if resp.status_code == 200 and data.get("ok"):
+                    return True, str(data)
+                last_error = f"Telegram错误: {data.get('description', data)}"
+
+            else:
+                last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+
+        except _requests.Timeout:
+            last_error = "请求超时"
+        except Exception as e:
+            last_error = str(e)
+
+        # 非最后一次尝试，继续重试
+        if attempt <= len(retry_intervals):
+            _log.warning(f"{platform} 第 {attempt} 次发送失败（等待 {wait_sec}s）:{acc_label} {last_error}")
+
+    return False, last_error
 
 
 def _redact_webhook_url(webhook_url: str) -> str:

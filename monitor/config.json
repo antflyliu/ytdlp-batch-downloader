@@ -2,6 +2,8 @@
   "global_feishu_url": "enc:gAAAAABp1cl-jkCB88dSwgNBBtBuWuqbRRXe0qihgBjITTObFKy4Ad8c53gGvuqe8vY5hrRSnro74juZXSStVtd6SC6f5O6jD8vYkHGG8pMmqyPCxQFbMz-BgWlAJfcwXyEHcD9GrdJH9BoJmNnWSG9pjzFBr5yUdakIYLJM-FB9hId10CtUOL4-rdqYQXEoadS8QRerz7d9",
   "global_dingtalk_url": "enc:gAAAAABp1cl-6paakzEzgQSbpaXlEUFjR2QahDoCrVyqKizbxaHuGWinRz_Q20oXFZwhMnlwJxRVxBsVDVTgCWWBUtE--sgNLF1NAfFfNrL1DDn6-Pu9Gz04vSiRGZvHO1rzAuskq931h3j_rT9zhO2WQgAMLFL5JCKoWcielTNhAHLI8cHeEU1h_5vDuTLA9UFvjLzAdd8NCT2NPq8bxc_g0ZtGihNM8mQ82SRO0ESMsNffAlJ2tgY=",
   "global_wecom_url": "",
+  "global_telegram_token": "",
+  "global_telegram_chat_id": "",
   "default_fetch_mode": "playlist",
   "default_fetch_limit": 5,
   "default_scan_interval": 5,

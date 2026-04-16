@@ -72,6 +72,17 @@
           <button class="btn btn-ghost" onclick="reloadJobs()">↻ 重载任务</button>
         </div>
       </div>
+      <div class="card-account-search">
+        <input
+          class="form-input"
+          id="accountSearch"
+          type="search"
+          placeholder="搜索账户名称或频道 URL…"
+          oninput="filterAccountTable(this.value)"
+          style="max-width:280px"
+        >
+        <span class="account-count" id="accountCount" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>

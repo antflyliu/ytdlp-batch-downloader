@@ -72,19 +72,25 @@ def _build_dingtalk_markdown(
     videos: list[dict],
 ) -> dict:
     """
-    钉钉自定义机器人 Markdown 消息（推荐）
+    钉钉自定义机器人 Markdown 消息（推荐），与飞书/Telegram 消息字段对齐。
+    包含：时长、观看数、点赞数、评论数。
     """
+    from .base import _format_duration_sec
     items = [f"### 🎬 {account_name} — {len(videos)} 个新视频"]
     items.append(f"**📺 频道**: {channel_url}")
     items.append(f"**⏰ 发送时间**: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}")
     items.append("")
     for v in videos[:10]:
-        pub_date = (v.get("published_at") or "")[:10]
-        views = v.get("view_count") or 0
+        pub_date = (v.get("published_at") or v.get("upload_date") or "")[:10]
+        views = int(v.get("view_count") or 0)
+        likes = int(v.get("like_count") or 0)
+        comments = int(v.get("comment_count") or 0)
+        duration_text = _format_duration_sec(v.get("duration_sec"))
         items.append(
             f"- **[{v.get('title', '')[:40]}]({v.get('url', '')})**"
         )
-        items.append(f"  📅 {pub_date} | 👁 {views:,}")
+        stats = f"📅 {pub_date}  ⏱ {duration_text}  👁 {views:,}  👍 {likes:,}  💬 {comments:,}"
+        items.append(f"  {stats}")
     if len(videos) > 10:
         items.append(f"\n> ...还有 {len(videos) - 10} 个新视频")
     return {"msgtype": "markdown", "markdown": {"title": f"{account_name}", "text": "\n\n".join(items)}}

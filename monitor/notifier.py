@@ -1,6 +1,6 @@
 """
 monitor.notifier — 多平台通知器
-支持：日志文件 / 飞书 / 钉钉 / 企业微信
+支持：日志文件 / 飞书 / 钉钉 / 企业微信 / Telegram
 
 ⚠️ 兼容垫片：所有 builder 函数已移至 monitor/notification/ 子包。
 本文件从 monitor.notification 重新导出公开接口，保持向后兼容。
@@ -24,7 +24,7 @@ _log = logging_config.get_logger("monitor.notifier")
 
 # ── Re-export public types & constants ─────────────────────────────────────────
 
-Platform = Literal["feishu", "dingtalk", "wecom"]
+Platform = Literal["feishu", "dingtalk", "wecom", "telegram"]
 FEISHU_MODE_CARD = notification.FEISHU_MODE_CARD
 FEISHU_MODE_TEMPLATE = notification.FEISHU_MODE_TEMPLATE
 
@@ -98,7 +98,16 @@ def notify(
         if platform == "dingtalk"
         else webhook_url
     )
-    success, response = _send_webhook(send_url, payload, platform)
+    # Telegram：延迟导入避免循环依赖
+    telegram_chat_id = None
+    if platform == "telegram":
+        from monitor.scheduler import _GLOBAL_TELEGRAM_CHAT_ID
+        telegram_chat_id = _GLOBAL_TELEGRAM_CHAT_ID
+    success, response = _send_webhook(
+        send_url, payload, platform,
+        account_name=account_name,
+        telegram_chat_id=telegram_chat_id,
+    )
     _log_result(platform, account_name, len(videos), success, response, event_id, account_id, now_str, send_url)
     if success:
         _log.info(f"[ok] {platform} 通知发送成功: {account_name} → {response[:120]}")

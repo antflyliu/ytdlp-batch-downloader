@@ -36,6 +36,13 @@ def test_wecom_payload_uses_msgtype_text(sample_usage):
     assert "text" in p and "content" in p["text"]
 
 
+def test_telegram_payload_uses_text_parse_mode(sample_usage):
+    p = build_quota_alert_payload("telegram", "123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ", sample_usage, 1000)
+    assert p["parse_mode"] == "MarkdownV2"
+    assert "text" in p
+    assert "预警" in p["text"]
+
+
 def test_unknown_platform_defaults_to_feishu_shape(sample_usage):
     p = build_quota_alert_payload("unknown", "k", sample_usage, 1000)
     assert p["msg_type"] == "text"

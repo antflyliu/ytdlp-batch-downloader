@@ -32,6 +32,8 @@ _log = logging_config.get_logger("monitor.scheduler")
 _GLOBAL_WEBHOOKS: dict[str, str | None] = {}
 _GLOBAL_WEBHOOKS_LOADED = False
 _GLOBAL_DINGTALK_SIGN_SECRET: str | None = None
+_GLOBAL_TELEGRAM_CHAT_ID: str | None = None
+_GLOBAL_TELEGRAM_TOKEN: str | None = None
 
 # 模块级配置缓存（避免每次扫描重复读取 config.json）
 _config_cache: dict | None = None
@@ -53,7 +55,7 @@ def _invalidate_config_cache() -> None:
 
 def _ensure_global_webhooks() -> None:
     """确保全局 Webhook 已加载（模块加载时 + 每次扫描前）"""
-    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED, _GLOBAL_DINGTALK_SIGN_SECRET
+    global _GLOBAL_WEBHOOKS, _GLOBAL_WEBHOOKS_LOADED, _GLOBAL_DINGTALK_SIGN_SECRET, _GLOBAL_TELEGRAM_CHAT_ID, _GLOBAL_TELEGRAM_TOKEN
     if _GLOBAL_WEBHOOKS_LOADED:
         return
     try:
@@ -62,6 +64,8 @@ def _ensure_global_webhooks() -> None:
         _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url") or None
         _GLOBAL_WEBHOOKS["wecom"] = cfg.get("global_wecom_url") or None
         _GLOBAL_DINGTALK_SIGN_SECRET = cfg.get("global_dingtalk_sign_secret") or None
+        _GLOBAL_TELEGRAM_CHAT_ID = cfg.get("global_telegram_chat_id") or None
+        _GLOBAL_TELEGRAM_TOKEN = cfg.get("global_telegram_token") or None
     except Exception:
         pass
     _GLOBAL_WEBHOOKS_LOADED = True
@@ -99,11 +103,17 @@ _scan_error_last_notify: dict[int, float] = {}
 def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> None:
     """发送 quota 预警/耗尽报警（优先账户级 Webhook，其次全局）"""
     platform = account.get("notify_platform", "feishu")
-    webhook_url = (
-        account.get("webhook_url")
-        or _GLOBAL_WEBHOOKS.get(platform)
-        or _GLOBAL_WEBHOOKS.get("feishu")
-    )
+    if platform == "telegram":
+        webhook_url = (
+            account.get("telegram_bot_token")
+            or _GLOBAL_TELEGRAM_TOKEN
+        )
+    else:
+        webhook_url = (
+            account.get("webhook_url")
+            or _GLOBAL_WEBHOOKS.get(platform)
+            or _GLOBAL_WEBHOOKS.get("feishu")
+        )
     if not webhook_url:
         _log.warning(f"quota 报警无 Webhook URL，跳过: {account['name']}")
         return
@@ -114,7 +124,11 @@ def _send_quota_alert(account: dict, api_key: str, usage: dict, budget: int) -> 
         budget,
         webhook_url,
         platform=platform,
-        dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+        dingtalk_sign_secret=(
+            account.get("dingtalk_sign_secret")
+            or (_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None)
+        ),
+        telegram_chat_id=_GLOBAL_TELEGRAM_CHAT_ID if platform == "telegram" else None,
     )
 
 
@@ -211,11 +225,17 @@ def _maybe_notify_scan_error(account: dict, error_message: str) -> None:
         _scan_error_last_notify[account_id] = now
 
     platform = account.get("notify_platform", "feishu")
-    webhook_url = (
-        account.get("webhook_url")
-        or _GLOBAL_WEBHOOKS.get(platform)
-        or _GLOBAL_WEBHOOKS.get("feishu")
-    )
+    if platform == "telegram":
+        webhook_url = (
+            account.get("telegram_bot_token")
+            or _GLOBAL_TELEGRAM_TOKEN
+        )
+    else:
+        webhook_url = (
+            account.get("webhook_url")
+            or _GLOBAL_WEBHOOKS.get(platform)
+            or _GLOBAL_WEBHOOKS.get("feishu")
+        )
     if not webhook_url:
         _log.warning(f"扫描失败告警无 Webhook URL，跳过: {account['name']}")
         return
@@ -226,7 +246,11 @@ def _maybe_notify_scan_error(account: dict, error_message: str) -> None:
         error_message,
         webhook_url,
         platform=platform,
-        dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+        dingtalk_sign_secret=(
+            account.get("dingtalk_sign_secret")
+            or (_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None)
+        ),
+        telegram_chat_id=_GLOBAL_TELEGRAM_CHAT_ID if platform == "telegram" else None,
     )
 
 def set_global_feishu_url(url: str | None) -> None:
@@ -246,6 +270,18 @@ def set_global_dingtalk_sign_secret(secret: str | None) -> None:
 def set_global_wecom_url(url: str | None) -> None:
     _GLOBAL_WEBHOOKS["wecom"] = url
     _log.info(f"全局企微 Webhook 已更新: {'已设置' if url else '未设置'}")
+
+def set_global_telegram_chat_id(chat_id: str | None) -> None:
+    """设置全局 Telegram Chat ID"""
+    global _GLOBAL_TELEGRAM_CHAT_ID
+    _GLOBAL_TELEGRAM_CHAT_ID = chat_id
+    _log.info(f"全局 Telegram Chat ID 已更新: {chat_id if chat_id else '未设置'}")
+
+def set_global_telegram_token(token: str | None) -> None:
+    """设置全局 Telegram Bot Token（用于通知投递）"""
+    global _GLOBAL_TELEGRAM_TOKEN
+    _GLOBAL_TELEGRAM_TOKEN = token
+    _log.info(f"全局 Telegram Bot Token 已更新: {'已设置' if token else '未设置'}")
 
 
 # provider refresh singleflight state
@@ -717,10 +753,17 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
             f"platform={account.get('notify_platform','feishu')} "
             f"feishu_mode={account.get('feishu_message_mode','card_json')} "
             f"account_webhook={bool(account.get('webhook_url'))} "
-            f"global_webhook={bool(_GLOBAL_WEBHOOKS.get(account.get('notify_platform','feishu')))}"
+            f"account_telegram_token={bool(account.get('telegram_bot_token'))} "
+            f"global_webhook={bool(account.get('webhook_url')) or (account.get('notify_platform') == 'telegram' and bool(_GLOBAL_TELEGRAM_TOKEN)) or bool(_GLOBAL_WEBHOOKS.get(account.get('notify_platform','feishu')))}"
         )
         if account["notify_enabled"] and new_videos:
-            webhook_url = account.get("webhook_url") or _GLOBAL_WEBHOOKS.get(account.get("notify_platform", "feishu"))
+            platform = account.get("notify_platform", "feishu")
+            if platform == "telegram":
+                webhook_url = account.get("telegram_bot_token") or _GLOBAL_TELEGRAM_TOKEN
+            else:
+                webhook_url = account.get("webhook_url")
+                if not webhook_url:
+                    webhook_url = _GLOBAL_WEBHOOKS.get(platform)
             use_global_dingtalk_secret = (
                 account.get("notify_platform", "feishu") == "dingtalk"
                 and not account.get("webhook_url")
@@ -741,7 +784,10 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
                 feishu_message_mode=account.get("feishu_message_mode", "card_json"),
                 feishu_template_id=account.get("feishu_template_id"),
                 feishu_scan_template_id=account.get("feishu_scan_template_id"),
-                dingtalk_sign_secret=_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None,
+                dingtalk_sign_secret=(
+                    account.get("dingtalk_sign_secret")
+                    or (_GLOBAL_DINGTALK_SIGN_SECRET if use_global_dingtalk_secret else None)
+                ),
             )
         elif account["notify_enabled"] and not new_videos:
             _log.info(f"无新视频，跳过通知推送: {account['name']}")
@@ -848,9 +894,11 @@ def start(auto_download: bool = False) -> tuple[bool, bool]:
             _GLOBAL_WEBHOOKS["feishu"]    = cfg.get("global_feishu_url")
             _GLOBAL_WEBHOOKS["dingtalk"] = cfg.get("global_dingtalk_url")
             _GLOBAL_WEBHOOKS["wecom"]   = cfg.get("global_wecom_url")
+            _GLOBAL_TELEGRAM_CHAT_ID = cfg.get("global_telegram_chat_id")
             _log.info(f"全局 Webhook 已加载: 飞书={bool(_GLOBAL_WEBHOOKS['feishu'])} "
                       f"钉钉={bool(_GLOBAL_WEBHOOKS['dingtalk'])} "
-                      f"企微={bool(_GLOBAL_WEBHOOKS['wecom'])}")
+                      f"企微={bool(_GLOBAL_WEBHOOKS['wecom'])} "
+                      f"Telegram Chat ID={bool(_GLOBAL_TELEGRAM_CHAT_ID)}")
 
         # 初始化数据库
         _db.init_db()

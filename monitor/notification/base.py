@@ -18,7 +18,7 @@ _file_handler: logging.Handler | None = None
 
 # ── Types & Constants ──────────────────────────────────────────────────────────
 
-Platform = Literal["feishu", "dingtalk", "wecom"]
+Platform = Literal["feishu", "dingtalk", "wecom", "telegram"]
 
 FEISHU_MODE_CARD = "card_json"
 FEISHU_MODE_TEMPLATE = "template"

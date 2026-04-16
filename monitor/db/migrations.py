@@ -389,6 +389,19 @@ def run_all_migrations(conn):
             ("v13_web_batch_tasks_urls", today),
         )
 
+    # v14: monitor_accounts.telegram_bot_token（与 webhook_url 解耦）
+    if "v14_telegram_bot_token" not in _get_applied_versions(conn):
+        cur = conn.execute("PRAGMA table_info(monitor_accounts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "telegram_bot_token" not in cols:
+            conn.execute(
+                "ALTER TABLE monitor_accounts ADD COLUMN telegram_bot_token TEXT DEFAULT NULL"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v14_telegram_bot_token", today),
+        )
+
 
 def _get_applied_versions(conn) -> set:
     return {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}

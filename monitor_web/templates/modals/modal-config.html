@@ -25,6 +25,16 @@
           <label class="form-label" style="color:var(--wecom)">企业微信 Webhook</label>
           <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
         </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--telegram)">Telegram Bot Token</label>
+          <input class="form-input" id="cfgTelegramToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ" autocomplete="new-password">
+          <div class="form-hint">格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--telegram)">Telegram Chat ID</label>
+          <input class="form-input" id="cfgTelegramChatId" placeholder="123456789">
+          <div class="form-hint">发送目标的 Chat ID，私聊机器人或群组 ID（负数带前缀）</div>
+        </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
           <label class="form-label">每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
@@ -48,7 +58,7 @@
           <label class="checkbox-label" style="margin-top:6px">
             <input type="checkbox" id="cfgNotifyOnScanError">
             <span class="checkbox-box"></span>
-            启用（与飞书/钉钉/企微全局或账户级 Webhook 一致）
+            启用（与飞书/钉钉/Telegram 全局或账户级 Webhook 一致）
           </label>
           <div class="form-hint">同一账户在冷却时间内只发一次，避免刷屏（见下一项）。</div>
         </div>
@@ -80,7 +90,7 @@
           <label class="checkbox-label" style="margin-top:8px">
             <input type="checkbox" id="cfgNotifyChannelMetaMismatch">
             <span class="checkbox-box"></span>
-            不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → 企微 优先）
+            不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → Telegram 优先）
           </label>
         </div>
         <div class="form-group">

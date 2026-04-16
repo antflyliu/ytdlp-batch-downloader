@@ -267,6 +267,8 @@ def build_quota_alert_payload(
         return {"msgtype": "text", "text": {"content": text}}
     if platform == "wecom":
         return {"msgtype": "text", "text": {"content": text}}
+    if platform == "telegram":
+        return {"text": text, "parse_mode": "MarkdownV2"}
     # feishu 及未知平台：飞书 webhook v2 文本
     return {"msg_type": "text", "content": {"text": text}}
 
@@ -279,6 +281,7 @@ def send_alert(
     *,
     platform: str = "feishu",
     dingtalk_sign_secret: str | None = None,
+    telegram_chat_id: str | None = None,
 ) -> None:
     """发送 Quota 预警/耗尽告警。消息体按 platform 区分；钉钉 URL 支持加签。"""
     if not webhook_url:
@@ -290,8 +293,14 @@ def send_alert(
     post_url = webhook_url
     if platform == "dingtalk":
         post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+    elif platform == "telegram":
+        # webhook_url 在 Telegram 场景下是 Bot Token，需构造完整 API URL
+        post_url = f"https://api.telegram.org/bot{webhook_url}/sendMessage"
 
     msg = build_quota_alert_payload(platform, api_key_value, usage, budget)
+    # Telegram：注入 chat_id
+    if platform == "telegram" and telegram_chat_id:
+        msg = {**msg, "chat_id": telegram_chat_id}
     try:
         import urllib.request
         req = urllib.request.Request(
@@ -314,6 +323,7 @@ def send_scan_error_alert(
     *,
     platform: str = "feishu",
     dingtalk_sign_secret: str | None = None,
+    telegram_chat_id: str | None = None,
 ) -> None:
     """扫描失败时发送纯文本告警（与 Quota 告警共用 Webhook 投递方式）。
 
@@ -329,6 +339,9 @@ def send_scan_error_alert(
     post_url = webhook_url
     if platform == "dingtalk":
         post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+    elif platform == "telegram":
+        # webhook_url 在 Telegram 场景下是 Bot Token，需构造完整 API URL
+        post_url = f"https://api.telegram.org/bot{webhook_url}/sendMessage"
 
     now = _dt.now().astimezone().isoformat(timespec="seconds")
     text = (
@@ -342,14 +355,19 @@ def send_scan_error_alert(
         msg = {"msgtype": "text", "text": {"content": text}}
     elif platform == "wecom":
         msg = {"msgtype": "text", "text": {"content": text}}
+    elif platform == "telegram":
+        msg = {"text": text, "parse_mode": "MarkdownV2"}
     else:
         msg = {"msg_type": "text", "content": {"text": text}}
 
     try:
         import urllib.request
+        req_body = json.dumps(msg, ensure_ascii=False).encode("utf-8")
+        if platform == "telegram" and telegram_chat_id:
+            req_body = json.dumps({**msg, "chat_id": telegram_chat_id}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             post_url,
-            data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
+            data=req_body,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -392,6 +410,9 @@ def send_channel_meta_mismatch_alert(
     elif cfg.get("global_wecom_url"):
         webhook_url = cfg.get("global_wecom_url")
         platform = "wecom"
+    elif cfg.get("global_telegram_token"):
+        webhook_url = cfg.get("global_telegram_token")
+        platform = "telegram"
 
     if not webhook_url:
         _log.warning("channel_meta 不一致告警：未配置全局 Webhook，跳过")
@@ -405,6 +426,14 @@ def send_channel_meta_mismatch_alert(
     post_url = webhook_url
     if platform == "dingtalk":
         post_url = _notifier.finalize_dingtalk_webhook_url(webhook_url, dingtalk_sign_secret)
+    elif platform == "telegram":
+        # webhook_url 在 Telegram 场景下是 Bot Token，需构造完整 API URL
+        post_url = f"https://api.telegram.org/bot{webhook_url}/sendMessage"
+
+    # Telegram：注入 chat_id
+    chat_id = None
+    if platform == "telegram":
+        chat_id = cfg.get("global_telegram_chat_id")
 
     now = _dt.now().astimezone().isoformat(timespec="seconds")
     text = (
@@ -420,15 +449,22 @@ def send_channel_meta_mismatch_alert(
         msg = {"msgtype": "text", "text": {"content": text}}
     elif platform == "wecom":
         msg = {"msgtype": "text", "text": {"content": text}}
+    elif platform == "telegram":
+        msg = {"text": text, "parse_mode": "MarkdownV2"}
     else:
         msg = {"msg_type": "text", "content": {"text": text}}
 
     try:
         import urllib.request
+        req_headers = {"Content-Type": "application/json"}
+        req_body = json.dumps(msg, ensure_ascii=False).encode("utf-8")
+        if platform == "telegram" and chat_id:
+            # Telegram：chat_id 作为 query 参数，body 中也有一份
+            req_body = json.dumps({**msg, "chat_id": chat_id}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             post_url,
-            data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            data=req_body,
+            headers=req_headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:

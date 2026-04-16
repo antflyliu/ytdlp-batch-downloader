@@ -33,15 +33,48 @@ export function selectPlatform(p) {
   if (!accPlatform) return;
   const btns = document.querySelectorAll('.platform-btn');
   btns.forEach(b => b.className = 'platform-btn');
-  const idx = p === 'feishu' ? 1 : p === 'dingtalk' ? 2 : 3;
+  const idx = p === 'feishu' ? 1 : p === 'dingtalk' ? 2 : p === 'telegram' ? 3 : 2;
   const btn = document.querySelector(`.platform-btn:nth-child(${idx})`);
   if (btn) btn.className = `platform-btn active-${p}`;
   accPlatform.value = p;
   const isFeishu = p === 'feishu';
   const ftc = el('feishuTemplateConfig');
   const dssg = el('dingtalkSignSecretGroup');
+  const wlhDefault = el('webhookHintDefault');
+  const wlhTg = el('webhookHintTelegram');
   if (ftc) ftc.style.display = isFeishu ? '' : 'none';
   if (dssg) dssg.style.display = p === 'dingtalk' ? '' : 'none';
+
+  // Telegram: separate Bot Token field; Webhook URL field is for feishu/dingtalk/wecom
+  const ttg = el('telegramTokenGroup');
+  const accWebhookGroup = el('accWebhookGroup');
+  const accWebhook = el('accWebhook');
+  const accWebhookLabel = el('accWebhookLabel');
+  if (ttg) ttg.style.display = p === 'telegram' ? '' : 'none';
+  // Telegram 不使用 Webhook URL，隐藏整个字段组
+  if (accWebhookGroup) accWebhookGroup.style.display = p === 'telegram' ? 'none' : '';
+  if (wlhDefault) wlhDefault.style.display = p === 'telegram' ? 'none' : '';
+  if (wlhTg) wlhTg.style.display = p === 'telegram' ? '' : 'none';
+  if (accWebhook && accWebhookLabel && p !== 'telegram') {
+    if (p === 'dingtalk') {
+      accWebhook.placeholder = 'https://oapi.dingtalk.com/robot/send?access_token=xxx';
+      accWebhookLabel.textContent = 'Webhook URL';
+    } else {
+      accWebhook.placeholder = 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx';
+      accWebhookLabel.textContent = 'Webhook URL';
+    }
+  }
+  // 切换平台时清除不属于当前平台的字段，避免跨平台污染（Bug 7）
+  // Feishu/Dingtalk 共用 accWebhook，需清除；Telegram 用独立字段
+  if (p === 'telegram') {
+    // 离开 Telegram → 清除 Webhook（不属于 Telegram）
+    if (accWebhook) accWebhook.value = '';
+  } else {
+    // 切换到 Feishu/Dingtalk → 清除 Telegram Bot Token（不属于这两个平台）
+    const accTgToken = el('accTelegramToken');
+    if (accTgToken) accTgToken.value = '';
+    // 切换时 accWebhook 保持原值（各自填写自己的 URL）
+  }
   updateFeishuModeUI();
 }
 
@@ -147,7 +180,7 @@ export async function openAddAccount() {
   set('accApiKeySelect', ''); set('accApiKeyId', '');
   set('accApiKeyEnv', 'YOUTUBE_Data_API_V3');
   set('accMode', 'playlist'); set('accLimit', '5'); set('accInterval', '5');
-  set('accWebhook', ''); set('accDingtalkSecret', '');
+  set('accWebhook', ''); set('accTelegramToken', ''); set('accDingtalkSecret', '');
   set('accFeishuMode', 'card_json');
   set('accFeishuTemplateId', ''); set('accFeishuScanTemplateId', '');
   setCb('accEnabled', true); setCb('accNotify', true); setCb('accProxyEnabled', false);
@@ -177,7 +210,7 @@ export async function openEditAccount(id) {
   await refreshApiKeySelectors();
   set('accApiKeySelect', acc.api_key_id || '');
   set('accMode', acc.fetch_mode); set('accLimit', acc.fetch_limit); set('accInterval', acc.scan_interval);
-  set('accWebhook', acc.webhook_url || ''); set('accDingtalkSecret', acc.dingtalk_sign_secret || '');
+  set('accWebhook', acc.webhook_url || ''); set('accTelegramToken', acc.telegram_bot_token || ''); set('accDingtalkSecret', acc.dingtalk_sign_secret || '');
   set('accFeishuMode', acc.feishu_message_mode || 'card_json');
   set('accFeishuTemplateId', acc.feishu_template_id || '');
   set('accFeishuScanTemplateId', acc.feishu_scan_template_id || '');
@@ -319,7 +352,8 @@ export async function saveAccount() {
     fetch_limit: parseInt(document.getElementById('accLimit').value, 10) || 5,
     scan_interval: parseInt(document.getElementById('accInterval').value, 10) || 5,
     notify_platform: document.getElementById('accPlatform').value,
-    webhook_url: document.getElementById('accWebhook').value.trim() || null,
+    webhook_url: document.getElementById('accPlatform').value === 'telegram' ? null : document.getElementById('accWebhook').value.trim() || null,
+    telegram_bot_token: document.getElementById('accTelegramToken').value.trim() || null,
     dingtalk_sign_secret: document.getElementById('accDingtalkSecret').value.trim() || null,
     feishu_message_mode: document.getElementById('accFeishuMode').value,
     feishu_template_id: document.getElementById('accFeishuTemplateId').value.trim() || null,

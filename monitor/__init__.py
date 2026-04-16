@@ -17,6 +17,7 @@ sys.modules["monitor._db"] = _db_mod
 from monitor.scheduler import (
     start, stop, is_running, reload_jobs, get_next_run_times,
     set_global_feishu_url, set_global_dingtalk_url, set_global_wecom_url,
+    set_global_telegram_chat_id, set_global_telegram_token,
 )
 from monitor.fetcher import YouTubeFetcher
 from monitor.detector import detect_new

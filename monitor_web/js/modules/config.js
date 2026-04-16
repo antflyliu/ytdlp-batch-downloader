@@ -21,6 +21,8 @@ export async function openConfig() {
   e = el('cfgDingtalk'); if (e) e.value = cfg.global_dingtalk_url || '';
   e = el('cfgDingtalkSecret'); if (e) e.value = cfg.global_dingtalk_sign_secret || '';
   e = el('cfgWecom'); if (e) e.value = cfg.global_wecom_url || '';
+  e = el('cfgTelegramToken'); if (e) e.value = cfg.global_telegram_token || '';
+  e = el('cfgTelegramChatId'); if (e) e.value = cfg.global_telegram_chat_id || '';
   e = el('cfgQuotaBudget'); if (e) e.value = cfg.quota_budget_per_day || 8000;
   e = el('cfgQuotaUsageTimezone'); if (e) e.value = cfg.quota_usage_timezone || 'local';
   e = el('cfgChannelMetaMaxAge'); if (e) e.value = cfg.channel_meta_max_age_days != null ? cfg.channel_meta_max_age_days : 30;
@@ -75,6 +77,8 @@ export async function saveConfig() {
     global_dingtalk_url: v('cfgDingtalk'),
     global_dingtalk_sign_secret: v('cfgDingtalkSecret') || '',
     global_wecom_url: v('cfgWecom'),
+    global_telegram_token: v('cfgTelegramToken'),
+    global_telegram_chat_id: v('cfgTelegramChatId'),
     quota_budget_per_day: n('cfgQuotaBudget'),
     quota_usage_timezone: (() => { const e = el('cfgQuotaUsageTimezone'); return e ? e.value : 'local'; })(),
     channel_meta_max_age_days: (() => { const e = el('cfgChannelMetaMaxAge'); const v = e ? parseInt(e.value, 10) : 30; return Number.isNaN(v) ? 30 : v; })(),

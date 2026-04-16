@@ -24,7 +24,7 @@
   content: '';
   width: 18px;
   height: 1px;
-  background: linear-gradient(90deg, rgba(45,212,191,0.9), rgba(45,212,191,0.12));
+  background: linear-gradient(90deg, rgba(99,102,241,0.9), rgba(99,102,241,0.12));
 }
 .settings-subsection {
   margin-top: 12px;

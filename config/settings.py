@@ -20,6 +20,7 @@ _GLOBAL_WEBHOOK_KEYS = (
     "global_dingtalk_url",
     "global_dingtalk_sign_secret",
     "global_wecom_url",
+    "global_telegram_token",
 )
 
 
@@ -40,6 +41,8 @@ def _config_default() -> dict:
         "global_dingtalk_url": "",
         "global_dingtalk_sign_secret": "",
         "global_wecom_url": "",
+        "global_telegram_token": "",
+        "global_telegram_chat_id": "",
         "default_fetch_mode": "playlist",
         "default_fetch_limit": 5,
         "default_scan_interval": 5,

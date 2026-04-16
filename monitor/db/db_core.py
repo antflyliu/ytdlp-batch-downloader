@@ -21,6 +21,7 @@ _GLOBAL_WEBHOOK_KEYS = (
     "global_dingtalk_url",
     "global_dingtalk_sign_secret",
     "global_wecom_url",
+    "global_telegram_token",
 )
 
 # Sensitive field names for config encryption

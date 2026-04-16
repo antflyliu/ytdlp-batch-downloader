@@ -7,10 +7,14 @@ from monitor.db.crypto import encrypt_webhook, decrypt_webhook
 
 
 def _decrypt_account_webhook(account: dict) -> dict:
-    """Decrypt account webhook_url field."""
-    if account and account.get("webhook_url"):
-        account = dict(account)
+    """Decrypt account webhook_url and telegram_bot_token fields; dingtalk_sign_secret is plaintext."""
+    if not account:
+        return account
+    account = dict(account)
+    if account.get("webhook_url"):
         account["webhook_url"] = decrypt_webhook(account["webhook_url"])
+    if account.get("telegram_bot_token"):
+        account["telegram_bot_token"] = decrypt_webhook(account["telegram_bot_token"])
     return account
 
 
@@ -45,6 +49,8 @@ def add_account(
     notify_enabled: bool = True,
     notify_platform: str = "feishu",
     webhook_url: str | None = None,
+    telegram_bot_token: str | None = None,
+    dingtalk_sign_secret: str | None = None,
     feishu_message_mode: str = "card_json",
     feishu_template_id: str | None = None,
     feishu_scan_template_id: str | None = None,
@@ -58,12 +64,15 @@ def add_account(
             """INSERT INTO monitor_accounts
                (name, channel_url, api_key_env, fetch_mode, fetch_limit,
                 scan_interval, enabled, notify_enabled, notify_platform, webhook_url,
+                telegram_bot_token, dingtalk_sign_secret,
                 feishu_message_mode, feishu_template_id, feishu_scan_template_id,
                 api_key_id, proxy_pool_id, proxy_enabled, download_proxy_mode, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (name, channel_url, api_key_env, fetch_mode, fetch_limit,
              scan_interval, int(notify_enabled), notify_platform,
              encrypt_webhook(webhook_url),
+             encrypt_webhook(telegram_bot_token) if telegram_bot_token else None,
+             dingtalk_sign_secret,
              feishu_message_mode, feishu_template_id, feishu_scan_template_id,
              api_key_id, proxy_pool_id, int(proxy_enabled), download_proxy_mode,
              now_iso(), now_iso()),
@@ -83,6 +92,8 @@ def update_account(
     notify_enabled: bool | None = None,
     notify_platform: str | None = None,
     webhook_url=_UNSET,
+    telegram_bot_token=_UNSET,
+    dingtalk_sign_secret=_UNSET,
     feishu_message_mode: str | None = None,
     feishu_template_id=_UNSET,
     feishu_scan_template_id=_UNSET,
@@ -126,6 +137,12 @@ def update_account(
     if webhook_url is not _UNSET:
         fields.append("webhook_url=?")
         values.append(encrypt_webhook(webhook_url))
+    if telegram_bot_token is not _UNSET:
+        fields.append("telegram_bot_token=?")
+        values.append(encrypt_webhook(telegram_bot_token) if telegram_bot_token else None)
+    if dingtalk_sign_secret is not _UNSET:
+        fields.append("dingtalk_sign_secret=?")
+        values.append(dingtalk_sign_secret)
     if feishu_message_mode is not None:
         fields.append("feishu_message_mode=?")
         values.append(feishu_message_mode)

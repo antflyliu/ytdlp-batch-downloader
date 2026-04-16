@@ -87,8 +87,9 @@ CREATE TABLE IF NOT EXISTS monitor_accounts (
     scan_interval   INTEGER NOT NULL DEFAULT 5,            -- 定时扫描间隔（分钟）
     enabled         INTEGER NOT NULL DEFAULT 1,            -- 账户启用状态：0=禁用，1=启用
     notify_enabled  INTEGER NOT NULL DEFAULT 1,            -- 通知总开关：0=关闭，1=开启
-    notify_platform TEXT    NOT NULL DEFAULT 'feishu',     -- 通知平台：feishu / dingtalk / wecom
-    webhook_url     TEXT    DEFAULT NULL,                  -- 账户级 Webhook（优先级高于全局配置）
+    notify_platform TEXT    NOT NULL DEFAULT 'feishu',     -- 通知平台：feishu / dingtalk / telegram / wecom
+    webhook_url     TEXT    DEFAULT NULL,                  -- 账户级 Webhook（飞书/钉钉/企微；优先级高于全局配置）
+    telegram_bot_token TEXT DEFAULT NULL,                  -- 账户级 Telegram Bot Token（与 webhook_url 解耦）
     dingtalk_sign_secret TEXT DEFAULT NULL,                -- 钉钉签名密钥；仅钉钉通知使用
     download_proxy_mode TEXT NOT NULL DEFAULT 'auto',      -- 下载路由策略：auto / account_only / system_only / direct_only
     feishu_message_mode TEXT NOT NULL DEFAULT 'card_json', -- 飞书消息模式：card_json / template
@@ -172,7 +173,7 @@ CREATE TABLE IF NOT EXISTS monitor_notify_logs (
     account_id      INTEGER NOT NULL,                     -- 对应监控账户 id
     account_name    TEXT    NOT NULL,                     -- 账户名称快照
     video_count     INTEGER NOT NULL,                     -- 本次通知涉及的视频数量
-    platform        TEXT    NOT NULL,                     -- 平台：feishu / dingtalk / wecom
+    platform        TEXT    NOT NULL,                     -- 平台：feishu / dingtalk / telegram / wecom
     webhook_url     TEXT    NOT NULL,                     -- 实际使用的 Webhook（可能已脱敏/加密后存储）
     http_status     INTEGER DEFAULT NULL,                 -- Webhook 响应 HTTP 状态码
     response_text   TEXT    DEFAULT NULL,                 -- Webhook 返回体摘要

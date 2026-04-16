@@ -51,14 +51,21 @@
         <div class="platform-selector" id="platformSelector">
           <button type="button" class="platform-btn active-feishu" onclick="selectPlatform('feishu')">飞书</button>
           <button type="button" class="platform-btn" onclick="selectPlatform('dingtalk')">钉钉</button>
-          <button type="button" class="platform-btn" onclick="selectPlatform('wecom')">企微</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('telegram')">Telegram</button>
         </div>
         <input type="hidden" id="accPlatform" value="feishu">
       </div>
-      <div class="form-group">
-        <label class="form-label">Webhook URL</label>
+      <div class="form-group" id="accWebhookGroup">
+        <label class="form-label" id="accWebhookLabel">Webhook URL</label>
         <input class="form-input" id="accWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
-        <div class="form-hint">留空则使用全局 Webhook 配置</div>
+        <div class="form-hint" id="webhookHintDefault">留空则使用全局 Webhook 配置</div>
+        <div class="form-hint" id="webhookHintTelegram" style="display:none;color:var(--telegram)">Telegram Bot Token 需填写下方专用字段</div>
+      </div>
+      <!-- Telegram Bot Token（独立字段，与 Webhook URL 解耦，仅 Telegram 平台显示） -->
+      <div class="form-group" id="telegramTokenGroup" style="display:none">
+        <label class="form-label" id="accTelegramTokenLabel" style="color:var(--telegram)">Bot Token</label>
+        <input class="form-input" id="accTelegramToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ" autocomplete="new-password">
+        <div class="form-hint" style="color:var(--telegram)">Chat ID 需在全局设置中配置；留空则使用全局 Bot Token</div>
       </div>
       <div class="form-group form-group--dingtalk-addon" id="dingtalkSignSecretGroup" style="display:none" role="region" aria-label="钉钉机器人加签配置">
         <label class="form-label form-label--platform" for="accDingtalkSecret">钉钉加签密钥</label>
