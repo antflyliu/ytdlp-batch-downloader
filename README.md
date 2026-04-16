@@ -550,6 +550,32 @@ Skill 内部调用 `scripts/cli.py`，所有子命令支持 `--json` 输出供 A
 
 ---
 
+## Roadmap
+
+> 以下为规划中的功能，暂未实施（按优先级排序）。
+
+### 🔜 Stage 1：AI 视频切片核心（AI Video Clipper）
+
+将视频自动切片为高光片段，参考 [autoclip](https://github.com/zhouxiaoka/autoclip) 的 6 步 AI Pipeline 设计：
+
+```
+视频下载 → WhisperX字幕 → 大纲提取 → 时间线提取 → 精彩评分 → 标题生成 → 智能合集 → 视频切片
+```
+
+**新增文件**：
+- `scripts/video_clipper.py` — CLI 入口
+- `scripts/clip_pipeline.py` — 6 步编排器
+- `scripts/llm_client.py` — 多后端 LLM（通义千问/OpenAI/Ollama）
+- `scripts/text_processor.py` — SRT 解析 + 分块
+- `scripts/video_processor.py` — ffmpeg 切割 + 合集拼接
+- `scripts/prompts/` — 5 个 Prompt 模板
+
+**复用现有**：`whisperx_worker.py`、`Youtube_Downloader.py`、`ytb_api.py`
+
+详见 [规划文档](docs/planning-with-files/autoclip-integration/task_plan.md)。
+
+---
+
 ## 许可证与声明
 
 请遵守 YouTube 服务条款及当地法律法规；本工具仅供个人学习与合法用途。仓库内示例配置、Webhook 占位符请勿直接用于生产而不经审查。
