@@ -68,5 +68,17 @@
 - ⚠️ 尚未用真实视频做端到端测试（需配置 LLM API Key）
 
 
-**项目状态**：✅ Phase 1+2+3 完成，结论归档为 roadmap
-**后续行动**：作为独立 Issue 跟踪，未来迭代开发时实施
+### Stage 3 实施记录（2026-04-18）
+- ✅ **3.3 切片结果通知推送** — `scripts/clip_notifier.py`（notify_pipeline_result API + CLI），
+  `video_clipper.py --notify` 集成，`renderers.py` 四平台构建器（飞书/钉钉/Telegram/企业微信）
+- ✅ **3.2 自动切片触发** — `monitor/scheduler.py`，下载成功后异步触发 ClipPipeline（daemon Thread）；
+  `no_subs` 由 `auto_clip_enabled` 配置驱动；复用已有 llm_* 配置字段
+- ❌ **3.1 B站自动上传** — 移至 Phase 4 Roadmap，详见 findings.md §九
+
+**Phase 4 Roadmap — B站上传**
+- 核心障碍：cookies 认证体系（SESSDATA/bili_jct 有时效性）
+- 上传流程：preupload → UPOS 分片上传 → 元数据提交（5步）
+- 推荐方案：方案 C（先框架后认证），复用 bilibili-api-python 实现
+- 预估：800-1200 行代码
+
+**项目状态**：✅ Phase 1-3 全部完成，Stage 3.1 归档 Phase 4

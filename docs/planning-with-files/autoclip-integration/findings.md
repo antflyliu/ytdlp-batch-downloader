@@ -323,3 +323,134 @@ pysrt   # SRT 解析
 ```
 
 无需引入：FastAPI, Celery, Redis, React, Ant Design
+
+---
+
+## 九、Phase 4 Roadmap — B站自动上传（Stage 3.1）
+
+### 定位
+将 AI 切片结果（`generated_clips`）自动上传到 B站，属于"下载→切片→发布"完整流水线的最后一步。
+
+### 核心障碍：认证体系
+
+B站上传**必须携带登录态 cookies**，无法像 YouTube 那样用 OAuth API Key 静默授权：
+
+| Cookie 字段 | 用途 | 获取方式 | 有效期 |
+|---|---|---|---|
+| `SESSDATA` | 主会话 token | 浏览器登录后从 cookies 提取 | 几天~几周 |
+| `bili_jct` | CSRF token | 同上 | 同上 |
+| `buvid3` | 设备标识 | 同上 | 较长 |
+| `b_lsid` | 上传 session | 上传时动态获取 | 30分钟 |
+
+**这三个字段（SESSDATA / bili_jct / buvid3）均需用户在浏览器登录后手动复制**，且有过期问题，过期需重新获取。
+
+### 上传流程（5步）
+
+```
+Step 1: preupload
+  POST https://member.bilibili.com/x/vupre/web/add
+  → 获取 upload_id + biz_id
+  Headers: SESSDATA + bili_jct + buvid3
+
+Step 2: 获取上传地址（UPOS）
+  POST https://member.bilibili.com/x/vupre/web/upload/upos
+  → 获取阿里云 OSS 风格上传地址（upos://...）
+  TTL: 30分钟
+
+Step 3: 分片上传
+  PUT {upos_url}?partNumber=N&uploadId={upload_id}
+  每片 4MB，需计算 md5/ts hash
+  并行上传控制
+
+Step 4: 上传完成确认
+  POST {upos_url}?uploadId={upload_id}
+  合并所有分片
+
+Step 5: 提交元数据
+  POST https://member.bilibili.com/x/vupre/web/add
+  参数: title, desc, tag, category_id, cover, source
+```
+
+### 关键代码参考
+
+- **UPOS 地址格式**: `upos://upos-sz-upcdnbcos01.bilivideo.com/...?uploadId=...`
+- **分片大小**: 固定 4MB
+- **hash 计算**: 需计算整文件 md5 和分片 ts hash（用于秒传校验）
+- **封面**: 需单独上传获取 cover_id
+- **分区 ID**: 需映射到 B站分区（科技/生活/知识等）
+
+### 实施复杂度评估
+
+| 维度 | 复杂度 | 说明 |
+|---|---|---|
+| 认证获取 | **高** | 需浏览器手动获取 cookies，有时效性 |
+| preupload 接口 | **中** | 简单 POST，有现成实现 |
+| UPOS 分片上传 | **高** | 阿里云 OSS 风格，多线程并行，断点续传 |
+| hash 计算 | **高** | md5 + ts hash，需本地计算 |
+| 元数据提交 | **中** | 标题/标签/分区/封面字段 |
+| Cookie 刷新 | **高** | SESSDATA 过期需用户重新获取 |
+| UI 配置 | **中** | cookies 输入 + 标签选择器 + 分区选择 |
+
+**总评：🟠 高复杂度，约 800-1200 行新增代码**
+
+### 三种可行方案
+
+#### 方案 A — 完整自封装
+新建 `scripts/bili_uploader.py`，完整实现 UPOS 上传流程：
+```
+新增文件:
+  scripts/bili_uploader.py    # UPOS 分片上传核心
+  scripts/bili_auth.py         # cookie 存储与刷新
+新增配置:
+  bili_sessdata, bili_jct, bili_buvid3
+```
+- 优点：完全可控，无第三方依赖
+- 缺点：实现量大，cookie 刷新逻辑复杂
+
+#### 方案 B — 复用 bilibili-api-python
+参考 `MoyuScript/bilibili-api` 的 `upload_video` 实现：
+- 约 60% 代码可参考（UPOS 逻辑）
+- 仍需处理 cookie 存储与刷新
+- 引入第三方库依赖
+
+#### 方案 C — 先做框架后做认证（推荐）
+分两阶段：
+- **Phase 1**: 实现切片输出目录扫描 + 上传脚本框架（无实际调用）
+- **Phase 2**: 加入认证逻辑，提供详细的 cookie 获取文档
+- **优点**：降低初期投入，用户可先体验其他功能
+- **缺点**：仍需解决认证问题才能真正使用
+
+### 推荐方案：方案 C
+
+理由：
+1. **B站 cookies 有时效性** — 用户需频繁手动刷新，体验差
+2. **与 autoclip 核心价值关系弱** — 切片是"下载→处理"，上传是"发布"，两个独立工作流
+3. **技术门槛高但参考丰富** — `bilibili-api-python` / `bilibili-toolman` 等项目已有实现
+4. **可作为独立 Issue 跟踪** — 等社区有更稳定的方案后再实施
+
+### 新增文件预估
+
+```
+scripts/
+  ├── bili_uploader.py      # 上传核心（UPOS 分片）
+  ├── bili_auth.py           # cookie 管理
+  └── bili_metadata.py      # 元数据构建（标题/标签/分区）
+```
+
+### 配置字段
+
+```python
+# config/settings.py
+"bili_enabled": False,
+"bili_sessdata": "",       # 登录 cookies
+"bili_jct": "",
+"bili_buvid3": "",
+"bili_default_tags": "AI剪辑,自动上传",  # 默认标签
+"bili_default_category": 36,            # 默认分区（知识）
+"bili_auto_upload": False,              # 切片完成后自动上传
+```
+
+### 与 autoclip Stage 3.1 的关系
+
+autoclip 原生 B站上传同样是基于 cookies 认证，实现方式类似。建议直接参考 `autoclip` 中 `bilibili_service.py` 的实现逻辑，而非重新发明。
+

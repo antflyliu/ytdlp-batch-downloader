@@ -51,10 +51,12 @@
 - **Status:** ✅ complete（Stage 2 全部完成）
 
 ## Phase 5: 实施 — Stage 3 高级功能
-- [ ] 3.1 B 站自动上传
 - [x] 3.2 自动切片触发（监控触发）— `monitor/scheduler.py`，下载成功后异步触发 ClipPipeline
 - [x] 3.3 切片结果通知推送
-- **Status:** 进行中（3.1 未开始）
+- **Status:** Stage 3.2+3.3 ✅ 完成，3.1 移至 Phase 4
+
+## Phase 4: Roadmap — 未来迭代
+- [ ] 3.1 B 站自动上传 — 见 findings.md 详细方案
 
 ---
 
