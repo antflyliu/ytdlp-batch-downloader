@@ -888,6 +888,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "scan_jitter_seconds", "quota_alert_thresholds",
             "channel_meta_health_check_enabled", "channel_meta_health_check_interval_hours",
             "notify_on_channel_meta_mismatch",
+            # AI 视频切片配置
+            "llm_provider", "llm_api_key", "llm_model", "llm_base_url",
+            "llm_min_score", "llm_category",
         ]:
             if key in body:
                 cfg[key] = body[key]

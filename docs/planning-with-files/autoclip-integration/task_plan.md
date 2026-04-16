@@ -31,6 +31,31 @@
 - [x] 3.3 制定实施路线图
 - **Status:** ✅ complete
 
+## Phase 4: 实施 — Stage 1 核心脚本
+- [x] 4.1 `scripts/llm_client.py` — 多后端 LLM（qwen/openai/ollama/groq）
+- [x] 4.2 `scripts/text_processor.py` — SRT 解析 + 分块
+- [x] 4.3 `scripts/video_processor.py` — ffmpeg 切割 + 合集拼接
+- [x] 4.4 `scripts/clip_pipeline.py` — 6 步 Pipeline 编排器
+- [x] 4.5 `scripts/video_clipper.py` — CLI 入口
+- [x] 4.6 `scripts/prompts/` — 5 个 Prompt 模板（outline/timeline/scoring/title/clustering）
+- [x] 4.7 单元测试（39 个用例，pytest 全部通过）
+- **Status:** ✅ complete（Stage 1 全部完成）
+
+## Phase 4: 实施 — Stage 2 GUI 集成
+- [x] 2.1 `config/settings.py` — 添加 llm_provider/api_key/model/base_url/min_score/category 配置字段
+- [x] 2.2 `server/__main__.py` — `_api_config_save()` 白名单添加 LLM 配置字段
+- [x] 2.3 `monitor_web/templates/modals/modal-config.html` — 新增「AI 视频切片」设置区块
+- [x] 2.4 `monitor_web/js/modules/config.js` — 添加 LLM 配置 UI 绑定（加载/保存）
+- [x] 2.5 `ytdownload_ui.py` — 新增「AI 视频切片」Tkinter UI 区块（提供商/评分/分类）
+- [x] 2.6 语法验证（py_compile）+ 测试套件通过
+- **Status:** ✅ complete（Stage 2 全部完成）
+
+## Phase 5: 实施 — Stage 3 高级功能
+- [ ] 3.1 B 站自动上传
+- [ ] 3.2 自动切片触发（监控触发）
+- [ ] 3.3 切片结果通知推送
+- **Status:** 未开始
+
 ---
 
 ## 关键决策记录

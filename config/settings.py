@@ -82,6 +82,13 @@ def _config_default() -> dict:
         "provider_cooldown_seconds": 600,
         "proxy_probe_timeout_seconds": 8,
         "mask_proxy_in_logs": True,
+        # ── AI 视频切片配置 ──────────────────────────────
+        "llm_provider": "qwen",
+        "llm_api_key": "",
+        "llm_model": "",
+        "llm_base_url": "",
+        "llm_min_score": 7.0,
+        "llm_category": "knowledge",
     }
 
 

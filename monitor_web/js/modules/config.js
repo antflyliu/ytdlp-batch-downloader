@@ -42,6 +42,14 @@ export async function openConfig() {
   e = el('cfgSubLangs'); if (e) e.value = cfg.default_sub_langs || 'zh-Hans,en';
   e = el('cfgDefaultApiKey'); if (e) e.value = cfg.default_api_key_id || '';
 
+  // AI 视频切片配置
+  e = el('cfgLlmProvider'); if (e) e.value = cfg.llm_provider || 'qwen';
+  e = el('cfgLlmApiKey'); if (e) e.value = cfg.llm_api_key || '';
+  e = el('cfgLlmModel'); if (e) e.value = cfg.llm_model || '';
+  e = el('cfgLlmBaseUrl'); if (e) e.value = cfg.llm_base_url || '';
+  e = el('cfgLlmMinScore'); if (e) e.value = cfg.llm_min_score != null ? cfg.llm_min_score : 7.0;
+  e = el('cfgLlmCategory'); if (e) e.value = cfg.llm_category || 'knowledge';
+
   // 系统默认动态代理配置
   e = el('cfg_system_dynamic_proxy_enabled'); if (e) e.checked = !!cfg.system_dynamic_proxy_enabled;
   e = el('cfg_apply_dynamic_proxy_to_new_accounts'); if (e) e.checked = cfg.apply_dynamic_proxy_to_new_accounts !== false;
@@ -103,6 +111,14 @@ export async function saveConfig() {
     enable_aria2: c('cfgEnableAria2'),
     default_sub_langs: v('cfgSubLangs') || 'zh-Hans,en',
     default_api_key_id: v('cfgDefaultApiKey') || null,
+
+    // AI 视频切片配置
+    llm_provider: (() => { const e = el('cfgLlmProvider'); return e ? e.value : 'qwen'; })(),
+    llm_api_key: v('cfgLlmApiKey'),
+    llm_model: v('cfgLlmModel'),
+    llm_base_url: v('cfgLlmBaseUrl'),
+    llm_min_score: (() => { const e = el('cfgLlmMinScore'); return e ? parseFloat(e.value) || 7.0 : 7.0; })(),
+    llm_category: (() => { const e = el('cfgLlmCategory'); return e ? e.value : 'knowledge'; })(),
 
     // 系统默认动态代理配置
     system_dynamic_proxy_enabled: c('cfg_system_dynamic_proxy_enabled'),

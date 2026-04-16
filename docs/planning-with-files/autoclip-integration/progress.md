@@ -28,6 +28,25 @@
 
 ### Phase 2 完成内容
 - ✅ 新增文件清单设计（scripts/ 下 5 个核心文件 + 5 个 Prompt 模板）
+
+## 2026-04-18
+
+### Stage 1 实施完成
+- ✅ `scripts/llm_client.py` — 4 后端 LLM（qwen/openai/ollama/groq）
+- ✅ `scripts/text_processor.py` — SRT 解析 + 分块（支持覆盖式时间提取）
+- ✅ `scripts/video_processor.py` — ffmpeg 切割 + 合集拼接
+- ✅ `scripts/clip_pipeline.py` — 6 步 Pipeline 编排器（断点续跑）
+- ✅ `scripts/video_clipper.py` — CLI 入口（argparse）
+- ✅ `scripts/prompts/` — 5 个 Prompt 模板
+- ✅ 39 个单元测试全部通过
+
+### Stage 2 GUI 集成完成
+- ✅ `config/settings.py` — 添加 6 个 LLM 配置字段（provider/api_key/model/base_url/min_score/category）
+- ✅ `server/__main__.py` — `_api_config_save()` 白名单加入 LLM 字段
+- ✅ `monitor_web/templates/modals/modal-config.html` — 新增「AI 视频切片」设置区块（6 个控件）
+- ✅ `monitor_web/js/modules/config.js` — openConfig() 加载 + saveConfig() 保存 LLM 配置
+- ✅ `ytdownload_ui.py` — 新增「AI 视频切片」Tkinter 区块（提供商+模型/评分/内容类型），canvas scrollregion 扩展至 1400
+- ✅ 语法验证 + 测试套件通过（361 + 39 = 400 total, 2 pre-existing failures）
 - ✅ 6 步 Pipeline 实现方案
 - ✅ 实施分 3 个 Stage（核心脚本 → GUI集成 → 高级功能）
 - ✅ LLM 多后端支持（OpenAI / Qwen / Ollama / Groq）
@@ -38,6 +57,16 @@
 - ✅ **LLM 优先通义千问**，架构设计为可插拔多后端
 - ✅ **分阶段迭代**：Stage 1 → Stage 2 → Stage 3
 
-### 最终结论
+### Stage 1 实施记录（2026-04-17）
+- ✅ `scripts/llm_client.py` — 多后端 LLM（qwen/openai/ollama/groq），支持 call/call_with_retry/parse_json_response
+- ✅ `scripts/text_processor.py` — SRT 解析（SRTEntry dataclass）、分块（时间/字符双重策略）
+- ✅ `scripts/video_processor.py` — ffmpeg 切割（extract_clip/batch_extract_clips）+ 合集拼接（create_collection）
+- ✅ `scripts/clip_pipeline.py` — 6 步编排器（Step1-6），PipelineContext 保存所有中间结果，支持断点续跑
+- ✅ `scripts/video_clipper.py` — CLI 入口，支持 `--deps`/`--skip`/`--provider`/`--min-score` 等
+- ✅ `scripts/prompts/` — 5 个 Prompt 模板（outline/timeline/scoring/title/clustering）
+- ✅ 全部模块 import 验证通过，CLI help 正常
+- ⚠️ 尚未用真实视频做端到端测试（需配置 LLM API Key）
+
+
 **项目状态**：✅ Phase 1+2+3 完成，结论归档为 roadmap
 **后续行动**：作为独立 Issue 跟踪，未来迭代开发时实施

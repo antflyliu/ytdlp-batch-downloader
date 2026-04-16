@@ -125,6 +125,49 @@
           <div class="form-hint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
         </div>
 
+        <!-- ===== AI 视频切片配置 ===== -->
+        <div class="settings-section">
+          <h3 class="section-title">AI 视频切片</h3>
+          <div class="form-group">
+            <label class="form-label">LLM 提供商</label>
+            <select class="form-input" id="cfgLlmProvider" style="max-width:280px">
+              <option value="qwen">通义千问 (Qwen)</option>
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama (本地)</option>
+              <option value="groq">Groq</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input class="form-input" id="cfgLlmApiKey" type="password" placeholder="sk-..." autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label">模型名称</label>
+            <input class="form-input" id="cfgLlmModel" placeholder="qwen-plus / gpt-4o / llama3">
+            <div class="form-hint">留空使用提供商默认模型</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">自定义 API 地址</label>
+            <input class="form-input" id="cfgLlmBaseUrl" placeholder="https://api.example.com/v1（留空使用官方地址）">
+            <div class="form-hint">适用于代理或自建 API 端点</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">精彩片段最低评分</label>
+            <input class="form-input" id="cfgLlmMinScore" type="number" min="1" max="10" step="0.1" placeholder="7.0" style="width:100px">
+            <div class="form-hint">1-10 分，仅保留高于此分数的片段</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">视频内容类型</label>
+            <select class="form-input" id="cfgLlmCategory" style="max-width:280px">
+              <option value="knowledge">知识类（教程/科普/解答）</option>
+              <option value="entertainment">娱乐类（游戏/音乐/综艺）</option>
+              <option value="vlog">生活类（Vlog/日常/开箱）</option>
+              <option value="news">新闻类（热点/资讯/评论）</option>
+            </select>
+            <div class="form-hint">不同类型影响 AI 话题识别和评分权重</div>
+          </div>
+        </div>
+
         <!-- ===== 系统默认动态代理 ===== -->
         <div class="settings-section">
           <h3 class="section-title">系统默认动态代理</h3>

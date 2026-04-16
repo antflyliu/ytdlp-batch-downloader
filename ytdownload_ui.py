@@ -273,7 +273,7 @@ class YoutubeDownloaderUI:
         canvas_frame.pack_propagate(False)
 
         self.canvas = tk.Canvas(canvas_frame, bg=c["bg"], bd=0, highlightthickness=0,
-                                scrollregion=(0, 0, 880, 1200))
+                                scrollregion=(0, 0, 880, 1400))
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Vertical scrollbar
@@ -296,7 +296,7 @@ class YoutubeDownloaderUI:
             w = self.canvas.winfo_width()
             # Get actual content height
             content_h = self.canvas.bbox("all")
-            h = content_h[3] if content_h else 1200
+            h = content_h[3] if content_h else 1400
             self.canvas.configure(scrollregion=(0, 0, w, h))
             self.canvas.itemconfigure(self._canvas_window_id, width=w)
         self.root.bind("<Configure>", on_configure)
@@ -400,6 +400,13 @@ class YoutubeDownloaderUI:
             self._make_cookie_row,
         ])
 
+        # ─── Section 2b: AI Clip Settings ────────────────────────────
+        self._make_section(main, "AI 视频切片", [
+            self._make_llm_provider_row,
+            self._make_llm_min_score_row,
+            self._make_llm_category_row,
+        ])
+
         # ─── Section 3: URL List ────────────────────────────────────
         tk.Label(main, text="视频链接列表", bg=c["bg"], fg=c["text"],
                  font=("Segoe UI", 11, "bold"),
@@ -490,7 +497,7 @@ class YoutubeDownloaderUI:
         # Force update scrollregion after layout is complete
         main.update_idletasks()
         content_h = self.canvas.bbox("all")
-        h = content_h[3] if content_h else 1200
+        h = content_h[3] if content_h else 1400
         # Make window tall enough to show all content (scrollregion adjusts for scrolling)
         needed_h = h + 20
         current_h = self.root.winfo_height()
@@ -1747,6 +1754,64 @@ class YoutubeDownloaderUI:
 
         # Default state: enabled
         self._on_subtitle_toggle()
+        return 1
+
+    def _make_llm_provider_row(self, parent, row):
+        c = self.colors
+        self._make_field_label(parent, row, "LLM 提供商")
+        combo_frame = tk.Frame(parent, bg=c["surface"])
+        combo_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        self.llm_provider_var = tk.StringVar(value="qwen")
+        combo = ttk.Combobox(combo_frame, textvariable=self.llm_provider_var,
+                             values=["qwen", "openai", "ollama", "groq"],
+                             state="readonly", width=16, font=("Segoe UI", 10))
+        combo.pack(side=tk.LEFT)
+
+        tk.Label(combo_frame, text="模型:", bg=c["surface"], fg=c["text_muted"],
+                 font=("Segoe UI", 9), padx=(16, 4)).pack(side=tk.LEFT)
+        self.llm_model_var = tk.StringVar()
+        model_entry = tk.Entry(combo_frame, textvariable=self.llm_model_var,
+                               bg=c["surface2"], fg=c["text"],
+                               insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                               font=("Segoe UI", 10), width=18,
+                               highlightbackground=c["border"], highlightthickness=1)
+        model_entry.pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(combo_frame, text="留空用默认", bg=c["surface"], fg=c["text_muted"],
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        return 1
+
+    def _make_llm_min_score_row(self, parent, row):
+        c = self.colors
+        self._make_field_label(parent, row, "精彩片段评分")
+        score_frame = tk.Frame(parent, bg=c["surface"])
+        score_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        self.llm_min_score_var = tk.StringVar(value="7.0")
+        entry = tk.Entry(score_frame, textvariable=self.llm_min_score_var,
+                         bg=c["surface2"], fg=c["text"],
+                         insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+                         font=("Segoe UI", 10), width=8,
+                         highlightbackground=c["border"], highlightthickness=1)
+        entry.pack(side=tk.LEFT)
+
+        tk.Label(score_frame, text="分  (1-10，仅保留高于此分的片段)",
+                 bg=c["surface"], fg=c["text_muted"], font=("Segoe UI", 9), padx=8).pack(side=tk.LEFT)
+        return 1
+
+    def _make_llm_category_row(self, parent, row):
+        c = self.colors
+        self._make_field_label(parent, row, "视频内容类型")
+        combo_frame = tk.Frame(parent, bg=c["surface"])
+        combo_frame.grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(8, 12), pady=4)
+
+        self.llm_category_var = tk.StringVar(value="knowledge")
+        combo = ttk.Combobox(combo_frame, textvariable=self.llm_category_var,
+                             values=["knowledge", "entertainment", "vlog", "news"],
+                             state="readonly", width=16, font=("Segoe UI", 10))
+        combo.pack(side=tk.LEFT)
+        tk.Label(combo_frame, text="= 知识/教程 | 娱乐/游戏 | Vlog | 新闻",
+                 bg=c["surface"], fg=c["text_muted"], font=("Segoe UI", 8), padx=8).pack(side=tk.LEFT)
         return 1
 
     def _on_subtitle_toggle(self):
