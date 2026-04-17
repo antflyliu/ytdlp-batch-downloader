@@ -162,6 +162,7 @@ class AccountDialog(tk.Toplevel):
         for plat, label, color in [
             ("feishu",   "飞书",      "#7B68EE"),
             ("dingtalk", "钉钉",      "#1677FF"),
+            ("wecom",    "企微",      "#52C41A"),
             ("telegram", "Telegram",  "#26A5E4"),
         ]:
             btn = tk.Label(platform_frame, text=label, bg=c["surface2"], fg=c["text"],
@@ -185,6 +186,52 @@ class AccountDialog(tk.Toplevel):
         tk.Label(frame, text="留空则使用全局配置",
                 bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
                ).grid(row=15, column=1, sticky=tk.W, padx=(8, 0))
+
+        # Telegram Bot Token
+        self._telegram_token_frame = tk.Frame(frame, bg=c["bg"])
+        tk.Label(self._telegram_token_frame, text="Bot Token", bg=c["bg"],
+                 fg="#26A5E4", font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(8, 0))
+        self._vars["telegram_bot_token"] = tk.StringVar(
+            value=(self.account.get("telegram_bot_token", "") if self.account else ""))
+        tg_entry = tk.Entry(
+            self._telegram_token_frame,
+            textvariable=self._vars["telegram_bot_token"],
+            bg=c["surface2"], fg=c["text"],
+            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+            font=("Segoe UI", 9), show="*",
+            highlightbackground=c["border"], highlightthickness=1,
+            highlightcolor="#3898ec",
+        )
+        tg_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(8, 0))
+        self._telegram_token_frame.columnconfigure(1, weight=1)
+        tk.Label(self._telegram_token_frame,
+            text="留空则使用全局 Token；支持名者的加密钥",
+            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7),
+            wraplength=420, justify=tk.LEFT,
+        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 8))
+
+        # Telegram Chat ID
+        self._telegram_chatid_frame = tk.Frame(frame, bg=c["bg"])
+        tk.Label(self._telegram_chatid_frame, text="Chat ID", bg=c["bg"],
+                 fg="#26A5E4", font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
+        self._vars["telegram_chat_id"] = tk.StringVar(
+            value=(self.account.get("telegram_chat_id", "") if self.account else ""))
+        tgchat_entry = tk.Entry(
+            self._telegram_chatid_frame,
+            textvariable=self._vars["telegram_chat_id"],
+            bg=c["surface2"], fg=c["text"],
+            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
+            font=("Segoe UI", 9),
+            highlightbackground=c["border"], highlightthickness=1,
+            highlightcolor="#3898ec",
+        )
+        tgchat_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(0, 4))
+        self._telegram_chatid_frame.columnconfigure(1, weight=1)
+        tk.Label(self._telegram_chatid_frame,
+            text="留空则使用全局 Chat ID",
+            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7),
+            wraplength=420, justify=tk.LEFT,
+        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 8))
 
         # 钉钉加签（仅钉钉平台显示；与 Web 端一致的语义说明，焦点环色见 DESIGN.md Focus Blue）
         self._dingtalk_sign_frame = tk.Frame(frame, bg="#1677FF", padx=2, pady=2)
@@ -211,7 +258,7 @@ class AccountDialog(tk.Toplevel):
             text="加签时填 SEC，须与上方账户 Webhook 同一机器人；仅用全局钉钉 Webhook 时请留空",
             bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7), wraplength=420, justify=tk.LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 6))
-        self._dingtalk_sign_frame.grid(row=16, column=0, columnspan=2, sticky=tk.EW)
+        self._dingtalk_sign_frame.grid(row=18, column=0, columnspan=2, sticky=tk.EW)
 
         # 飞书模板配置（仅飞书平台显示）
         self._feishu_template_group = tk.Frame(frame, bg=c["bg"])
@@ -263,7 +310,7 @@ class AccountDialog(tk.Toplevel):
                 bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
                ).grid(row=4, column=1, sticky=tk.W, padx=(8, 0))
 
-        self._feishu_template_group.grid(row=17, column=0, columnspan=2, sticky=tk.W)
+        self._feishu_template_group.grid(row=19, column=0, columnspan=2, sticky=tk.W)
 
         # 启用/通知复选框
         self._vars["enabled"] = tk.BooleanVar(
@@ -275,17 +322,17 @@ class AccountDialog(tk.Toplevel):
             cb = tk.Checkbutton(frame, text=label_text, variable=self._vars[key],
                               bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
                               activebackground=c["bg"], font=("Segoe UI", 9))
-            cb.grid(row=18 if key == "enabled" else 19, column=0, columnspan=2,
+            cb.grid(row=20 if key == "enabled" else 21, column=0, columnspan=2,
                     sticky=tk.W, pady=(8, 0))
 
         # 分隔
         sep3 = tk.Frame(frame, bg=c["border"], height=1)
-        sep3.grid(row=20, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+        sep3.grid(row=22, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
 
         # 下载代理设置
         tk.Label(frame, text="下载代理设置", bg=c["bg"], fg=c["accent"],
                  font=("Segoe UI", 9, "bold")).grid(
-                     row=21, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+                     row=23, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
 
         self._vars["proxy_enabled"] = tk.BooleanVar(
             value=bool(self.account.get("proxy_enabled", 0)) if self.account else False)
@@ -302,7 +349,7 @@ class AccountDialog(tk.Toplevel):
                                   variable=self._vars["proxy_enabled"],
                                   bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
                                   activebackground=c["bg"], font=("Segoe UI", 9))
-        proxy_cb.grid(row=22, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        proxy_cb.grid(row=24, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         self._vars["proxy_enabled"].trace_add("write", _toggle_proxy_section)
 
         # 代理池选择
@@ -335,7 +382,7 @@ class AccountDialog(tk.Toplevel):
         # 初始状态
         if not self._vars["proxy_enabled"].get():
             self._proxy_pool_row.grid_remove()
-        self._proxy_pool_row.grid(row=23, column=0, columnspan=2, sticky=tk.W)
+        self._proxy_pool_row.grid(row=25, column=0, columnspan=2, sticky=tk.W)
 
         # 按钮
         btn_frame = tk.Frame(self, bg=c["bg"])
@@ -385,6 +432,8 @@ class AccountDialog(tk.Toplevel):
                 "feishu_message_mode": mode_raw,
                 "feishu_template_id": self._vars["feishu_template_id"].get().strip() or None,
                 "feishu_scan_template_id": self._vars["feishu_scan_template_id"].get().strip() or None,
+                "telegram_bot_token": self._vars["telegram_bot_token"].get().strip() or None,
+                "telegram_chat_id": self._vars["telegram_chat_id"].get().strip() or None,
                 "proxy_pool_id": proxy_pool_id_val if proxy_pool_id_val else None,
                 "proxy_enabled": self._vars["proxy_enabled"].get(),
             }
@@ -407,13 +456,19 @@ class AccountDialog(tk.Toplevel):
 
     def _select_platform(self, platform: str):
         self._vars["notify_platform"].set(platform)
+        # 平台切换时清空其他平台的专属字段，防止数据混淆
+        if platform == "telegram":
+            self._vars["webhook_url"].set("")
+        else:
+            self._vars["telegram_bot_token"].set("")
+            self._vars["telegram_chat_id"].set("")
         self._update_platform_ui()
 
     def _update_platform_ui(self):
         c = _COLORS
         selected = self._vars["notify_platform"].get()
-        plat_colors = {"feishu": "#7B68EE", "dingtalk": "#1677FF", "wecom": "#52C41A"}
-        for plat, label, color in [("feishu", "飞书", "#7B68EE"), ("dingtalk", "钉钉", "#1677FF"), ("telegram", "Telegram", "#26A5E4")]:
+        plat_colors = {"feishu": "#7B68EE", "dingtalk": "#1677FF", "wecom": "#52C41A", "telegram": "#26A5E4"}
+        for plat, label, color in [("feishu", "飞书", "#7B68EE"), ("dingtalk", "钉钉", "#1677FF"), ("wecom", "企微", "#52C41A"), ("telegram", "Telegram", "#26A5E4")]:
             btn = self._vars.get(f"_plat_btn_{plat}")
             if btn:
                 is_sel = (plat == selected)
@@ -432,6 +487,17 @@ class AccountDialog(tk.Toplevel):
                 self._dingtalk_sign_frame.grid()
             else:
                 self._dingtalk_sign_frame.grid_remove()
+        # Telegram 专属字段仅在 Telegram 平台显示
+        if hasattr(self, "_telegram_token_frame"):
+            if selected == "telegram":
+                self._telegram_token_frame.grid()
+            else:
+                self._telegram_token_frame.grid_remove()
+        if hasattr(self, "_telegram_chatid_frame"):
+            if selected == "telegram":
+                self._telegram_chatid_frame.grid()
+            else:
+                self._telegram_chatid_frame.grid_remove()
 
 
 # ── 全局设置弹窗 ──────────────────────────────────────────────────────────
@@ -964,6 +1030,7 @@ class MonitorPage:
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
                     proxy_pool_id=dialog.result.get("proxy_pool_id"),
                     proxy_enabled=dialog.result.get("proxy_enabled", False),
+                    telegram_bot_token=dialog.result.get("telegram_bot_token"),
                 )
                 self._append_log(f"账户添加成功: {dialog.result['name']} (id={account_id})")
                 if _scheduler.is_running():
@@ -995,6 +1062,7 @@ class MonitorPage:
                     feishu_scan_template_id=dialog.result.get("feishu_scan_template_id"),
                     proxy_pool_id=dialog.result.get("proxy_pool_id"),
                     proxy_enabled=dialog.result.get("proxy_enabled"),
+                    telegram_bot_token=dialog.result.get("telegram_bot_token"),
                 )
                 self._append_log(f"账户已更新: {dialog.result['name']} (id={acc['id']})")
                 if _scheduler.is_running():

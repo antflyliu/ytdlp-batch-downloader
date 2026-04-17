@@ -15,6 +15,7 @@ import apscheduler.triggers.interval
 
 import logging_config
 import monitor.db as _db
+from monitor.video_paths import resolve_downloaded_video_path
 import monitor.detector as _detector
 import monitor.fetcher as _fetcher
 import monitor.notifier as _notifier
@@ -587,32 +588,31 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
                     extra_ydl_opts=extra_ydl_opts,
                 )
 
-                success_ids = []
-                failed_ids = []
+                now_str = _db.now_iso()
+                success_ids: list[int] = []
+                failed_ids: list[int] = []
                 for idx, r in enumerate(results):
                     vid = batch_ids[idx] if idx < len(batch_ids) else None
                     if not vid:
                         continue
                     if r.get("状态") == "成功":
+                        file_path = r.get("video_path") or output_path
+                        _db.update_videos_download_status(
+                            [vid], "downloaded",
+                            download_at=now_str,
+                            download_path=file_path,
+                        )
                         success_ids.append(vid)
                     else:
+                        _db.update_videos_download_status(
+                            [vid], "failed",
+                            download_error="auto download failed",
+                        )
                         failed_ids.append(vid)
 
-                now_str = _db.now_iso()
                 if success_ids:
-                    _db.update_videos_download_status(
-                        success_ids, "downloaded",
-                        download_at=now_str,
-                        download_path=output_path,
-                    )
-                    # Stage 3.2: trigger auto-clip
                     success_records = _db.get_videos_by_ids(success_ids)
                     _maybe_trigger_auto_clip(success_records, cfg)
-                if failed_ids:
-                    _db.update_videos_download_status(
-                        failed_ids, "failed",
-                        download_error="auto download failed",
-                    )
 
                 _log.info(
                     f"批次下载完成: 成功={len(success_ids)} 失败={len(failed_ids)}"
@@ -1115,18 +1115,43 @@ def _run_auto_clip_for_video(video_record: dict, cfg: dict) -> None:
     """对单个已下载视频执行 AI 切片 pipeline（后台线程运行）"""
     from pathlib import Path
 
-    video_path_str = video_record.get("download_path")
+    video_path_str = resolve_downloaded_video_path(video_record)
     if not video_path_str:
+        _log.warning("[auto-clip] 无法解析已下载视频路径，跳过")
         return
 
     video_path = Path(video_path_str)
-    if not video_path.exists():
-        _log.warning(f"[auto-clip] 视频文件不存在，跳过: {video_path}")
+    if not video_path.is_file():
+        _log.warning(f"[auto-clip] 视频路径无效，跳过: {video_path}")
         return
 
-    srt_path = video_path.with_suffix(".srt")
-    if not srt_path.exists():
-        _log.info(f"[auto-clip] 字幕文件不存在，跳过 auto-clip: {srt_path}")
+    video_dir = video_path.parent
+
+    # 获取账户代理（用于 LLM API 请求）
+    account_proxy = None
+    if video_record.get("account_id"):
+        account = _db.get_account(video_record["account_id"])
+        if account:
+            account_proxy = _db.get_account_proxy(account)
+    video_stem = video_path.stem  # 不含扩展名的文件名
+    sub_path = None
+
+    # 优先精确匹配：同名字幕（无语言代码）
+    for ext in (".srt", ".vtt"):
+        candidate = video_dir / f"{video_stem}{ext}"
+        if candidate.exists():
+            sub_path = candidate
+            break
+
+    # 其次模糊匹配：video.*.srt / video.*.vtt（带语言代码，如 video.en.vtt）
+    if not sub_path:
+        for candidate in video_dir.iterdir():
+            if candidate.is_file() and candidate.stem.startswith(video_stem + ".") and candidate.suffix in (".srt", ".vtt"):
+                sub_path = candidate
+                break
+
+    if not sub_path:
+        _log.info(f"[auto-clip] 字幕文件不存在（支持 .srt/.vtt），跳过: {video_stem}")
         return
 
     try:
@@ -1152,7 +1177,7 @@ def _run_auto_clip_for_video(video_record: dict, cfg: dict) -> None:
         _log.info(f"[auto-clip] 开始切片: {video_path.name}")
         ctx = pipeline.run(
             str(video_path),
-            str(srt_path),
+            str(sub_path),
             category=cfg.get("llm_category", "knowledge"),
         )
 

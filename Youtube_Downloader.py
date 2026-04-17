@@ -371,7 +371,10 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
             'writesubtitles': True,
             'writeautomaticsub': True,
             'sub_langs': sub_langs,
-            'convert_subs': 'srt',
+            'postprocessors': [{
+                'key': 'FFmpegSubtitlesConvertor',
+                'format': 'srt',
+            }],
         })
 
     def _apply_proxy(opts, p):
@@ -476,6 +479,7 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                     results.append({
                         'URL': url,
                         '状态': '成功',
+                        'video_path': video_path,
                         '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}"
                     })
                     _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={last_proxy_label}")

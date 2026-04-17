@@ -18,6 +18,7 @@ import os
 import sys
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 from contextlib import contextmanager
 
 # Load db_core first to get shared sentinel _UNSET
@@ -460,6 +461,44 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v14_telegram_bot_token", today),
+        )
+
+    # v15: AI 视频切片任务表
+    if "v15_clip_tasks" not in applied:
+        conn.execute("""CREATE TABLE IF NOT EXISTS clip_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER NOT NULL,
+            monitor_video_id INTEGER NOT NULL,
+            account_id INTEGER NOT NULL,
+            account_name TEXT NOT NULL,
+            video_title TEXT NOT NULL,
+            video_path TEXT NOT NULL,
+            srt_path TEXT NOT NULL,
+            output_dir TEXT NOT NULL,
+            llm_provider TEXT NOT NULL DEFAULT 'qwen',
+            llm_model TEXT,
+            min_score REAL NOT NULL DEFAULT 7.0,
+            category TEXT NOT NULL DEFAULT 'knowledge',
+            status TEXT NOT NULL DEFAULT 'pending',
+            started_at TEXT,
+            finished_at TEXT,
+            clip_count INTEGER DEFAULT 0,
+            collection_count INTEGER DEFAULT 0,
+            error TEXT,
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_clip_tasks_account ON clip_tasks(account_id, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_clip_tasks_video ON clip_tasks(monitor_video_id, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_clip_tasks_status ON clip_tasks(status, created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v15_clip_tasks", today),
         )
 
 
@@ -1962,3 +2001,170 @@ def backup_db() -> str | None:
         return backup_path
     except Exception:
         return None
+
+
+# ── AI 视频切片任务 ───────────────────────────────────────────
+
+def get_monitor_video(video_id: int) -> dict | None:
+    """根据 monitor_videos.id 获取单条视频记录"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM monitor_videos WHERE id = ?", (video_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_clip_task(
+    video_id: int,
+    monitor_video_id: int,
+    account_id: int,
+    account_name: str,
+    video_title: str,
+    video_path: str,
+    srt_path: str,
+    output_dir: str,
+    llm_provider: str = "qwen",
+    llm_model: str | None = None,
+    min_score: float = 7.0,
+    category: str = "knowledge",
+) -> int:
+    """创建一条切片任务记录，返回新任务的 id"""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """INSERT INTO clip_tasks
+            (video_id, monitor_video_id, account_id, account_name, video_title,
+             video_path, srt_path, output_dir, llm_provider, llm_model,
+             min_score, category, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+                    ?)""",
+            (
+                video_id, monitor_video_id, account_id, account_name, video_title,
+                video_path, srt_path, output_dir, llm_provider, llm_model,
+                min_score, category,
+                datetime.now().isoformat(),
+            ),
+        )
+        return cursor.lastrowid or 0
+
+
+def update_clip_task(
+    task_id: int,
+    status: str | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    clip_count: int | None = None,
+    collection_count: int | None = None,
+    error: str | None = None,
+) -> None:
+    """更新切片任务状态和结果"""
+    fields, values = [], []
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+    if started_at is not None:
+        fields.append("started_at = ?")
+        values.append(started_at)
+    if finished_at is not None:
+        fields.append("finished_at = ?")
+        values.append(finished_at)
+    if clip_count is not None:
+        fields.append("clip_count = ?")
+        values.append(clip_count)
+    if collection_count is not None:
+        fields.append("collection_count = ?")
+        values.append(collection_count)
+    if error is not None:
+        fields.append("error = ?")
+        values.append(error)
+    if not fields:
+        return
+    values.append(task_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE clip_tasks SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def get_clip_task(task_id: int) -> dict | None:
+    """获取单个切片任务详情（包含 clips + collections 列表）"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM clip_tasks WHERE id = ?", (task_id,),
+        ).fetchone()
+        if not row:
+            return None
+        task = dict(row)
+
+    # 尝试读取 clips_metadata.json + step6_clips_result.json，补充 clips 和 collections
+    output_dir = task.get("output_dir")
+    if output_dir:
+        meta_path = Path(output_dir) / "clips_metadata.json"
+        step6_path = Path(output_dir) / "step6_clips_result.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                step6_clips = []
+                if step6_path.exists():
+                    step6_clips = json.loads(step6_path.read_text(encoding="utf-8"))
+                # 合并：step6 有 clip_path，meta 有 title/score/start_time
+                clips_with_titles = meta.get("clips_with_titles", [])
+                id_to_path = {c.get("id"): c.get("clip_path") for c in step6_clips}
+                task["clips"] = [
+                    {**ct, "clip_path": id_to_path.get(ct.get("id"), "")}
+                    for ct in clips_with_titles
+                ]
+                task["collections"] = meta.get("collections", [])
+                task["clip_count"] = len(task["clips"])
+                task["collection_count"] = len(task["collections"])
+            except Exception:
+                task["clips"] = []
+                task["collections"] = []
+        else:
+            task["clips"] = []
+            task["collections"] = []
+    else:
+        task["clips"] = []
+        task["collections"] = []
+
+    return task
+
+
+def list_clip_tasks(
+    account_id: int | None = None,
+    monitor_video_id: int | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """
+    分页查询切片任务列表。
+    :return: (tasks, total_count)
+    """
+    where_clauses = []
+    params: list = []
+    if account_id is not None:
+        where_clauses.append("account_id = ?")
+        params.append(account_id)
+    if monitor_video_id is not None:
+        where_clauses.append("monitor_video_id = ?")
+        params.append(monitor_video_id)
+    if status:
+        where_clauses.append("status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    with get_connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM clip_tasks WHERE {where_sql}", params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT id, monitor_video_id, account_id, account_name, video_title,
+                       video_path, srt_path, output_dir,
+                       llm_provider, llm_model, min_score, category,
+                       status, started_at, finished_at,
+                       clip_count, collection_count, error, created_at
+                FROM clip_tasks
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+        return [dict(r) for r in rows], total

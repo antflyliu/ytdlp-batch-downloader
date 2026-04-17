@@ -339,3 +339,32 @@ CREATE TABLE IF NOT EXISTS web_batch_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_web_batch_tasks_created_at ON web_batch_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_web_batch_tasks_status ON web_batch_tasks(status, created_at DESC);
+
+--- ── AI 视频切片任务表 ────────────────────────────────────────
+-- 记录每次手动/自动触发的切片任务
+CREATE TABLE IF NOT EXISTS clip_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id INTEGER NOT NULL,                -- FK → monitor_videos.id
+    monitor_video_id INTEGER NOT NULL,        -- monitor_videos.id（冗余便于查询）
+    account_id INTEGER NOT NULL,              -- 归属监控账户
+    account_name TEXT NOT NULL,               -- 账户名称快照
+    video_title TEXT NOT NULL,                -- 视频标题快照
+    video_path TEXT NOT NULL,                 -- 视频文件本地路径
+    srt_path TEXT NOT NULL,                   -- 字幕文件本地路径
+    output_dir TEXT NOT NULL,                 -- 切片输出目录
+    llm_provider TEXT NOT NULL DEFAULT 'qwen',
+    llm_model TEXT,
+    min_score REAL NOT NULL DEFAULT 7.0,
+    category TEXT NOT NULL DEFAULT 'knowledge',
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending / running / done / error / cancelled
+    started_at TEXT,                          -- 开始时间
+    finished_at TEXT,                         -- 结束时间
+    clip_count INTEGER DEFAULT 0,             -- 生成的切片数
+    collection_count INTEGER DEFAULT 0,       -- 生成的合集数
+    error TEXT,                               -- 错误信息
+    created_at TEXT NOT NULL                  -- 创建时间 ISO8601
+);
+
+CREATE INDEX IF NOT EXISTS idx_clip_tasks_account ON clip_tasks(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clip_tasks_video ON clip_tasks(monitor_video_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clip_tasks_status ON clip_tasks(status, created_at DESC);
