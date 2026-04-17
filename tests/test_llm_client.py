@@ -45,13 +45,30 @@ class TestLLMClientCall:
         mock_chat.return_value = "回复"
         from scripts.llm_client import LLMClient
         client = LLMClient(provider="qwen", api_key="fake")
-        result = client.call("提取关键词：{input_data}", {"text": "hello world"})
+        result = client.call("提取关键词：__INPUT_DATA__", {"text": "hello world"})
         assert result == "回复"
         # 验证 prompt 被正确注入
         call_args = mock_chat.call_args
         # call_args = ((messages, model), kwargs) → call_args[0] = positional args
         messages = call_args[0][0]
         assert "hello world" in messages[0]["content"]
+
+    @patch("scripts.llm_client.QwenProvider.chat")
+    def test_call_payload_with_braces_does_not_break(self, mock_chat):
+        """字幕等正文中的 { } 不应触发模板解析错误（已不用 str.format）。"""
+        mock_chat.return_value = "ok"
+        from scripts.llm_client import LLMClient
+        client = LLMClient(provider="qwen", api_key="fake")
+        body = '文本含 { "title": "x" } 花括号'
+        client.call("前缀__INPUT_DATA__后缀", body)
+        messages = mock_chat.call_args[0][0]
+        assert '{ "title": "x" }' in messages[0]["content"]
+
+    def test_call_missing_placeholder_raises(self):
+        from scripts.llm_client import LLMClient
+        client = LLMClient(provider="qwen", api_key="fake")
+        with pytest.raises(ValueError, match="缺少占位符"):
+            client.call("无占位符", {"a": 1})
 
 
 class TestLLMClientRetry:

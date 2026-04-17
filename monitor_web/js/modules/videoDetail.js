@@ -108,7 +108,11 @@ export async function vdLoad() {
       '<td class="vd-num">' + (v.like_count || '—') + '</td>' +
       '<td class="vd-num">' + (v.comment_count || '—') + '</td>' +
       '<td>' + dlTag + '</td>' +
-      '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + (url.startsWith('http') ? url : '#') + '">▶</button></td>' +
+      '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + (url.startsWith('http') ? url : '#') + '">▶</button>' +
+(v.download_status === 'downloaded'
+ ? ' <button type="button" class="btn-sm" style="color:var(--accent)" onclick="chTriggerClip(' + v.id + ',this)" title="AI切片">✂</button>'
+ : '') +
+'</td>' +
     '</tr>';
   }).join('');
   const allChecked = res.videos.length > 0 && res.videos.every(v => _vdSel.has(v.id));

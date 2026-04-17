@@ -13,6 +13,7 @@ import { openConfig, saveConfig, openApiKeys, loadApiKeysList, openAddApiKey, op
 import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, openAddProxyPool, openEditProxyPool, saveProxyPool, toggleProxyPool, deleteProxyPool } from './modules/proxyPool.js';
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
 import { openDynamicProviders, updateProviderSchedulerHint, loadProviderSchedulerLogs, loadDynamicProviderTable, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
+import { openClipHistory } from './modules/clipHistory.js';
 
 // ── Component modules ───────────────────────────────────────────────
 import { loadAccounts, filterAccountTable } from './components/account-list.js';
@@ -153,6 +154,9 @@ window.bdOpenSelectedTask = bdOpenSelectedTask;
 window.bdToggleLog = bdToggleLog;
 window.bdSetRecentFilter = bdSetRecentFilter;
 window.loadRecentBatchTasks = loadRecentBatchTasks;
+
+// Clip History
+window.openClipHistory = openClipHistory;
 
 // ── Boot: 先注入 header / modal 模板，再拉取数据并启动定时刷新 ───────────
 loadPartials()

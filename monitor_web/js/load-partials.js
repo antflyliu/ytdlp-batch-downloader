@@ -23,6 +23,8 @@ const PARTIAL_SPECS = [
   { mountId: 'tpl-modal-dynamic-provider-form', url: '/templates/modals/modal-dynamic-provider-form.html' },
   { mountId: 'tpl-modal-batch-download', url: '/templates/modals/modal-batch-download.html' },
   { mountId: 'tpl-modal-confirm', url: '/templates/modals/modal-confirm.html' },
+  { mountId: 'tpl-modal-clip-history', url: '/templates/modals/modal-clip-history.html' },
+  { mountId: 'tpl-modal-clip-detail', url: '/templates/modals/modal-clip-detail.html' },
 ];
 
 /**
