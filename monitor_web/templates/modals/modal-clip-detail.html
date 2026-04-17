@@ -1,0 +1,50 @@
+<div class="modal-overlay" id="modalClipDetail">
+  <div class="modal-clip-detail">
+    <!-- Header -->
+    <div class="ccd-header">
+      <div class="ccd-header-left">
+        <div class="ccd-eyebrow">切片任务 #<span id="ccdTaskId"></span></div>
+        <h2 class="ccd-title" id="ccdVideoTitle"></h2>
+        <div class="ccd-meta">
+          <span class="ccd-badge" id="ccdStatus"></span>
+          <span class="ccd-dot"></span>
+          <span class="ccd-meta-item" id="ccdClipCount"></span>
+          <span class="ccd-dot"></span>
+          <span class="ccd-meta-item" id="ccdCreatedAt"></span>
+        </div>
+      </div>
+      <button class="ccd-close" onclick="closeModal('modalClipDetail')" title="关闭">&#x2715;</button>
+    </div>
+
+    <!-- Inline video player (hidden until play) -->
+    <div class="ccd-player" id="ccdPlayer" style="display:none">
+      <button class="ccd-player-close" onclick="ccdClosePlayer()" title="关闭">&#x2715;</button>
+      <video id="ccdVideoEl" controls playsinline></video>
+    </div>
+
+    <!-- Body: two-column -->
+    <div class="ccd-body" id="ccdBody">
+      <!-- Clips -->
+      <section class="ccd-section ccd-section--clips">
+        <div class="ccd-section-header">
+          <span class="ccd-section-icon">&#x2702;</span>
+          <h3 class="ccd-section-title">切片</h3>
+          <span class="ccd-section-count" id="ccdClipsCount">0</span>
+        </div>
+        <div class="ccd-items" id="ccdClipsList"></div>
+        <div class="ccd-empty" id="ccdClipsEmpty" style="display:none">暂无切片</div>
+      </section>
+
+      <!-- Collections -->
+      <section class="ccd-section ccd-section--collections">
+        <div class="ccd-section-header">
+          <span class="ccd-section-icon">&#x25C6;</span>
+          <h3 class="ccd-section-title">合集</h3>
+          <span class="ccd-section-count" id="ccdCollectionsCount">0</span>
+        </div>
+        <div class="ccd-items" id="ccdCollectionsList"></div>
+        <div class="ccd-empty" id="ccdCollectionsEmpty" style="display:none">暂无合集</div>
+      </section>
+    </div>
+  </div>
+</div>
