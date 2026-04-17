@@ -104,9 +104,20 @@ def cmd_clip(
     _setup_logging(verbose)
     logger = logging.getLogger("video_clipper")
 
-    # 创建 LLM 客户端
-    llm_client = create_llm_client(provider=provider, model=model)
-    logger.info(f"LLM 后端: {provider}, 模型: {model or llm_client.model}")
+    # 创建 LLM 客户端（CLI 参数优先，其次从 config.json 读取）
+    from config.settings import load_config
+    cfg = load_config()
+    llm_provider = provider or cfg.get("llm_provider", "qwen")
+    llm_model = model or cfg.get("llm_model") or None
+    llm_api_key = cfg.get("llm_api_key") or None
+    llm_base_url = cfg.get("llm_base_url") or None
+    llm_client = create_llm_client(
+        provider=llm_provider,
+        model=llm_model,
+        api_key=llm_api_key,
+        base_url=llm_base_url,
+    )
+    logger.info(f"LLM 后端: {llm_provider}, 模型: {llm_model or llm_client.model}")
 
     # 初始化 Pipeline
     pipeline = ClipPipeline(

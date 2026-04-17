@@ -25,7 +25,7 @@ from .llm_client import LLMClient, create_llm_client
 from .text_processor import (
     SRTEntry,
     chunk_srt_data,
-    parse_srt,
+    parse_subtitles,
     save_chunks,
 )
 from .video_processor import VideoProcessor
@@ -134,7 +134,7 @@ class Step1Outline(PipelineStep):
         logger.info("=" * 60)
 
         # 解析 SRT
-        ctx.srt_entries = parse_srt(ctx.srt_path)
+        ctx.srt_entries = parse_subtitles(ctx.srt_path)
         if not ctx.srt_entries:
             raise RuntimeError("SRT 文件为空或解析失败")
 
@@ -147,13 +147,25 @@ class Step1Outline(PipelineStep):
         save_chunks(ctx.chunks, ctx.output_dir / "step1_chunks")
         logger.info(f"分块完成: {len(ctx.chunks)} 个块")
 
+        # 检查总内容是否过少
+        total_chars = sum(len(c["text"]) for c in ctx.chunks)
+        logger.info(f"总字幕字符数: {total_chars}")
+        if total_chars < 30:
+            logger.warning(f"字幕内容过少（{total_chars} 字），跳过大纲提取")
+            ctx.outlines = []
+            ctx.save_json("step1_outline", ctx.outlines)
+            return
+
         # 每块调用 LLM
         outline_prompt = _load_prompt("outline")
         all_outlines = []
 
         for chunk in ctx.chunks:
-            chunk_text = chunk["text"]
-            response = ctx.llm_client.call_with_retry(outline_prompt, chunk_text)
+            chunk_text = chunk["text"].strip()
+            if len(chunk_text) < 20:
+                logger.info(f"块 {chunk['chunk_index']} 内容过少（{len(chunk_text)} 字），跳过")
+                continue
+            response = ctx.llm_client.call_with_retry(outline_prompt, chunk_text, max_tokens=2000)
             if not response:
                 logger.warning(f"块 {chunk['chunk_index']} LLM 返回为空，跳过")
                 continue
@@ -188,6 +200,12 @@ class Step2Timeline(PipelineStep):
         logger.info("=" * 60)
         logger.info("Step2: 时间线提取")
         logger.info("=" * 60)
+
+        if not ctx.outlines:
+            logger.warning("无大纲内容，跳过 Step2")
+            ctx.timeline = []
+            ctx.save_json("step2_timeline", ctx.timeline)
+            return
 
         # 构建上下文：每个大纲话题 + 所属块的原文
         topic_context = []

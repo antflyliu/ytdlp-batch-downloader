@@ -139,6 +139,99 @@ def parse_srt(srt_path: str | Path) -> List[SRTEntry]:
     return entries
 
 
+def parse_vtt(vtt_path: str | Path) -> List[SRTEntry]:
+    """
+    解析 WebVTT (.vtt) 文件。
+
+    Args:
+        vtt_path: .vtt 文件路径
+
+    Returns:
+        SRTEntry 列表（按时间顺序）
+    """
+    vtt_path = Path(vtt_path)
+    entries: List[SRTEntry] = []
+
+    content = vtt_path.read_text(encoding="utf-8", errors="replace")
+    blocks = re.split(r"\n\s*\n", content.strip())
+
+    index = 0
+    for block in blocks:
+        lines = block.strip().split("\n")
+        if not lines:
+            continue
+
+        # 找时间轴行（跳过 WEBVTT 头和各种 cue 设置行）
+        time_line_idx = None
+        for i, line in enumerate(lines):
+            if "-->" in line:
+                time_line_idx = i
+                break
+        if time_line_idx is None:
+            continue
+
+        time_match = re.match(
+            r"(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})",
+            lines[time_line_idx].strip(),
+        )
+        if not time_match:
+            continue
+
+        def parse_ts(ts: str) -> float:
+            ts = ts.replace(",", ".")
+            parts = ts.split(":")
+            if len(parts) == 3:
+                h, m, s_ms = parts
+                s, ms_str = s_ms.split(".")
+                return int(h) * 3600 + int(m) * 60 + float(s) + int(ms_str) / 1000
+            return 0.0
+
+        start = parse_ts(time_match.group(1))
+        end = parse_ts(time_match.group(2))
+
+        # VTT cue 文本在时间轴行之后
+        text_lines = []
+        for line in lines[time_line_idx + 1:]:
+            # 跳过 VTT tags 和空行
+            if line.startswith("WEBVTT") or line.startswith("NOTE") or not line.strip():
+                continue
+            # 去掉 inline tags 如 <c>, <b>, <i> 等
+            cleaned = re.sub(r"<[^>]+>", "", line)
+            text_lines.append(cleaned)
+
+        text = _clean_text(" ".join(text_lines))
+        if text:
+            index += 1
+            entries.append(SRTEntry(index=index, start=start, end=end, text=text))
+
+    logger.info(f"VTT 解析完成: {vtt_path.name}, {len(entries)} 条字幕")
+    return entries
+
+
+def parse_subtitles(sub_path: str | Path) -> List[SRTEntry]:
+    """
+    自动检测并解析字幕文件（支持 .srt 和 .vtt）。
+
+    Args:
+        sub_path: 字幕文件路径
+
+    Returns:
+        SRTEntry 列表（按时间顺序）
+    """
+    p = Path(sub_path)
+    if not p.exists():
+        raise FileNotFoundError(f"字幕文件不存在: {sub_path}")
+
+    # 按扩展名路由，走各自解析器
+    ext = p.suffix.lower()
+    if ext == ".srt":
+        return parse_srt(p)
+    elif ext == ".vtt":
+        return parse_vtt(p)
+    else:
+        raise ValueError(f"不支持的字幕格式: {ext}，仅支持 .srt 和 .vtt")
+
+
 def save_srt(entries: List[SRTEntry], output_path: str | Path) -> Path:
     """将 SRTEntry 列表保存为 .srt 文件"""
     output_path = Path(output_path)

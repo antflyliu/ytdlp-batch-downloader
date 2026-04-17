@@ -26,6 +26,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 屏蔽 urllib3 不安全警告（使用代理时 SSL 证书由代理侧管理）
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Prompt 中唯一占位符（避免 str.format 与 JSON 示例里的 { } 冲突）
+PROMPT_INPUT_PLACEHOLDER = "__INPUT_DATA__"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 基础接口
@@ -57,9 +64,10 @@ class LLMProvider(ABC):
 class QwenProvider(LLMProvider):
     """通义千问后端（dashscope）"""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, proxy: str | None = None):
         self.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.proxy = proxy
 
     def chat(self, messages: list[dict], model: str, **kwargs) -> str:
         import requests
@@ -74,18 +82,25 @@ class QwenProvider(LLMProvider):
         }
         # temperature 默认 0.7，避免过度随机
         payload.setdefault("temperature", kwargs.get("temperature", 0.7))
-        if kwargs.get("max_tokens"):
-            payload["max_tokens"] = kwargs["max_tokens"]
+        # max_tokens 默认 2000，JSON 输出通常需要足够空间避免截断
+        payload.setdefault("max_tokens", kwargs.get("max_tokens", 2000))
 
         resp = requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=payload,
             timeout=kwargs.get("timeout", 120),
+            proxies=self._proxies(),
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+    def _proxies(self) -> dict | None:
+        if not self.proxy:
+            return None
+        return {"http": self.proxy, "https": self.proxy}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +110,7 @@ class QwenProvider(LLMProvider):
 class OpenAIProvider(LLMProvider):
     """OpenAI 后端（GPT-4o / GPT-4o-mini 等）"""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, proxy: str | None = None):
         try:
             from openai import OpenAI
         except ImportError:
@@ -103,7 +118,12 @@ class OpenAIProvider(LLMProvider):
 
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-        self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.proxy = proxy
+        http_client = None
+        if proxy:
+            import httpx
+            http_client = httpx.Client(proxy=proxy, verify=False)
+        self._client = OpenAI(api_key=self.api_key, base_url=self.base_url, http_client=http_client)
 
     def chat(self, messages: list[dict], model: str, **kwargs) -> str:
         response = self._client.chat.completions.create(
@@ -122,10 +142,11 @@ class OpenAIProvider(LLMProvider):
 class OllamaProvider(LLMProvider):
     """Ollama 本地后端"""
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(self, base_url: str | None = None, proxy: str | None = None):
         import requests
 
         self.base_url = base_url or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+        self.proxy = proxy
 
     def chat(self, messages: list[dict], model: str, **kwargs) -> str:
         import requests
@@ -145,10 +166,17 @@ class OllamaProvider(LLMProvider):
             f"{self.base_url}/api/chat",
             json=payload,
             timeout=kwargs.get("timeout", 300),
+            proxies=self._proxies(),
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
         return data["message"]["content"]
+
+    def _proxies(self) -> dict | None:
+        if not self.proxy:
+            return None
+        return {"http": self.proxy, "https": self.proxy}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,9 +186,10 @@ class OllamaProvider(LLMProvider):
 class GroqProvider(LLMProvider):
     """Groq API 后端"""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, proxy: str | None = None):
         self.api_key = api_key or os.environ.get("GROQ_API_KEY", "")
         self.base_url = base_url or "https://api.groq.com/openai/v1"
+        self.proxy = proxy
 
     def chat(self, messages: list[dict], model: str, **kwargs) -> str:
         import requests
@@ -182,10 +211,18 @@ class GroqProvider(LLMProvider):
             headers=headers,
             json=payload,
             timeout=kwargs.get("timeout", 60),
+            proxies=self._proxies(),
+            verify=False,
+            allow_redirects=True,
         )
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+    def _proxies(self) -> dict | None:
+        if not self.proxy:
+            return None
+        return {"http": self.proxy, "https": self.proxy}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,6 +262,7 @@ class LLMClient:
         model: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        proxy: str | None = None,
     ):
         if provider not in _PROVIDER_CLASSES:
             raise ValueError(
@@ -236,16 +274,16 @@ class LLMClient:
 
         # 实例化对应后端
         cls = _PROVIDER_CLASSES[provider]
-        self._impl: LLMProvider = cls(api_key=api_key, base_url=base_url)
-        logger.info(f"LLMClient 初始化: provider={provider}, model={self.model}")
+        self._impl: LLMProvider = cls(api_key=api_key, base_url=base_url, proxy=proxy)
+        logger.info(f"LLMClient 初始化: provider={provider}, model={self.model}, proxy={proxy}")
 
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> str:
         """
         单次 LLM 调用。
 
         Args:
-            prompt:     系统/用户 prompt 模板（支持 {input_data} 占位符）
-            input_data: 注入到 prompt 的数据（dict / list / str）
+            prompt:     系统/用户 prompt 模板（须包含 __INPUT_DATA__ 占位符）
+            input_data: 注入到占位符的数据（dict / list 会先 json.dumps；str 原样插入）
             **kwargs:   透传给底层 provider
 
         Returns:
@@ -253,9 +291,14 @@ class LLMClient:
         """
         if input_data is not None:
             if isinstance(input_data, (dict, list)):
-                prompt = prompt.format(input_data=json.dumps(input_data, ensure_ascii=False, indent=2))
+                payload = json.dumps(input_data, ensure_ascii=False, indent=2)
             else:
-                prompt = prompt.format(input_data=str(input_data))
+                payload = str(input_data)
+            if PROMPT_INPUT_PLACEHOLDER not in prompt:
+                raise ValueError(
+                    f"prompt 中缺少占位符 {PROMPT_INPUT_PLACEHOLDER!r}，无法注入 input_data"
+                )
+            prompt = prompt.replace(PROMPT_INPUT_PLACEHOLDER, payload)
 
         messages = [{"role": "user", "content": prompt}]
         return self._impl.chat(messages, self.model, **kwargs)
@@ -335,6 +378,7 @@ def create_llm_client(
     model: str | None = None,
     api_key: str | None = None,
     base_url: str | None = None,
+    proxy: str | None = None,
 ) -> LLMClient:
     """
     工厂函数：从环境变量或参数创建 LLM 客户端。
@@ -344,10 +388,12 @@ def create_llm_client(
       LLM_API_KEY   → api_key
       LLM_MODEL     → model
       LLM_BASE_URL  → base_url
+      LLM_PROXY     → proxy
     """
     return LLMClient(
         provider=provider or os.environ.get("LLM_PROVIDER", "qwen"),
         model=model or os.environ.get("LLM_MODEL"),
         api_key=api_key or os.environ.get("LLM_API_KEY"),
         base_url=base_url or os.environ.get("LLM_BASE_URL"),
+        proxy=proxy or os.environ.get("LLM_PROXY"),
     )
