@@ -27,6 +27,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import monitor.db as _db
+from monitor.video_paths import resolve_downloaded_video_path
 import monitor.scheduler as _scheduler
 import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
@@ -570,6 +571,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if path == "/api/status":
             self._api_status()
             return
+        if path.startswith("/api/video-stream"):
+            self._api_video_stream()
+            return
         if not self._require_auth():
             return
         if not self._path_skips_rate_limit(path) and not self._check_rate_limit():
@@ -606,6 +610,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "无效的提供方 ID"}, 400)
         elif path == "/api/routing-preview":
             self._api_routing_preview()
+        elif path == "/api/clips":
+            self._api_clip_list()
+        elif path.startswith("/api/clips/") and self.command == "GET":
+            task_id = path.split("/")[-1]
+            if task_id.isdigit():
+                self._api_clip_get(int(task_id))
+            else:
+                self._send_json({"error": "无效的任务 ID"}, 400)
         elif path.startswith("/api/api-keys/"):
             parts = path.split("/")
             action = parts[-1]
@@ -739,6 +751,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/batch/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_batch_task_cancel(task_id)
+        elif path == "/api/clips":
+            self._api_clip_create(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -788,6 +802,105 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     # ── REST API ────────────────────────────────────────────
+
+    def _api_video_stream(self):
+        """GET /api/video-stream?path=<filepath> — 流式播放本地视频文件（绕过浏览器 file:// 限制）
+
+        无需认证：服务端已对路径做安全检查（禁止 .. 遍历，只能访问 videos/ 目录下文件），
+        路径含不可猜测的 clip ID，且视频文件本身非敏感数据。
+        """
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+        raw_path = params.get("path", [None])[0]
+        if not raw_path:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"path parameter is required")
+            return
+
+        # 安全检查：禁止路径遍历
+        if ".." in raw_path or raw_path.startswith("/"):
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b"forbidden path")
+            return
+
+        # 将相对路径拼到项目根目录下的 videos/
+        # raw_path 可能是 "videos/clips/..." 或 "clips/..."，统一处理
+        if raw_path.startswith("videos" + os.sep) or raw_path.startswith("videos/"):
+            # 前端已传完整相对路径（含 videos/ 前缀），直接用
+            safe_path = os.path.normpath(os.path.join(_PROJECT_ROOT, raw_path))
+        else:
+            # 旧格式或仅有 clips/... 部分，补上 videos/ 前缀
+            safe_path = os.path.normpath(os.path.join(_PROJECT_ROOT, "videos", raw_path))
+        if not safe_path.startswith(os.path.normpath(_PROJECT_ROOT)):
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b"forbidden path")
+            return
+
+        if not os.path.isfile(safe_path):
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(f"file not found: {safe_path}".encode())
+            return
+
+        import mimetypes
+        mime, _ = mimetypes.guess_type(safe_path)
+        if not mime or mime == "application/octet-stream":
+            ext = os.path.splitext(safe_path)[1].lower()
+            mime_map = {
+                ".mp4": "video/mp4",
+                ".avi": "video/x-msvideo",
+                ".flv": "video/x-flv",
+                ".mpeg": "video/mpeg",
+                ".mkv": "video/x-matroska",
+                ".webm": "video/webm",
+                ".mov": "video/quicktime",
+            }
+            mime = mime_map.get(ext, "video/mp4")
+
+        file_size = os.path.getsize(safe_path)
+        range_header = self.headers.get("Range")
+
+        if range_header:
+            # 支持 Range 请求（拖动播放）
+            import re
+            m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+            if m:
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else file_size - 1
+                length = end - start + 1
+                self.send_response(206)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(length))
+                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                with open(safe_path, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk_size = min(1024 * 1024, remaining)
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                return
+
+        # 全文件下载/播放
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(file_size))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+        with open(safe_path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
 
     def _api_status(self):
         is_running = _scheduler.is_running()
@@ -945,6 +1058,172 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         _scheduler.set_global_telegram_token(cfg.get("global_telegram_token") or None)
         _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})
+
+    # ── Clip Tasks ────────────────────────────────────────────
+
+    def _api_clip_create(self, body: dict):
+        """POST /api/clips — 创建并立即启动一个切片任务"""
+        video_id = body.get("video_id")
+        if not video_id:
+            self._send_json({"error": "video_id 必填"}, 400)
+            return
+
+        # 查询视频信息
+        video = _db.get_monitor_video(video_id)
+        if not video:
+            self._send_json({"error": "视频不存在"}, 404)
+            return
+
+        if not video.get("download_path"):
+            self._send_json({"error": "视频文件未下载，请先下载"}, 400)
+            return
+
+        video_path = resolve_downloaded_video_path(video)
+        if not video_path or not os.path.isfile(video_path):
+            self._send_json(
+                {"error": "无法解析已下载视频路径（若为历史数据仅保存了输出目录，请重新下载该视频以写入具体文件路径）"},
+                400,
+            )
+            return
+
+        # 查找同目录下的字幕文件
+        # yt-dlp 字幕命名: video.mp4 -> video.en.vtt / video.zh-Hans.srt 等（追加语言代码）
+        # 也可能是转换后: video.srt / video.vtt（FFmpegSubtitlesConvertor）
+        video_dir = os.path.dirname(video_path)
+        video_stem = os.path.splitext(os.path.basename(video_path))[0]
+        sub_path = None
+
+        # 优先精确匹配：同名字幕（无语言代码，convert_subs 结果）
+        for ext in (".srt", ".vtt"):
+            candidate = os.path.join(video_dir, video_stem + ext)
+            if os.path.exists(candidate):
+                sub_path = candidate
+                break
+
+        # 其次模糊匹配：video.*.srt / video.*.vtt（带语言代码）
+        if not sub_path:
+            for candidate in os.listdir(video_dir):
+                if candidate.startswith(video_stem + ".") and candidate.rsplit(".", 1)[-1] in ("srt", "vtt"):
+                    sub_path = os.path.join(video_dir, candidate)
+                    break
+
+        # 最后尝试 output 目录下同名字幕
+        if not sub_path:
+            output_dir = os.path.join(video_dir, "output")
+            if os.path.isdir(output_dir):
+                for candidate in os.listdir(output_dir):
+                    if candidate.startswith(video_stem + ".") and candidate.rsplit(".", 1)[-1] in ("srt", "vtt"):
+                        sub_path = os.path.join(output_dir, candidate)
+                        break
+
+        if not sub_path:
+            self._send_json({
+                "error": f"未找到字幕文件（支持 .srt 和 .vtt），请确保同目录有字幕文件：\n"
+                         f"视频：{os.path.basename(video_path)}\n"
+                         f"字幕命名示例：{video_stem}.en.vtt 或 {video_stem}.srt"
+            }, 400)
+            return
+        srt_path = sub_path
+
+        account = _db.get_account(video.get("account_id"))
+        account_name = account.get("name", "未知账户") if account else "未知账户"
+        account_proxy = _db.get_account_proxy(account) if account else None
+
+        # 构建输出目录
+        clip_output_dir = os.path.join(
+            os.path.dirname(video_path), "clips", os.path.splitext(os.path.basename(video_path))[0]
+        )
+        os.makedirs(clip_output_dir, exist_ok=True)
+
+        # 读取 LLM 配置（优先用请求体，其次全局配置）
+        cfg = _db.load_config()
+        llm_provider = body.get("llm_provider") or cfg.get("llm_provider", "qwen")
+        llm_model = body.get("llm_model") or cfg.get("llm_model")
+        min_score = float(body.get("min_score", 7.0))
+        category = body.get("category", "knowledge")
+
+        # 创建任务记录
+        task_id = _db.create_clip_task(
+            video_id=video.get("video_id") or 0,
+            monitor_video_id=video_id,
+            account_id=video.get("account_id") or 0,
+            account_name=account_name,
+            video_title=video.get("title", "未知标题"),
+            video_path=video_path,
+            srt_path=srt_path,
+            output_dir=clip_output_dir,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            min_score=min_score,
+            category=category,
+        )
+
+        # 异步启动 ClipPipeline
+        _db.update_clip_task(task_id, status="running", started_at=datetime.now().isoformat())
+        from scripts.clip_pipeline import ClipPipeline
+        from scripts.llm_client import create_llm_client
+        import threading
+
+        def _run_clip():
+            try:
+                llm_client = create_llm_client(
+                    provider=llm_provider,
+                    model=llm_model,
+                    api_key=cfg.get("llm_api_key"),
+                    base_url=cfg.get("llm_base_url"),
+                )
+                pipeline = ClipPipeline(
+                    llm_client=llm_client,
+                    output_dir=clip_output_dir,
+                    min_score=min_score,
+                )
+                ctx = pipeline.run(video_path=video_path, srt_path=srt_path)
+                _db.update_clip_task(
+                    task_id,
+                    status="done",
+                    finished_at=datetime.now().isoformat(),
+                    clip_count=len(ctx.generated_clips),
+                    collection_count=len(ctx.generated_collections),
+                )
+            except Exception as e:
+                _db.update_clip_task(
+                    task_id,
+                    status="error",
+                    finished_at=datetime.now().isoformat(),
+                    error=str(e),
+                )
+
+        t = threading.Thread(target=_run_clip, name=f"clip-task-{task_id}", daemon=True)
+        t.start()
+
+        self._send_json({"ok": True, "task_id": task_id})
+
+    def _api_clip_list(self):
+        """GET /api/clips — 查询切片任务列表"""
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+        account_id = params.get("account_id", [None])[0]
+        monitor_video_id = params.get("video_id", [None])[0]
+        status = params.get("status", [None])[0]
+        limit = int(params.get("limit", ["50"])[0])
+        offset = int(params.get("offset", ["0"])[0])
+
+        tasks, total = _db.list_clip_tasks(
+            account_id=int(account_id) if account_id else None,
+            monitor_video_id=int(monitor_video_id) if monitor_video_id else None,
+            status=status or None,
+            limit=min(limit, 200),
+            offset=offset,
+        )
+        self._send_json({"tasks": tasks, "total": total, "limit": limit, "offset": offset})
+
+    def _api_clip_get(self, task_id: int):
+        """GET /api/clips/<id> — 获取单个任务详情"""
+        task = _db.get_clip_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json(task)
 
     def _api_scheduler_start(self, body: dict):
         auto_dl = bool(body.get("auto_download", False))
@@ -1736,31 +2015,29 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 _task_mgr.finish_task(task_id, results)
 
                 url_to_vid = {v["url"]: v["id"] for v in video_records}
-                success_ids = []
-                failed_ids = []
+                now_str = _db.now_iso()
+                success_cnt = 0
+                fail_cnt = 0
                 for r in results:
                     vid = url_to_vid.get(r.get("url"))
                     if not vid:
                         continue
                     if r.get("状态") == "成功":
-                        success_ids.append(vid)
+                        file_path = r.get("video_path") or abs_output
+                        _db.update_videos_download_status(
+                            [vid], "downloaded",
+                            download_at=now_str,
+                            download_path=file_path,
+                        )
+                        success_cnt += 1
                     else:
-                        failed_ids.append(vid)
+                        _db.update_videos_download_status(
+                            [vid], "failed",
+                            download_error="yt-dlp 下载失败",
+                        )
+                        fail_cnt += 1
 
-                now_str = _db.now_iso()
-                if success_ids:
-                    _db.update_videos_download_status(
-                        success_ids, "downloaded",
-                        download_at=now_str,
-                        download_path=abs_output,
-                    )
-                if failed_ids:
-                    _db.update_videos_download_status(
-                        failed_ids, "failed",
-                        download_error="yt-dlp 下载失败",
-                    )
-
-                _log.info(f"下载任务完成: task_id={task_id} 成功={len(success_ids)} 失败={len(failed_ids)}")
+                _log.info(f"下载任务完成: task_id={task_id} 成功={success_cnt} 失败={fail_cnt}")
 
             except BatchDownloadCancelled as ex:
                 _task_mgr.cancel_task(task_id, getattr(ex, "results", []), str(ex))
