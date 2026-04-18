@@ -5,7 +5,7 @@ const I18n = {
 
   async init() {
     try {
-      const res = await fetch(`/i18n/${this.lang}.json`);
+      const res = await fetch(`/static/i18n/${this.lang}.json`);
       this.translations = await res.json();
       this.apply();
       document.documentElement.lang = this.lang;

@@ -7,7 +7,12 @@
     "proxyPools": "代理池",
     "dynamicProviders": "动态代理",
     "clipHistory": "切片历史",
-    "settings": "全局配置"
+    "settings": "配置中心",
+    "settingsNotify": "通知与 Webhook",
+    "settingsApi": "API 与扫描",
+    "settingsDownload": "下载设置",
+    "settingsAi": "AI 切片",
+    "settingsDynamic": "系统动态代理"
   },
   "common": {
     "add": "添加",

@@ -7,7 +7,12 @@
     "proxyPools": "Proxy Pools",
     "dynamicProviders": "Dynamic Providers",
     "clipHistory": "Clip History",
-    "settings": "Settings"
+    "settings": "Settings",
+    "settingsNotify": "Notifications & Webhooks",
+    "settingsApi": "API & Scanning",
+    "settingsDownload": "Download",
+    "settingsAi": "AI Clipping",
+    "settingsDynamic": "System Dynamic Proxy"
   },
   "common": {
     "add": "Add",
