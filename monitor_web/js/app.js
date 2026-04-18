@@ -4,6 +4,9 @@
 
 import { api, _promptToken, API_BASE } from './api.js';
 import { esc, fmtTime, fmtDuration } from './utils/format.js';
+import { initRouter } from '../static/js/router.js';
+import '../static/js/sidebar.js';
+import '../static/js/i18n.js';
 
 // ── Feature modules ────────────────────────────────────────────────
 import { toast, openModal, closeModal, showAppConfirm, closeAppConfirm, showAppConfirmWithCheckbox, closeScanConfirm } from './modules/ui.js';
@@ -161,6 +164,29 @@ window.openClipHistory = openClipHistory;
 // ── Boot: 先注入 header / modal 模板，再拉取数据并启动定时刷新 ───────────
 loadPartials()
   .then(() => {
+    // Initialize sidebar collapse state
+    Sidebar.init();
+
+    // Initialize router
+    initRouter();
+
+    // Initialize i18n
+    I18n.init();
+
+    // Language toggle button
+    document.getElementById('langToggle').addEventListener('click', () => I18n.switchLang());
+
+    // Sidebar navigation click handlers
+    document.querySelectorAll('.sidebar__item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        const page = el.getAttribute('data-page');
+        if (page) {
+          window.location.hash = '/' + page;
+        }
+      });
+    });
+
     refresh();
     startAutoRefresh();
   })
