@@ -15,9 +15,19 @@
 
 ---
 
-## 最近更新（2026-04-14）
+## 最近更新（2026-04）
 
 > **配额分配保险建议**：详见 [docs/quota-analysis.md](docs/quota-analysis.md)。默认 API Key 每日 10,000 units，`playlist` 模式（~3 units/次）可支撑 **5 个频道 × 5 分钟间隔**（85% 上限）。
+
+### Monitor Web 界面与信息架构
+
+| 变更 | 说明 |
+|------|------|
+| **设置中心分栏** | 下载 / API Keys / 通知 / 动态代理 / AI 等分页面模板（`monitor_web/templates/pages/settings-*.html`），入口聚合于设置 Hub |
+| **Hash SPA 路由** | `monitor_web/static/js/router.js` 驱动主内容区切换，与侧边栏联动 |
+| **国际化** | `monitor_web/static/i18n/zh.json`、`en.json` + `i18n.js`，界面中英文切换 |
+| **视觉统一** | CSS 变量与组件样式收敛（`variables.css`、`layout.css`、`modal.css` 等），模态（视频详情、切片历史、批量下载、账户等）对齐同一套交互壳层 |
+| **AI 切片配置** | 全局/切片相关开关与质量项可通过配置与 Web 侧读写（与 `config/settings.py`、`clip_tasks` DB 迁移衔接） |
 
 ### 架构演进
 
@@ -37,6 +47,15 @@
 | **Cookie 文件** | 支持 `.txt`（Netscape 格式）和 `.json`（YouTube 官方导出），自动转换 |
 | **代理池** | 从文件加载多个代理，自动轮换，代理失败自动切换下一代理，直连兜底 |
 | **WhisperX ASR** | 视频无官方字幕时自动调用 WhisperX 生成字幕（支持 GPU/CPU），VTT 格式自动转 SRT |
+
+### AI 视频切片管线（迭代中完善）
+
+| 组件 | 说明 |
+|------|------|
+| **`scripts/clip_pipeline.py`** | 多步编排（字幕 → 大纲/时间线 → 评分 → 切片等），支持断点续跑 |
+| **`scripts/video_processor.py`** | ffmpeg 切割与合集；长宽比检测与 `scale+pad`；VTT/SRT 软字幕封装为 MKV |
+| **`scripts/thumbnail_generator.py`** | 切片封面图（Pillow 排版 / 可选 AI 策略） |
+| **数据库** | `clip_tasks` 表含封面路径、字幕路径、长宽比等字段（迁移 v15+）；详见 `docs/planning-with-files/clip-enhancements/task_plan.md` |
 
 ### 下载核心增强
 
@@ -60,7 +79,7 @@
 ## 目录
 
 - [功能特性](#功能特性)
-- [最近更新](#最近更新2026-04-14)
+- [最近更新](#最近更新2026-04)
 - [前置依赖](#前置依赖)
 - [快速开始](#快速开始)
 - [打包 exe 使用指南](docs/exe使用指南.md)
@@ -93,7 +112,7 @@
 - **SQLite** 存储账户与视频记录；**APScheduler** 定时扫描
 - **YouTube Data API v3** 调用与每日配额统计（`monitor/quota.py`）；推荐 `playlist` 模式（~3 units/次）节省配额
 - **通知**：飞书（含 JSON 2.0 卡片 / 模板）、钉钉、企业微信 Webhook
-- **Web UI**：`server/__main__.py` + `monitor_web/`，支持账户管理、API Key 管理、通知配置、全局配置（含「启用 aria2」等）、后台下载任务（含取消功能）
+- **Web UI**：`server/__main__.py` + `monitor_web/`，支持账户管理、API Key 管理、通知配置、全局配置（含「启用 aria2」等）、后台下载任务（含取消功能）；设置中心分栏、Hash 路由、中英文界面（`static/i18n/`）
 - **代理池**：动态代理提供商（`_provider_scheduler`）定时刷新候选，支持按健康/最快策略自动选择代理用于下载和扫描
 - 可选阅读：[扫描后自动下载方案说明](docs/auto-download-on-scan-plan-v2.md)
 
@@ -389,7 +408,11 @@ ytdlp-batch-downloader/
 │       ├── rate_limit.py     # 速率限制中间件
 │       └── auth.py           # Bearer Token 认证中间件
 ├── monitor_server.py          # 兼容入口（转发到 server/__main__.py）
-├── monitor_web/               # 监控前端（index.html 等）
+├── monitor_web/               # 监控前端（SPA Hash 路由、分模块 JS、分目录模板）
+│   ├── static/css/            # 主题与布局（variables / layout / modal / …）
+│   ├── static/js/router.js, i18n.js, sidebar.js
+│   ├── static/i18n/zh.json, en.json
+│   └── templates/pages/      # settings-hub, settings-download, settings-api, …
 ├── monitor_ui.py              # 监控 Tk 页面或独立 Web 启动器
 ├── .claude/skills/            # Claude Code Skill 定义
 │   ├── yt-dlp-batch-download/SKILL.md
@@ -430,7 +453,7 @@ pip install -r requirements.txt
 python -m pytest tests/ -q
 ```
 
-部分测试依赖环境变量或网络/API，失败时请查看具体用例说明。
+部分测试依赖环境变量或网络/API，失败时请查看具体用例说明。当前 `pytest` 收集量级在 **400+** 条用例（以本地 `python -m pytest --collect-only` 为准）。
 
 ---
 
@@ -552,27 +575,25 @@ Skill 内部调用 `scripts/cli.py`，所有子命令支持 `--json` 输出供 A
 
 ## Roadmap
 
-> 以下为规划中的功能，暂未实施（按优先级排序）。
+> 以下为能力演进：部分已落地于 `scripts/` 与监控库，其余仍以规划/验证为主。
 
-### 🔜 Stage 1：AI 视频切片核心（AI Video Clipper）
+### Stage 1：AI 视频切片核心（AI Video Clipper）
 
-将视频自动切片为高光片段，参考 [autoclip](https://github.com/zhouxiaoka/autoclip) 的 6 步 AI Pipeline 设计：
+目标：将长视频自动切段为可发布的高光片段；设计参考 [autoclip](https://github.com/zhouxiaoka/autoclip) 等多步 AI Pipeline。
 
 ```
-视频下载 → WhisperX字幕 → 大纲提取 → 时间线提取 → 精彩评分 → 标题生成 → 智能合集 → 视频切片
+视频下载 → WhisperX 字幕 → 大纲提取 → 时间线提取 → 精彩评分 → 标题生成 → 智能合集 → 视频切片
 ```
 
-**新增文件**：
-- `scripts/video_clipper.py` — CLI 入口
-- `scripts/clip_pipeline.py` — 6 步编排器
-- `scripts/llm_client.py` — 多后端 LLM（通义千问/OpenAI/Ollama）
-- `scripts/text_processor.py` — SRT 解析 + 分块
-- `scripts/video_processor.py` — ffmpeg 切割 + 合集拼接
-- `scripts/prompts/` — 5 个 Prompt 模板
+**已在仓库中的落地（持续迭代）**：
+- `scripts/video_clipper.py` — Pipeline 侧 CLI 入口（与编排脚本配合使用）
+- `scripts/clip_pipeline.py` — 多步编排器（可断点续跑）
+- `scripts/video_processor.py` — ffmpeg 切割、合集、长宽比、软字幕 MKV
+- `scripts/thumbnail_generator.py` — 切片封面图
+- `scripts/llm_client.py`、`scripts/text_processor.py`、`scripts/prompts/` — 与 Pipeline 配套
+- `clip_tasks` 表与迁移、配置项 — 见 `docs/planning-with-files/clip-enhancements/task_plan.md`
 
-**复用现有**：`whisperx_worker.py`、`Youtube_Downloader.py`、`ytb_api.py`
-
-详见 [规划文档](docs/planning-with-files/autoclip-integration/task_plan.md)。
+**后续**：CLI 入口统一命名、与监控 UI 的更紧耦合、端到端 FFmpeg 回归与更多模型后端，见 [autoclip 集成规划](docs/planning-with-files/autoclip-integration/task_plan.md)。
 
 ---
 

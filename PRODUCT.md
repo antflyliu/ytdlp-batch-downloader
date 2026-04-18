@@ -86,10 +86,12 @@
 | 频道监控 | `monitor/scheduler.py` | ✅ 稳定 |
 | 通知推送 | `monitor/notifier.py` | ✅ 稳定（飞书/钉钉/企微） |
 | Web UI 管理 | `monitor_server.py` + `monitor_web/` | ✅ 稳定 |
+| Monitor Web 体验 | 左侧可折叠导航、Hash 路由（`static/js/router.js`）、设置中心分栏（下载 / API / 通知 / 动态代理 / AI）、中英文 i18n（`static/i18n/`）、暖色 Design Tokens 与模态统一（视频详情、切片历史、批量下载等） | ✅ 持续迭代 |
 | API Key 管理 | SQLite `api_keys` 表 | ✅ 稳定 |
 | 代理池管理 | `monitor/proxy_*.py` | ✅ 稳定 |
-| Web 批量下载 | `monitor_server.py` / `monitor_web/index.html` | ✅ 新增 |
-| 监控数据库 | SQLite `monitor_videos` 表 | ✅ 稳定 |
+| Web 批量下载 | `monitor_server.py` / `monitor_web/` | ✅ 稳定 |
+| AI 视频切片管线 | `scripts/clip_pipeline.py`（多步编排）、`scripts/video_processor.py`（比例适配、软字幕 MKV）、`scripts/thumbnail_generator.py`（封面图策略）；配置见 `config/settings.py`，`clip_tasks` 表迁移 v15+ | ✅ 可用（端到端含真实 ffmpeg 的验证仍建议按需跑通） |
+| 监控数据库 | SQLite（含 `monitor_videos`、`clip_tasks` 等） | ✅ 稳定 |
 
 ### 4.2 开发中
 
@@ -158,15 +160,15 @@
 | 核心语言 | Python 3.12 | 主力开发语言 |
 | 下载引擎 | yt-dlp | YouTube 及其他平台下载 |
 | 数据库 | SQLite | 监控数据持久化 |
-| Web 服务 | `http.server` + 线程池 | `monitor_server.py`（2120行） |
-| 前端 | Vanilla HTML/JS/CSS | `monitor_web/index.html`（296KB） |
+| Web 服务 | `http.server` + 线程池 | `monitor_server.py` → `server/__main__.py` |
+| 前端 | Vanilla HTML/JS/CSS + Hash SPA + i18n | `monitor_web/`（分模板 `templates/pages/`、分模块 `js/modules/`、`static/js/router.js` / `i18n.js`） |
 | GUI | Tkinter | `monitor_ui.py`（1659行）/ `ytdownload_ui.py` |
 | 打包 | PyInstaller | 输出 `YouTube批量下载器.exe`（~305MB） |
 | 定时任务 | APScheduler | `monitor/scheduler.py` |
 | 代理管理 | 自研代理池 | `monitor/proxy_*.py` |
 | 分发引擎 | `social-auto-upload` sau | 第三方（浏览器自动化） |
 
-### 5.2 数据库 Schema（16 张表）
+### 5.2 数据库 Schema（监控库中以 `monitor/schema.sql` / 迁移为准；含多张业务表）
 
 ```
 核心业务表
@@ -176,7 +178,8 @@
 ├── monitor_notify_logs    # 通知发送日志
 ├── api_keys              # YouTube API Key 管理
 ├── api_quota_usage       # 每日配额使用记录
-└── web_batch_tasks       # Web 批量下载任务历史
+├── web_batch_tasks       # Web 批量下载任务历史
+└── clip_tasks            # AI 切片任务（含封面路径、字幕路径、长宽比等增强字段，见迁移 v15）
 
 系统表
 ├── schema_migrations     # 数据库迁移版本追踪
@@ -266,7 +269,7 @@
 | **可观测性** | 日志 + 飞书通知 | 上传状态也需可查 |
 | **安全性** | Bearer Token、CORS、API Key 加密 | 保持 |
 | **可维护性** | 单文件 2000+ 行（monitor_server.py）| 逐步拆分 |
-| **测试覆盖** | 53+ 测试用例 | 保持，新增上传相关测试 |
+| **测试覆盖** | pytest 收集约 400+ 条用例（随仓库增长） | 保持，新增/关联上传与切片相关测试 |
 
 ---
 
@@ -284,7 +287,11 @@
 
 ## 10. 参考文档
 
-- [实现设计](./DESIGN.md) — Web UI 批量下载弹窗的详细设计
+- [实现设计](./DESIGN.md) — 前端视觉与设计系统参考（暖色主题）
 - [批量下载 Web UI 实现计划](./docs/superpowers/plans/2026-04-10-batch-download-webui-implementation.md)
 - [批量下载 Web UI 设计规范](./docs/superpowers/specs/2026-04-10-batch-download-webui-design.md)
+- [Monitor Web UI 重构实现计划](./docs/superpowers/plans/2026-04-18-monitor-web-redesign-plan.md) — 侧边栏、Hash 路由、设置分栏与 i18n
+- [Monitor Web 重设计说明](./docs/superpowers/specs/2026-04-18-monitor-web-redesign-design.md)
+- [切片增强任务计划](./docs/planning-with-files/clip-enhancements/task_plan.md) — 封面 / 软字幕 / 长宽比
+- [Autoclip 集成任务计划](./docs/planning-with-files/autoclip-integration/task_plan.md) — 六步 Pipeline 总览
 - [social-auto-upload](https://github.com/dreammis/social-auto-upload) — 分发引擎
