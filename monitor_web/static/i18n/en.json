@@ -1,0 +1,32 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "channels": "Channels",
+    "downloads": "Downloads",
+    "apiKeys": "API Keys",
+    "proxyPools": "Proxy Pools",
+    "dynamicProviders": "Dynamic Providers",
+    "clipHistory": "Clip History",
+    "settings": "Settings"
+  },
+  "common": {
+    "add": "Add",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "search": "Search",
+    "loading": "Loading...",
+    "noData": "No Data",
+    "actions": "Actions"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "accounts": "Monitored Accounts",
+    "totalScans": "Total Scans",
+    "newVideos": "New Videos",
+    "quota": "API Quota",
+    "lastScan": "Last Scan"
+  }
+}

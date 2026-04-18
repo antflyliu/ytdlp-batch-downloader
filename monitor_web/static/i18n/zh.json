@@ -1,0 +1,32 @@
+{
+  "nav": {
+    "dashboard": "数据概览",
+    "channels": "账户管理",
+    "downloads": "批量下载",
+    "apiKeys": "API Keys",
+    "proxyPools": "代理池",
+    "dynamicProviders": "动态代理",
+    "clipHistory": "切片历史",
+    "settings": "全局配置"
+  },
+  "common": {
+    "add": "添加",
+    "edit": "编辑",
+    "delete": "删除",
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "search": "搜索",
+    "loading": "加载中...",
+    "noData": "暂无数据",
+    "actions": "操作"
+  },
+  "dashboard": {
+    "title": "数据概览",
+    "accounts": "监控账户",
+    "totalScans": "总扫描次数",
+    "newVideos": "新增视频",
+    "quota": "API Quota",
+    "lastScan": "最后扫描"
+  }
+}
