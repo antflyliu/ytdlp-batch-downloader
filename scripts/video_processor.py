@@ -278,6 +278,197 @@ class VideoProcessor:
             })
         return results
 
+    # ── 封面图生成 ─────────────────────────────────────────────────────────
+
+    def extract_thumbnail(
+        self,
+        input_video: str | Path,
+        clip_id: int,
+        timestamp: float,
+        output_name: str | None = None,
+    ) -> Optional[Path]:
+        """
+        从视频指定时间戳提取一帧作为封面图。
+
+        Args:
+            input_video:  输入视频路径
+            clip_id:     片段编号（用于生成默认文件名）
+            timestamp:   提取时间点（秒），建议用 clip_start + 0.5 避免黑帧
+            output_name: 自定义输出文件名（不含扩展名）
+
+        Returns:
+            成功返回输出文件 Path，失败返回 None
+        """
+        safe_name = output_name or f"clip_{clip_id:04d}_thumb"
+        output_path = self.clips_dir / f"{safe_name}.jpg"
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", _fmt_ts(timestamp),
+            "-i", str(input_video),
+            "-frames:v", "1",
+            "-q:v", "2",
+            str(output_path),
+        ]
+
+        logger.info(f"生成封面图: {output_path.name} (t={timestamp:.2f}s)")
+        if _run_ffmpeg(cmd, timeout=60):
+            logger.info(f"  → {output_path}")
+            return output_path
+        return None
+
+    # ── 长宽比检测 ─────────────────────────────────────────────────────────
+
+    def detect_aspect_ratio(self, video_path: str | Path) -> Optional[str]:
+        """
+        检测视频长宽比，返回 "16:9" | "9:16" | "4:3" | "other"。
+
+        Args:
+            video_path: 视频文件路径
+
+        Returns:
+            比例字符串，失败返回 None
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=p=0",
+                    str(video_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if not result.stdout.strip():
+                return None
+            w, h = map(int, result.stdout.strip().split(","))
+            if w <= 0 or h <= 0:
+                return None
+            ratio = w / h
+            if abs(ratio - 16 / 9) < 0.1:
+                return "16:9"
+            elif abs(ratio - 9 / 16) < 0.1:
+                return "9:16"
+            elif abs(ratio - 4 / 3) < 0.1:
+                return "4:3"
+            else:
+                return "other"
+        except Exception as e:
+            logger.error(f"长宽比检测失败: {e}")
+            return None
+
+    # ── 长宽比适配（填充黑边） ───────────────────────────────────────────
+
+    def ensure_aspect_ratio(
+        self,
+        input_video: str | Path,
+        target_ratio: str,
+        output_path: str | Path,
+    ) -> Optional[Path]:
+        """
+        将视频转换为目标长宽比（目标比例不符时 scale + pad 黑边填充）。
+
+        Args:
+            input_video:  输入视频路径
+            target_ratio: 目标比例，"9:16" 或 "16:9"
+            output_path:  输出文件路径
+
+        Returns:
+            成功返回输出文件 Path，失败返回 None
+        """
+        current = self.detect_aspect_ratio(input_video)
+        if current is None:
+            return None
+        if current == target_ratio:
+            # 已是目标比例，直接复制
+            import shutil
+            output_path = Path(output_path)
+            shutil.copy2(input_video, output_path)
+            logger.info(f"比例已是 {target_ratio}，直接复制 → {output_path}")
+            return output_path
+
+        # 目标分辨率基准：宽度 1080（9:16）或 高度 1080（16:9）
+        if target_ratio == "9:16":
+            # 竖屏：宽度固定 1080，高度等比后 pad 到 1920
+            target_w, target_h = 1080, 1920
+            scale_filter = f"scale={target_w}:-1"
+            pad_filter = f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
+            vf = f"{scale_filter},{pad_filter}"
+        elif target_ratio == "16:9":
+            # 横屏：高度固定 1080，宽度等比后 pad 到 1920
+            target_w, target_h = 1920, 1080
+            scale_filter = f"scale=-1:{target_h}"
+            pad_filter = f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
+            vf = f"{scale_filter},{pad_filter}"
+        else:
+            logger.warning(f"不支持的目标比例: {target_ratio}")
+            return None
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(input_video),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
+        logger.info(f"适配长宽比: {current} → {target_ratio}")
+        if _run_ffmpeg(cmd):
+            logger.info(f"  → {output_path}")
+            return output_path
+        return None
+
+    # ── 字幕软封装 ─────────────────────────────────────────────────────────
+
+    def embed_subtitles_soft(
+        self,
+        input_video: str | Path,
+        subtitle_path: str | Path,
+        output_path: str | Path,
+        subtitle_codec: str = "copy",
+    ) -> Optional[Path]:
+        """
+        将字幕封装进 mkv 容器（软字幕，播放器可切换开关）。
+
+        Args:
+            input_video:   输入视频路径（MP4/MKV）
+            subtitle_path: 字幕文件路径（.vtt 或 .ass）
+            output_path:   输出 mkv 文件路径
+            subtitle_codec: 字幕编码方式，"copy"（直接封装）或 "ass"（转ASS后封装）
+
+        Returns:
+            成功返回输出文件 Path，失败返回 None
+        """
+        subtitle_path = Path(subtitle_path)
+        output_path = Path(output_path)
+
+        if not subtitle_path.exists():
+            logger.error(f"字幕文件不存在: {subtitle_path}")
+            return None
+
+        # .vtt → 直接 copy；.ass → 也直接 copy（ffmpeg 内部处理）
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(input_video),
+            "-i", str(subtitle_path),
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-c:s", subtitle_codec,
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
+        logger.info(f"封装软字幕: {input_video} + {subtitle_path.name} → {output_path.name}")
+        if _run_ffmpeg(cmd, timeout=600):
+            logger.info(f"  → {output_path}")
+            return output_path
+        return None
+
     # ── 视频信息探测 ─────────────────────────────────────────────────────────
 
     def probe_video(self, video_path: str | Path) -> Optional[dict]:

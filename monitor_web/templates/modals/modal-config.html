@@ -166,6 +166,26 @@
             </select>
             <div class="form-hint">不同类型影响 AI 话题识别和评分权重</div>
           </div>
+          <div class="form-group">
+            <label class="form-label">切片增强功能</label>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfgClipEmbedThumbnail" checked>
+                <span class="checkbox-box"></span>
+                生成封面图（切片起始+0.5s 帧，JPG 格式）
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfgClipEmbedSubtitle" checked>
+                <span class="checkbox-box"></span>
+                软字幕封装（MKV 容器，播放器可切换开关）
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfgClipAdaptAspectRatio" checked>
+                <span class="checkbox-box"></span>
+                长宽比自适应（原片 9:16 输出 9:16，16:9 输出 16:9）
+              </label>
+            </div>
+          </div>
         </div>
 
         <!-- ===== 系统默认动态代理 ===== -->

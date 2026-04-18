@@ -402,6 +402,22 @@ def run_all_migrations(conn):
             ("v14_telegram_bot_token", today),
         )
 
+    # v15: clip_tasks 增强字段（封面图/字幕/长宽比）
+    if "v15_clip_tasks_enhancements" not in _get_applied_versions(conn):
+        cur = conn.execute("PRAGMA table_info(clip_tasks)")
+        cols = {row[1] for row in cur.fetchall()}
+        for col, ddl in [
+            ("thumbnail_path", "TEXT DEFAULT NULL"),
+            ("subtitles_path", "TEXT DEFAULT NULL"),
+            ("aspect_ratio", "TEXT DEFAULT NULL"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE clip_tasks ADD COLUMN {col} {ddl}")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v15_clip_tasks_enhancements", today),
+        )
+
 
 def _get_applied_versions(conn) -> set:
     return {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}

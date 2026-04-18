@@ -81,6 +81,11 @@ class PipelineContext:
     generated_clips: List[dict] = None        # Step6: 生成的切片视频
     generated_collections: List[dict] = None # Step6: 生成的合集视频
 
+    # ── 增强功能开关 ──────────────────────────────────────────────────────
+    embed_thumbnail: bool = True      # Step6: 生成封面图
+    embed_subtitle: bool = True       # Step6: 软字幕封装
+    adapt_aspect_ratio: bool = True   # Step6: 长宽比自适应（原片9:16输出9:16）
+
     def __post_init__(self):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.srt_entries = []
@@ -373,7 +378,7 @@ class Step5Clustering(PipelineStep):
 
 
 class Step6Video(PipelineStep):
-    """Step6: ffmpeg 切割 + 合集拼接"""
+    """Step6: ffmpeg 切割 + 合集拼接 + 切片增强（封面图/字幕/比例）"""
 
     name = "step6_video"
 
@@ -389,7 +394,7 @@ class Step6Video(PipelineStep):
 
         vp = VideoProcessor(clips_dir=clips_dir, collections_dir=collections_dir)
 
-        # 切割片段
+        # ── 切割片段 ──────────────────────────────────────────────────────
         if ctx.clips_with_titles:
             ctx.generated_clips = vp.batch_extract_clips(
                 ctx.video_path,
@@ -407,7 +412,11 @@ class Step6Video(PipelineStep):
             success = sum(1 for c in ctx.generated_clips if c.get("clip_path"))
             logger.info(f"切片生成: {success}/{len(ctx.generated_clips)} 成功")
 
-        # 更新合集路径（指向已生成的 clips）
+            # ── 切片增强 ──────────────────────────────────────────────────
+            if ctx.embed_thumbnail or ctx.adapt_aspect_ratio or ctx.embed_subtitle:
+                self._enhance_clips(ctx, vp)
+
+        # ── 更新合集路径（指向已生成的 clips）───────────────────────────
         for coll in ctx.collections:
             coll["clip_paths"] = [
                 c["clip_path"]
@@ -415,12 +424,94 @@ class Step6Video(PipelineStep):
                 if c.get("id") in coll.get("clip_ids", []) and c.get("clip_path")
             ]
 
-        # 拼接合集
+        # ── 拼接合集 ──────────────────────────────────────────────────────
         if ctx.collections:
             ctx.generated_collections = vp.create_collections_from_metadata(ctx.collections)
             ctx.save_json("step6_collections_result", ctx.generated_collections)
             success = sum(1 for c in ctx.generated_collections if c.get("collection_path"))
             logger.info(f"合集生成: {success}/{len(ctx.generated_collections)} 成功")
+
+    def _enhance_clips(self, ctx: PipelineContext, vp: VideoProcessor) -> None:
+        """对每个切片执行三步增强：封面图 → 比例适配 → 字幕封装"""
+        for clip in ctx.generated_clips:
+            if not clip.get("clip_path"):
+                continue
+
+            clip_id = clip["id"]
+            clip_start = clip["start_time"]
+            clip_path = Path(clip["clip_path"])
+
+            # 找到原始 clip 数据（用于获取 timeline 信息）
+            orig = next((c for c in ctx.clips_with_titles if c["id"] == clip_id), {})
+            output_dir = clip_path.parent
+
+            # ── 1. 封面图 ──────────────────────────────────────────────────
+            thumbnail_path = None
+            if ctx.embed_thumbnail:
+                thumb_time = clip_start + 0.5
+                thumb = vp.extract_thumbnail(
+                    input_video=ctx.video_path,
+                    clip_id=clip_id,
+                    timestamp=thumb_time,
+                    output_name=f"clip_{clip_id:04d}_thumb",
+                )
+                if thumb:
+                    thumbnail_path = str(thumb)
+                    clip["thumbnail_path"] = thumbnail_path
+                    logger.info(f"  [{clip_id}] 封面图: {thumb.name}")
+
+            # ── 2. 长宽比自适应（仅当原片与目标比例不符时）─────────────
+            if ctx.adapt_aspect_ratio:
+                original_ratio = vp.detect_aspect_ratio(ctx.video_path)
+                if original_ratio and original_ratio not in ("16:9", "9:16"):
+                    # 非标准比例 → 适配为 16:9
+                    adapted = vp.ensure_aspect_ratio(
+                        input_video=clip_path,
+                        target_ratio="16:9",
+                        output_path=output_dir / f"clip_{clip_id:04d}_16x9.mp4",
+                    )
+                    if adapted:
+                        clip["clip_path"] = str(adapted)
+                        clip["aspect_ratio"] = "16:9"
+                        logger.info(f"  [{clip_id}] 比例适配: {original_ratio} → 16:9")
+                elif original_ratio:
+                    clip["aspect_ratio"] = original_ratio
+
+            # ── 3. 软字幕封装 ────────────────────────────────────────────
+            if ctx.embed_subtitle:
+                subtitle_candidates = self._find_subtitle(ctx, clip)
+                if subtitle_candidates:
+                    sub_path = subtitle_candidates[0]
+                    mkv_path = output_dir / f"clip_{clip_id:04d}_with_subs.mkv"
+                    result = vp.embed_subtitles_soft(
+                        input_video=clip_path,
+                        subtitle_path=sub_path,
+                        output_path=mkv_path,
+                    )
+                    if result:
+                        clip["clip_path"] = str(result)
+                        clip["subtitles_path"] = str(result)
+                        logger.info(f"  [{clip_id}] 字幕封装: {result.name}")
+
+            ctx.save_json("step6_clips_result", ctx.generated_clips)
+
+    def _find_subtitle(self, ctx: PipelineContext, clip: dict) -> List[Path]:
+        """查找切片对应的字幕文件（.vtt / .srt）"""
+        video_stem = Path(ctx.video_path).stem
+        video_dir = Path(ctx.video_path).parent
+        candidates = []
+
+        # 方法1：同目录下同名 .vtt / .ass
+        for ext in (".vtt", ".srt", ".ass"):
+            p = video_dir / f"{video_stem}{ext}"
+            if p.exists():
+                candidates.append(p)
+
+        # 方法2：video_name.en.vtt 等语言标记
+        for p in video_dir.glob(f"{video_stem}.*.vtt"):
+            candidates.append(p)
+
+        return candidates
 
 
 # ─────────────────────────────────────────────────────────────────────────────

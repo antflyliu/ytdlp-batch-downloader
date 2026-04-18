@@ -89,6 +89,11 @@ def _config_default() -> dict:
         "llm_base_url": "",
         "llm_min_score": 7.0,
         "llm_category": "knowledge",
+        # ── 视频切片增强配置 ─────────────────────────────────
+        "clip_embed_thumbnail": True,       # 生成封面图
+        "clip_embed_subtitle": True,       # 软字幕封装（mkv）
+        "clip_adapt_aspect_ratio": True,   # 长宽比自适应（原片9:16输出9:16）
+        "clip_thumbnail_quality": 2,       # JPEG 压缩质量（1=最高，31=最低）
         # ── 自动切片配置 ─────────────────────────────────────
         "auto_clip_enabled": False,          # 下载完成后自动触发 AI 切片
         "auto_clip_notify_enabled": False,    # 切片完成后发送通知
