@@ -90,27 +90,23 @@ select.form-input {
 }
 
 /* ── Proxy Pool Form overrides ────────────────────────────────────── */
-/* DEPRECATED: --proxy-* vars now map to --accent, so these are same as canonical.
-   Migration: remove these overrides, use canonical .form-input:focus */
 #modalProxyPoolForm .form-label {
-  color: var(--proxy-text); /* now == --accent */
+  color: var(--accent);
   font-size: 11px;
 }
 #modalProxyPoolForm .form-input:focus {
-  border-color: var(--proxy-border); /* now == --border-medium */
-  box-shadow: 0 0 0 3px var(--proxy-tint), 0 1px 0 var(--proxy-border);
+  border-color: var(--border);
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 1px 0 var(--border);
 }
 
 /* ── Dynamic Provider Form overrides ──────────────────────────────── */
-/* DEPRECATED: --dyn-* vars now map to --accent, so these are same as canonical.
-   Migration: remove these overrides, use canonical .form-input:focus */
 #modalDynamicProviderForm .form-label {
-  color: var(--dyn-text); /* now == --accent */
+  color: var(--accent);
   font-size: 11px;
 }
 #modalDynamicProviderForm .form-input:focus {
-  border-color: var(--dyn-border); /* now == --border-medium */
-  box-shadow: 0 0 0 3px var(--dyn-tint), 0 1px 0 var(--dyn-border);
+  border-color: var(--border);
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 1px 0 var(--border);
 }
 
 /* ── Batch Download Form Elements ─────────────────────────────────── */
