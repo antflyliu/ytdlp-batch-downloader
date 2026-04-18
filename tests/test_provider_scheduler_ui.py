@@ -42,3 +42,17 @@ def test_provider_rows_show_last_refresh_time_hook():
     # "上次刷新" label is rendered by the JS module, not in static HTML
     js = _dyn_prov_js()
     assert '上次刷新' in js or 'last_refresh' in js.lower()
+
+
+def test_dynamic_provider_table_rows_use_accounts_style_actions_div():
+    """与账户列表一致：操作列用 .actions + .btn-sm，避免窄列内文字竖排。"""
+    js = _dyn_prov_js()
+    assert 'class="actions"' in js
+    assert "dyn-actions" not in js
+
+
+def test_dynamic_providers_page_scheduler_toolbar_uses_bem_buttons():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    assert "dyn-scheduler-card__toolbar" in html
+    assert 'class="btn btn--sm btn--success"' in html
+    assert "btnDynProviderSchedulerToggle" in html
