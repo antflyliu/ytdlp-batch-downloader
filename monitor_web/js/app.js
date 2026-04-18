@@ -15,7 +15,7 @@ import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearF
 import { openConfig, saveConfig, openApiKeys, loadApiKeysList, openAddApiKey, openEditApiKey, saveApiKey, deleteApiKey, refreshApiKeySelectors } from './modules/config.js';
 import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, openAddProxyPool, openEditProxyPool, saveProxyPool, toggleProxyPool, deleteProxyPool } from './modules/proxyPool.js';
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
-import { openDynamicProviders, updateProviderSchedulerHint, loadProviderSchedulerLogs, loadDynamicProviderTable, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
+import { openDynamicProviders, refreshDynamicProvidersUi, updateProviderSchedulerHint, loadProviderSchedulerLogs, syncDynLogFilters, toggleDynCollapse, loadDynamicProviderTable, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
 import { openClipHistory } from './modules/clipHistory.js';
 
 // ── Component modules ───────────────────────────────────────────────
@@ -117,8 +117,11 @@ window.clearAllCache = clearAllCache;
 
 // Dynamic Providers
 window.openDynamicProviders = openDynamicProviders;
+window.refreshDynamicProvidersUi = refreshDynamicProvidersUi;
 window.updateProviderSchedulerHint = updateProviderSchedulerHint;
 window.loadProviderSchedulerLogs = loadProviderSchedulerLogs;
+window.syncDynLogFilters = syncDynLogFilters;
+window.toggleDynCollapse = toggleDynCollapse;
 window.loadDynamicProviderTable = loadDynamicProviderTable;
 window.onDynAdapterTypeChange = onDynAdapterTypeChange;
 window.onDynListApiAuthToggle = onDynListApiAuthToggle;
@@ -177,13 +180,13 @@ loadPartials()
     document.getElementById('langToggle').addEventListener('click', () => I18n.switchLang());
 
     // Sidebar navigation click handlers
+    // Pages with real section content → hash-based routing (no modal needed)
     document.querySelectorAll('.sidebar__item').forEach(el => {
       el.addEventListener('click', (e) => {
         e.preventDefault();
         const page = el.getAttribute('data-page');
-        if (page) {
-          window.location.hash = '/' + page;
-        }
+        if (!page) return;
+        window.location.hash = '/' + page;
       });
     });
 

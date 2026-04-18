@@ -12,7 +12,6 @@ export function openClipHistory() {
   _chPage = 1;
   _loadAccountOptions().then(() => {
     chLoad();
-    openModal('modalClipHistory');
   });
 }
 
@@ -41,10 +40,13 @@ function chLoad() {
   const tbody = document.getElementById('chTbody');
   const empty = document.getElementById('chEmpty');
   const loading = document.getElementById('chLoading');
+  const tableWrap = document.getElementById('chTableWrap');
+  const pagBar = document.getElementById('chPagination');
   if (!tbody) return;
 
   tbody.innerHTML = '';
   if (empty) empty.style.display = 'none';
+  if (tableWrap) tableWrap.style.display = 'block';
   if (loading) loading.style.display = 'block';
 
   api('GET', '/clips?' + params.toString()).then(data => {
@@ -57,11 +59,15 @@ function chLoad() {
     const tasks = data.tasks;
     if (tasks.length === 0) {
       if (empty) empty.style.display = 'block';
+      if (tableWrap) tableWrap.style.display = 'none';
+      if (pagBar) pagBar.style.display = 'none';
       tbody.innerHTML = '';
       _updatePagination(0);
       return;
     }
     if (empty) empty.style.display = 'none';
+    if (tableWrap) tableWrap.style.display = 'block';
+    if (pagBar) pagBar.style.display = '';
     tbody.innerHTML = tasks.map(t => {
       const statusClass = t.status === 'done' ? 'tag-success'
         : t.status === 'running' ? 'tag-accent'
@@ -73,15 +79,15 @@ function chLoad() {
         : '等待';
       return `<tr>
         <td class="td-mono">${t.id}</td>
-        <td style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.account_name)}">${esc(t.account_name)}</td>
-        <td style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.video_title)}">${esc(t.video_title)}</td>
+        <td class="td-name td-clip-account" title="${esc(t.account_name)}">${esc(t.account_name)}</td>
+        <td class="td-clip-video-title" title="${esc(t.video_title)}">${esc(t.video_title)}</td>
         <td><span class="tag ${statusClass}">${statusLabel}</span></td>
         <td class="td-mono">${t.clip_count ?? 0}</td>
         <td class="td-mono">${t.collection_count ?? 0}</td>
         <td class="td-mono" style="font-size:11px">${fmtTime(t.created_at)}</td>
         <td>
           <div class="actions">
-            <button class="btn-sm" onclick="chViewTask(${t.id})" title="查看">详情</button>
+            <button type="button" class="btn-sm" onclick="window.chViewTask(${t.id})" title="查看">详情</button>
           </div>
         </td>
       </tr>`;
@@ -92,6 +98,7 @@ function chLoad() {
     if (totalEl) totalEl.textContent = `共 ${data.total} 条`;
   }).catch(() => {
     if (loading) loading.style.display = 'none';
+    if (tableWrap) tableWrap.style.display = 'block';
     toast('加载失败', 'err');
   });
 }
@@ -123,7 +130,8 @@ async function chTriggerClip(monitorVideoId, btnEl) {
     const resp = await api('POST', '/clips', { video_id: monitorVideoId });
     if (resp && resp.ok) {
       toast(`切片任务 #${resp.task_id} 已创建`, 'ok');
-      openModal('modalClipHistory');
+      window.location.hash = '/clip-history';
+      openClipHistory();
     } else {
       toast((resp && resp.error) ? String(resp.error) : '创建失败', 'err');
       btnEl.disabled = false;
@@ -148,6 +156,10 @@ function _fmtDur(seconds) {
 }
 
 async function chViewTask(taskId) {
+  if (!document.getElementById('modalClipDetail')) {
+    toast('页面加载中，请稍后重试', 'warning');
+    return;
+  }
   const task = await api('GET', '/clips/' + taskId);
   if (!task || task.error) {
     toast('加载任务详情失败', 'err');
@@ -276,3 +288,4 @@ window.chLoad = chLoad;
 window.chGoPage = chGoPage;
 window.chViewTask = chViewTask;
 window.chTriggerClip = chTriggerClip;
+window.init_clip_history_page = openClipHistory;

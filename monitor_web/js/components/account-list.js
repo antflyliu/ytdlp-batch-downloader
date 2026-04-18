@@ -40,7 +40,7 @@ export async function loadAccounts() {
   const accounts = await api('GET', '/accounts');
   const tbody = el('accountsTable');
   const empty = el('emptyAccounts');
-  const tableWrap = document.querySelector('.table-wrap');
+  const tableWrap = el('accountsTableWrap');
 
   if (!tbody) return;
 

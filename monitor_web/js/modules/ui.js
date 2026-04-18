@@ -46,17 +46,32 @@ function resetAppConfirmCheckbox() {
 
 export function openModal(id) {
   const m = el(id);
-  if (m) m.classList.add('show');
+  if (!m) return;
+  // Remove display:none if present on overlay (some modals use display:none as default)
+  m.style.display = '';
+  // Generic modal: .modal inside .modal-overlay
+  const inner = m.querySelector('.modal');
+  if (inner) inner.classList.add('modal--open');
+  m.classList.add('show');
 }
 
 export function closeModal(id) {
   const m = el(id);
   if (!m) return;
-  // Video detail full-screen modal: only close via top-right X
   if (id === 'modalVideoDetail') {
+    const escHandler = window._vdEscHandlerRef;
+    if (escHandler) {
+      document.removeEventListener('keydown', escHandler);
+      window._vdEscHandlerRef = null;
+    }
+    const inner = m.querySelector('.modal');
+    if (inner) inner.classList.remove('modal--open');
     m.classList.remove('show');
+    m.style.display = '';
     return;
   }
+  const inner = m.querySelector('.modal');
+  if (inner) inner.classList.remove('modal--open');
   m.classList.remove('show');
 }
 
@@ -165,16 +180,21 @@ export async function loadStatus() {
 export function updateSchedulerUI() {
   const chip = el('statusChip');
   const btn = el('btnToggleScheduler');
-  if (!chip || !btn) return;  // Elements may not exist if not yet rendered
+  // 顶栏可能无 #statusChip（内联 header 未含 chip），但必须仍能更新账户页的启动/停止按钮
+  if (!btn) return;
   if (schedulerRunning) {
-    chip.className = 'status-chip running';
-    chip.innerHTML = '<span class="status-dot"></span><span>调度器运行中</span>';
+    if (chip) {
+      chip.className = 'status-chip running';
+      chip.innerHTML = '<span class="status-dot"></span><span>调度器运行中</span>';
+    }
     btn.textContent = '■ 停止监控';
     btn.className = 'btn btn-danger';
     btn.onclick = toggleScheduler;
   } else {
-    chip.className = 'status-chip stopped';
-    chip.innerHTML = '<span class="status-dot"></span><span>调度器已停止</span>';
+    if (chip) {
+      chip.className = 'status-chip stopped';
+      chip.innerHTML = '<span class="status-dot"></span><span>调度器已停止</span>';
+    }
     btn.textContent = '▶ 启动监控';
     btn.className = 'btn btn-success';
     btn.onclick = toggleScheduler;
@@ -191,6 +211,8 @@ document.addEventListener('click', e => {
   } else if (target.id === 'modalAppConfirm') {
     closeAppConfirm(false);
   } else {
+    const innerModal = target.querySelector('.modal');
+    if (innerModal) innerModal.classList.remove('modal--open');
     target.classList.remove('show');
   }
 });

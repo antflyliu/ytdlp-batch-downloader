@@ -12,6 +12,7 @@ const PARTIAL_SPECS = [
   { mountId: 'tpl-modal-account', url: '/templates/modals/modal-account.html' },
   { mountId: 'tpl-modal-proxy-pools', url: '/templates/modals/modal-proxy-pools.html' },
   { mountId: 'tpl-modal-proxy-pool-form', url: '/templates/modals/modal-proxy-pool-form.html' },
+  { mountId: 'tpl-modal-proxy-pool-demo', url: '/templates/modals/modal-proxy-pool-demo.html' },
   { mountId: 'tpl-modal-video-detail', url: '/templates/modals/modal-video-detail.html' },
   { mountId: 'tpl-modal-scan-confirm', url: '/templates/modals/modal-scan-confirm.html' },
   { mountId: 'tpl-modal-api-keys', url: '/templates/modals/modal-api-keys.html' },
@@ -25,6 +26,12 @@ const PARTIAL_SPECS = [
   { mountId: 'tpl-modal-confirm', url: '/templates/modals/modal-confirm.html' },
   { mountId: 'tpl-modal-clip-history', url: '/templates/modals/modal-clip-history.html' },
   { mountId: 'tpl-modal-clip-detail', url: '/templates/modals/modal-clip-detail.html' },
+  { mountId: 'tpl-page-settings', url: '/templates/pages/settings-hub.html' },
+  { mountId: 'tpl-page-settings-notify', url: '/templates/pages/settings-notify.html' },
+  { mountId: 'tpl-page-settings-api', url: '/templates/pages/settings-api.html' },
+  { mountId: 'tpl-page-settings-download', url: '/templates/pages/settings-download.html' },
+  { mountId: 'tpl-page-settings-ai', url: '/templates/pages/settings-ai.html' },
+  { mountId: 'tpl-page-settings-dynamic', url: '/templates/pages/settings-dynamic.html' },
 ];
 
 /**

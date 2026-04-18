@@ -1,18 +1,24 @@
-<!-- 全屏: 视频详情 -->
-<div class="modal-overlay" id="modalVideoDetail">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">视频详情 <span id="vdAccountName" style="font-weight:normal;font-size:13px;color:var(--text-muted)"></span></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;color:var(--text-dim);padding:2px 6px;background:var(--surface2);border-radius:4px;border:1px solid var(--border)">ESC 关闭</span>
-        <span id="vdTotal" style="font-size:12px;color:var(--text-muted);margin-right:8px"></span>
-        <button class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>下载选中 (<span id="vdSelCount">0</span>)</button>
-        <button class="modal-close" onclick="closeModal('modalVideoDetail')">✕</button>
+<!-- 视频详情：与切片任务详情同系 — 居中暖色卡片 + 毛玻璃遮罩 -->
+<div class="modal-overlay" id="modalVideoDetail" role="dialog" aria-modal="true" aria-labelledby="vdModalTitle">
+  <div class="modal modal-video-detail">
+    <div class="mvd-header">
+      <div class="mvd-header-left">
+        <div class="mvd-eyebrow"><span id="vdAccountEyebrow">监控账户</span><span id="vdAccountName" class="mvd-account-name"></span></div>
+        <h2 class="mvd-title" id="vdModalTitle">视频详情</h2>
+        <div class="mvd-meta">
+          <span class="mvd-kbd">ESC 关闭</span>
+          <span class="mvd-dot" aria-hidden="true"></span>
+          <span id="vdTotal" class="mvd-meta-item">共 — 条</span>
+        </div>
+      </div>
+      <div class="mvd-header-actions">
+        <button type="button" class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button type="button" class="ccd-close" onclick="closeModal('modalVideoDetail')" aria-label="关闭"><span aria-hidden="true">×</span></button>
       </div>
     </div>
-    <div class="modal-body">
+    <div class="modal-body mvd-body">
       <!-- 工具栏 -->
-      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+      <div class="vd-modal-toolbar mvd-toolbar">
         <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
         <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
         <select class="form-input" id="vdSortBy" style="width:140px" onchange="vdSearch()">
@@ -25,9 +31,9 @@
           <option value="desc">降序</option>
           <option value="asc">升序</option>
         </select>
-        <button class="btn btn-sm" onclick="vdSearch()">搜索</button>
-        <button class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-left:auto">
+        <button type="button" class="btn btn-sm" onclick="vdSearch()">搜索</button>
+        <button type="button" class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
+        <label class="vd-toolbar-spacer" style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
           <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
           <span id="vdSubLabel">字幕:否</span>
         </label>
@@ -61,10 +67,10 @@
         </table>
       </div>
       <!-- 分页 -->
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:12px;flex-shrink:0">
-        <button class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
-        <span id="vdPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
-        <button class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
+      <div class="vd-modal-toolbar vd-modal-toolbar--footer mvd-footer">
+        <button type="button" class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
+        <span id="vdPageInfo" class="mvd-meta-item"></span>
+        <button type="button" class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
         <select class="form-input" id="vdPageSize" style="width:80px;font-size:12px" onchange="vdChangePageSize()">
           <option value="20">20/页</option>
           <option value="50">50/页</option>

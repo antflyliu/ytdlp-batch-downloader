@@ -4,18 +4,8 @@
 import { api } from '../api.js';
 import { esc } from '../utils/format.js';
 import { fmtDuration } from '../utils/format.js';
-import { toast, openModal, closeModal as _closeModalBase } from './ui.js';
+import { toast, openModal, closeModal } from './ui.js';
 import { _vdAccId, _vdPage, _vdSel, _gConfig, setVdAccId, setVdPage, setVdSelClear } from './state.js';
-
-// Wrap closeModal to handle video detail ESC listener cleanup
-export function closeModal(id) {
-  if (id === 'modalVideoDetail') {
-    const handler = window._vdEscHandlerRef;
-    if (handler) document.removeEventListener('keydown', handler);
-    window._vdEscHandlerRef = null;
-  }
-  _closeModalBase(id);
-}
 
 // Click delegation for external links in video table
 // Uses event delegation on document so it works even if vdTbody is lazy-loaded
@@ -28,13 +18,18 @@ document.addEventListener('click', (e) => {
 });
 
 export function openVideoDetail(accId) {
+  // Guard: modalVideoDetail is loaded via loadPartials() — if not yet in DOM, skip
+  if (!document.getElementById('modalVideoDetail')) {
+    toast('页面加载中，请稍后重试', 'warning');
+    return;
+  }
   setVdAccId(accId);
   setVdPage(1);
   setVdSelClear();
   const subToggle = document.getElementById('vdSubToggle');
   if (subToggle) subToggle.checked = false;
   _updateVdSubLabelText();
-  // Expose handler for app.js closeModal to use
+  // ESC：ui.closeModal('modalVideoDetail') 会移除监听并关闭
   window._vdEscHandlerRef = (e) => { if (e.key === 'Escape') closeModal('modalVideoDetail'); };
   document.addEventListener('keydown', window._vdEscHandlerRef);
   openModal('modalVideoDetail');
@@ -49,11 +44,22 @@ export async function vdLoad() {
   const sortDir = (el('vdSortDir') || {value:'desc'}).value;
   const pageSizeEl = el('vdPageSize');
   const pageSize = pageSizeEl ? (parseInt(pageSizeEl.value, 10) || 20) : 20;
-  const res = await api('GET',
-    '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) +
+  const videoPath = '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) +
     '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir +
-    '&page=' + _vdPage + '&page_size=' + pageSize
-  );
+    '&page=' + _vdPage + '&page_size=' + pageSize;
+  const [res, accs] = await Promise.all([
+    api('GET', videoPath),
+    api('GET', '/accounts').catch(() => null),
+  ]);
+  const nameEl = el('vdAccountName');
+  if (nameEl) {
+    if (Array.isArray(accs)) {
+      const row = accs.find(x => String(x.id) === String(_vdAccId));
+      nameEl.textContent = row && row.name ? ' · ' + row.name : '';
+    } else {
+      nameEl.textContent = '';
+    }
+  }
   const tbody = document.getElementById('vdTbody');
   if (!tbody) return;
   if (!res || res.error || !Array.isArray(res.videos)) {

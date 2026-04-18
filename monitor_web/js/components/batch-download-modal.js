@@ -56,8 +56,10 @@ export function openBatchDownload() {
   const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '';
   loadProxyPoolsForBatch();
   loadRecentBatchTasks();
-  window.openModal('modalBatchDownload');
 }
+
+// Called by router when page-downloads section becomes active
+window.init_downloads_page = openBatchDownload;
 
 export function bdClose() {
   window.closeModal('modalBatchDownload');
