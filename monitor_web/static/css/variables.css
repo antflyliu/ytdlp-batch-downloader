@@ -1,80 +1,70 @@
 /* ── CSS Variables ─────────────────────────────────────────────────── */
 :root {
-  /* Surface */
-  --bg: #0f1117;
-  --surface: #161b27;
-  --surface2: #1c2333;
-  --surface3: #232d42;
-  --border: #2a3549;
+  /* === Claude Design System === */
+  /* Surface & Background */
+  --bg: #f5f4ed;                  /* Parchment: 页面背景 */
+  --surface: #faf9f5;              /* Ivory: 卡片/容器背景 */
+  --surface2: #f0eee6;             /* Border Cream: 次级表面 */
+  --surface3: #e8e6dc;             /* Warm Sand: 按钮/交互表面 */
+  --border: #e8e6dc;              /* Border Warm: 边框色 */
+
   /* Text */
-  --text: #e2e8f0;
-  --text-muted: #8896ab;
-  --text-dim: #4a5568;
-  /* Brand (indigo — unified, replaces proxy-cyan + dyn-indigo split) */
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --accent-dim: rgba(99,102,241,0.15);
-  --accent-ring: rgba(99,102,241,0.30);
+  --text: #141413;                /* Near Black: 主文字 */
+  --text-muted: #5e5d59;          /* Olive Gray: 次要文字 */
+  --text-dim: #87867f;            /* Stone Gray: 辅助文字 */
+
+  /* Brand Accent */
+  --accent: #c96442;              /* Terracotta Brand: 主强调色 */
+  --accent-hover: #d97757;        /* Coral Accent: 悬浮态 */
+  --accent-dim: rgba(201,100,66,0.12);
+  --accent-ring: rgba(201,100,66,0.30);
+
   /* Semantic */
   --success: #22c55e;
   --success-dim: rgba(34,197,94,0.12);
-  --error: #ef4444;
-  --error-dim: rgba(239,68,68,0.12);
+  --error: #b53333;
+  --error-dim: rgba(181,51,51,0.12);
   --warning: #f59e0b;
   --warning-dim: rgba(245,158,11,0.12);
+
   /* Platform */
   --feishu: #7B68EE;
   --dingtalk: #1677FF;
   --wecom: #52C41A;
   --telegram: #26A5E4;
-  /* Radius — 8档 (replaces scattered 3px/4px/6px/8px/.../999px hard-codes) */
-  --r-xs:   3px;   /* micro badges / dots */
+
+  /* Radius — 8档 */
+  --r-xs:   4px;   /* micro badges */
   --r-sm:   6px;   /* small inputs / tags */
   --r-md:   8px;   /* standard buttons / cards */
-  --r-lg:  12px;   /* modals / large cards */
-  --r-xl:  16px;   /* featured containers */
-  --r-2xl: 20px;   /* large containers */
-  --r-3xl: 24px;   /* special containers */
-  --r-full: 9999px; /* pills / chips / round toggles */
+  --r-lg:   12px;  /* modals / large cards */
+  --r-xl:   16px;  /* featured containers */
+  --r-2xl:  24px;  /* special containers */
+  --r-full: 9999px; /* pills / chips */
+
   /* Depth */
-  --shadow: 0 4px 24px rgba(0,0,0,0.4);
-  /* Ring (Anthropic-style 1px halo — replaces raw box-shadow hacks) */
-  --ring-subtle: 0 0 0 1px rgba(255,255,255,0.06);
-  --ring-medium: 0 0 0 1px rgba(255,255,255,0.12);
-  /* Surface overlays */
-  --surface-raised: rgba(255,255,255,0.04);
-  --surface-hover: rgba(255,255,255,0.06);
-  /* Border layers */
-  --border-subtle: rgba(255,255,255,0.06);
-  --border-medium: rgba(255,255,255,0.10);
-  --border-strong: rgba(255,255,255,0.15);
+  --shadow-whisper: 0px 4px 24px rgba(0,0,0,0.05);
+  --shadow-ring: 0px 0px 0px 1px;
+
+  /* Ring */
+  --ring-subtle: 0 0 0 1px rgba(0,0,0,0.06);
+  --ring-medium: 0 0 0 1px rgba(0,0,0,0.12);
+
   /* Typography */
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
-}
+  --font: 'Georgia', -apple-system, BlinkMacSystemFont, 'Segoe UI', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Code', monospace;
 
-/* ── Proxy Pool Variables (DEPRECATED — migrating to unified brand) ── */
-/* Old proxy used cyan (#2dd4bf) — now unified to brand indigo.
-   Live migration: all proxy-* usages now resolve to brand vars below.
-   TODO in Phase 3: migrate all hard-coded proxy colors in provider.css
-   to use --accent / --accent-dim / --border-medium. */
-:root {
-  --proxy-tint: rgba(99,102,241,0.08);   /* was: rgba(45,212,191,0.08) */
-  --proxy-border: rgba(99,102,241,0.25);  /* was: rgba(45,212,191,0.25) */
-  --proxy-text: #6366f1;                  /* was: #2dd4bf — now == --accent */
-  --proxy-bg: rgba(99,102,241,0.12);      /* was: rgba(45,212,191,0.12) — now == --accent-dim */
-  --proxy-dot-on: #6366f1;              /* was: #2dd4bf — now == --accent */
-  --proxy-dot-off: #4a5568;
-}
+  /* Sidebar (Dark) */
+  --sidebar-bg: #141413;
+  --sidebar-surface: #1c1c1a;
+  --sidebar-border: #30302e;
+  --sidebar-text: #b0aea5;
+  --sidebar-text-active: #faf9f5;
+  --sidebar-hover: #30302e;
+  --sidebar-active: #c96442;  /* Terracotta left border */
 
-/* ── Dynamic Provider Variables (DEPRECATED — unified to brand) ──── */
-/* Old dyn used indigo (#6366f1) — already aligned, kept for compatibility.
-   TODO in Phase 3: migrate to --accent / --accent-dim / --border-medium. */
-:root {
-  --dyn-tint: rgba(99,102,241,0.08);     /* already aligned — unchanged */
-  --dyn-border: rgba(99,102,241,0.25);   /* already aligned — unchanged */
-  --dyn-text: #6366f1;                  /* already == --accent */
-  --dyn-bg: rgba(99,102,241,0.12);      /* already == --accent-dim */
-  --dyn-dot-on: #6366f1;               /* already == --accent */
-  --dyn-dot-off: #4a5568;
+  /* Scrollbar */
+  --scrollbar-thumb: #d1cfc5;
+  --scrollbar-track: #f5f4ed;
 }
