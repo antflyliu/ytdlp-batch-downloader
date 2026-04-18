@@ -1,0 +1,51 @@
+<div class="page-header">
+  <div>
+    <a class="settings-back-link" href="#/settings">← 返回配置概览</a>
+    <div class="page-title">通知与 Webhook</div>
+    <div class="page-desc">全局 Webhook 与机器人（账户级可覆盖）</div>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn btn--primary" onclick="saveConfig()">保存配置</button>
+  </div>
+</div>
+
+<div class="settings-page-grid settings-page-grid--single">
+  <div class="settings-col">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🔔</div>
+          通知渠道
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label" style="color:var(--feishu)">飞书 Webhook</label>
+          <input class="form-input" id="cfgFeishu" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
+          <div class="form-hint">账户级 URL 会覆盖此处全局配置</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--dingtalk)">钉钉 Webhook</label>
+          <input class="form-input" id="cfgDingtalk" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx">
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--dingtalk)">钉钉加签密钥（全局）</label>
+          <input class="form-input" id="cfgDingtalkSecret" type="password" placeholder="SEC 开头">
+          <div class="form-hint">若全局钉钉机器人开启了「加签」</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--wecom)">企业微信 Webhook</label>
+          <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--telegram)">Telegram Bot Token</label>
+          <input class="form-input" id="cfgTelegramToken" type="password" placeholder="123456789:ABCdef...">
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="color:var(--telegram)">Telegram Chat ID</label>
+          <input class="form-input" id="cfgTelegramChatId" placeholder="123456789">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

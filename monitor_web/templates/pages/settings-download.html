@@ -1,0 +1,50 @@
+<div class="page-header">
+  <div>
+    <a class="settings-back-link" href="#/settings">← 返回配置概览</a>
+    <div class="page-title">下载设置</div>
+    <div class="page-desc">默认 Key、Cookie、保存路径与字幕</div>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn btn--primary" onclick="saveConfig()">保存配置</button>
+  </div>
+</div>
+
+<div class="settings-page-grid settings-page-grid--single">
+  <div class="settings-col">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">⬇️</div>
+          下载设置
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">默认 API Key</label>
+          <select class="form-input" id="cfgDefaultApiKey" style="width:100%">
+            <option value="">— 无默认 Key —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cookie 文件路径</label>
+          <input class="form-input" id="cfgCookiesFile" placeholder="留空则不使用 Cookie">
+        </div>
+        <div class="form-group">
+          <label class="form-label">下载保存路径</label>
+          <input class="form-input" id="cfgDownloadPath" placeholder="留空默认: videos/">
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="cfgEnableAria2">
+            <span class="checkbox-box"></span>
+            启用 aria2 多连接加速
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">字幕语言（批量下载时）</label>
+          <input class="form-input" id="cfgSubLangs" placeholder="zh-Hans,en">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
