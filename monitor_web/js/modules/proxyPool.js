@@ -10,36 +10,17 @@ const el = (id) => document.getElementById(id);
 
 // ── Proxy Pool ──────────────────────────────────────────────────────
 
+/** 在独立 sheet 弹窗中打开「功能演示」iframe，避免页内切换导致表格被隐藏而出现空白。 */
 export function openProxyDemo() {
-  const ppTableView = el('ppTableView');
-  if (ppTableView) ppTableView.style.display = 'none';
-  const ppDemoView = el('ppDemoView');
-  if (ppDemoView) ppDemoView.classList.add('show');
-  const ppDemoSection = el('ppDemoSection');
-  if (ppDemoSection) ppDemoSection.style.display = 'none';
-  const mb = document.querySelector('#modalProxyPools .modal-body');
-  if (mb) mb.style.overflow = 'hidden';
-  const demoBtn = document.querySelector('#ppDemoBtn');
-  if (demoBtn) demoBtn.style.display = 'none';
+  openModal('modalProxyPoolDemo');
 }
 
 export function closeProxyDemo() {
-  const ppTableView = el('ppTableView');
-  if (ppTableView) ppTableView.style.display = '';
-  const ppDemoView = el('ppDemoView');
-  if (ppDemoView) ppDemoView.classList.remove('show');
-  const ppDemoSection = el('ppDemoSection');
-  if (ppDemoSection) ppDemoSection.style.display = '';
-  const mb = document.querySelector('#modalProxyPools .modal-body');
-  if (mb) mb.style.overflow = 'auto';
-  const empty = el('emptyProxyPools');
-  const demoBtn = document.querySelector('#ppDemoBtn');
-  if (demoBtn) demoBtn.style.display = (empty && empty.style.display !== 'none') ? 'none' : '';
+  closeModal('modalProxyPoolDemo');
 }
 
 export async function openProxyPools() {
   closeProxyDemo();
-  openModal('modalProxyPools');
   await loadProxyPoolTable();
 }
 
@@ -52,24 +33,20 @@ export async function loadProxyPoolTable() {
     if (tbody) tbody.innerHTML = '';
     if (empty) empty.style.display = '';
     if (wrap) wrap.style.display = 'none';
-    const demoBtn = document.querySelector('#ppDemoBtn');
-    if (demoBtn) demoBtn.style.display = 'none';
     return;
   }
-  if (wrap) wrap.style.display = 'table';
+  if (wrap) wrap.style.display = 'block';
   if (empty) empty.style.display = 'none';
-  const demoBtn2 = document.querySelector('#ppDemoBtn');
-  if (demoBtn2) demoBtn2.style.display = '';
   if (tbody) {
     tbody.innerHTML = pools.map(p => `
     <tr>
-      <td class="td-mono" style="color:var(--proxy-text)">${p.id}</td>
-      <td class="name-cell">${esc(p.name)}</td>
-      <td class="url-cell" title="${esc(p.proxy_url)}">${esc(p.proxy_url)}</td>
+      <td class="td-mono">${p.id}</td>
+      <td class="td-name">${esc(p.name)}</td>
+      <td class="td-url" title="${esc(p.proxy_url)}">${esc(p.proxy_url)}</td>
       <td>
-        <div class="status-cell">
+        <div class="proxy-pool-status">
           <span class="proxy-dot ${p.enabled ? 'on' : 'off'}"></span>
-          ${p.enabled ? '<span style="color:var(--proxy-text)">在线</span>' : '<span style="color:var(--text-dim)">离线</span>'}
+          ${p.enabled ? '<span class="proxy-pool-status__on">在线</span>' : '<span class="proxy-pool-status__off">离线</span>'}
         </div>
       </td>
       <td>
@@ -171,3 +148,5 @@ export async function deleteProxyPool(id) {
   await loadProxyPoolTable();
   await refreshProxyPoolSelectors();
 }
+
+window.init_proxy_pools_page = openProxyPools;

@@ -13,10 +13,19 @@ export { schedulerRunning, loadStatus, updateSchedulerUI };
 export async function toggleScheduler() {
   const btn = document.getElementById('btnToggleScheduler');
   if (!btn) return;
-  btn.innerHTML = '<span class="spinner"></span>';
-  btn.style.pointerEvents = 'none';
+
+  const setBtnLoading = (loading) => {
+    if (loading) {
+      btn.innerHTML = '<span class="spinner"></span>';
+      btn.style.pointerEvents = 'none';
+    } else {
+      btn.style.pointerEvents = '';
+    }
+  };
+
   try {
     if (schedulerRunning) {
+      setBtnLoading(true);
       const r = await api('POST', '/scheduler/stop');
       if (r.ok !== false) {
         setSchedulerRunning(false);
@@ -24,6 +33,7 @@ export async function toggleScheduler() {
         toast('调度器已停止', 'ok');
       } else {
         toast(r.error || '操作失败', 'err');
+        updateSchedulerUI();
       }
     } else {
       const confirmResult = await showAppConfirmWithCheckbox({
@@ -31,14 +41,18 @@ export async function toggleScheduler() {
         message: '开始按计划扫描账号更新。',
         confirmText: '启动监控',
         cancelText: '取消',
-        confirmTone: 'success',
+        confirmTone: 'primary',
         checkbox: {
           label: '扫描到新视频后自动下载',
           description: '每轮扫描完成后自动开始下载，最多 2 个视频同时下载',
           checked: true,
         },
       });
-      if (!confirmResult.confirmed) return;
+      if (!confirmResult.confirmed) {
+        updateSchedulerUI();
+        return;
+      }
+      setBtnLoading(true);
       const r = await api('POST', '/scheduler/start', {
         auto_download: confirmResult.checked
       });
@@ -55,14 +69,14 @@ export async function toggleScheduler() {
         }
       } else {
         toast(r.error || '启动失败', 'err');
+        updateSchedulerUI();
       }
     }
   } catch(e) {
     toast('网络错误', 'err');
-  } finally {
-    btn.style.pointerEvents = '';
-    btn.innerHTML = '';
     updateSchedulerUI();
+  } finally {
+    setBtnLoading(false);
   }
 }
 

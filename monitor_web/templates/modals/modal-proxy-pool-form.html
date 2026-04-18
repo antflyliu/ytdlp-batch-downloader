@@ -1,22 +1,22 @@
-<!-- 模态: 添加/编辑固定代理 -->
-<div class="modal-overlay" id="modalProxyPoolForm">
-  <div class="modal" style="max-width:480px" id="modalProxyPoolFormInner">
+<!-- 模态: 添加/编辑固定代理（与账户 / API Key 表单弹框同款壳层） -->
+<div class="modal-overlay modal-overlay--account" id="modalProxyPoolForm" role="dialog" aria-modal="true" aria-labelledby="modalProxyPoolFormTitle">
+  <div class="modal modal--account">
     <div class="modal-header">
       <div class="modal-title" id="modalProxyPoolFormTitle">添加固定代理节点</div>
-      <button class="modal-close" onclick="closeModal('modalProxyPoolForm')">✕</button>
+      <button type="button" class="modal-close" onclick="closeModal('modalProxyPoolForm')" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="ppId">
       <div class="form-group">
         <label class="form-label" for="ppName">节点名称</label>
-        <input class="form-input" id="ppName" placeholder="例如：香港节点-01 / 住宅代理">
+        <input class="form-input" id="ppName" placeholder="例如：香港节点-01 / 住宅代理" autocomplete="off">
       </div>
       <div class="form-group">
         <label class="form-label" for="ppUrl">
           代理地址
           <span class="pp-scheme-tag">HTTP</span>
         </label>
-        <input class="form-input" id="ppUrl" placeholder="http://user:pass@host:port">
+        <input class="form-input" id="ppUrl" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false">
         <div class="pp-hint-row">
           <div class="pp-hint-schemes">
             <span class="pp-scheme-chip">http</span>
@@ -29,22 +29,21 @@
           支持带用户名密码认证的代理，认证信息已加密存储
         </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(42,53,73,0.4);margin-top:4px">
-        <div class="proxy-toggle-label" style="font-size:12px;color:var(--text-muted)">
-          <label class="toggle-switch">
-            <input type="checkbox" id="ppEnabled" checked>
-            <div class="toggle-track"><div class="toggle-thumb"></div></div>
-          </label>
-          立即启用
+      <hr class="form-sep">
+      <div class="proxy-toggle-row" style="margin-bottom:0">
+        <div class="proxy-toggle-copy">
+          <div class="proxy-toggle-title">立即启用</div>
+          <div class="proxy-toggle-sub">保存后可在账户中关联使用</div>
         </div>
-        <div style="font-size:11px;color:var(--text-dim)">保存后可在账户中关联使用</div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="ppEnabled" checked>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modalProxyPoolForm')">取消</button>
-      <button class="btn btn-primary" onclick="saveProxyPool()" style="background:var(--proxy-text);color:#0f1117;font-weight:600">
-        保存节点
-      </button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalProxyPoolForm')">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveProxyPool()">保存节点</button>
     </div>
   </div>
 </div>

@@ -11,7 +11,6 @@ const el = (id) => document.getElementById(id);
 // ── Global Config ────────────────────────────────────────────────────
 
 export async function openConfig() {
-  if (!el('modalConfig')) return;
   const cfg = await api('GET', '/config');
   setGConfig(cfg);
 
@@ -40,7 +39,6 @@ export async function openConfig() {
   e = el('cfgDownloadPath'); if (e) e.value = cfg.download_output_path || '';
   e = el('cfgEnableAria2'); if (e) e.checked = !!cfg.enable_aria2;
   e = el('cfgSubLangs'); if (e) e.value = cfg.default_sub_langs || 'zh-Hans,en';
-  e = el('cfgDefaultApiKey'); if (e) e.value = cfg.default_api_key_id || '';
 
   // AI 视频切片配置
   e = el('cfgLlmProvider'); if (e) e.value = cfg.llm_provider || 'qwen';
@@ -49,6 +47,9 @@ export async function openConfig() {
   e = el('cfgLlmBaseUrl'); if (e) e.value = cfg.llm_base_url || '';
   e = el('cfgLlmMinScore'); if (e) e.value = cfg.llm_min_score != null ? cfg.llm_min_score : 7.0;
   e = el('cfgLlmCategory'); if (e) e.value = cfg.llm_category || 'knowledge';
+  e = el('cfgClipEmbedThumbnail'); if (e) e.checked = cfg.clip_embed_thumbnail !== false;
+  e = el('cfgClipEmbedSubtitle'); if (e) e.checked = cfg.clip_embed_subtitle !== false;
+  e = el('cfgClipAdaptAspectRatio'); if (e) e.checked = cfg.clip_adapt_aspect_ratio !== false;
 
   // 系统默认动态代理配置
   e = el('cfg_system_dynamic_proxy_enabled'); if (e) e.checked = !!cfg.system_dynamic_proxy_enabled;
@@ -70,69 +71,133 @@ export async function openConfig() {
   e = el('cfg_mask_proxy_in_logs'); if (e) e.checked = cfg.mask_proxy_in_logs !== false;
 
   await refreshApiKeySelectors();
-  openModal('modalConfig');
+  e = el('cfgDefaultApiKey');
+  if (e) e.value = cfg.default_api_key_id || '';
 }
 
 export async function saveConfig() {
-  if (!el('modalConfig')) return;
+  /** 配置拆为多页后，当前页可能没有全部字段；先 GET 再合并，避免用空值覆盖服务端。 */
+  const snapshot = await api('GET', '/config');
+  setGConfig(snapshot);
+  const S = snapshot;
 
   const v = (id) => { const e = el(id); return e ? e.value.trim() : ''; };
   const c = (id) => { const e = el(id); return e ? e.checked : false; };
   const n = (id) => { const e = el(id); return e ? parseInt(e.value, 10) || 8000 : 8000; };
 
   const body = {
-    global_feishu_url: v('cfgFeishu'),
-    global_dingtalk_url: v('cfgDingtalk'),
-    global_dingtalk_sign_secret: v('cfgDingtalkSecret') || '',
-    global_wecom_url: v('cfgWecom'),
-    global_telegram_token: v('cfgTelegramToken'),
-    global_telegram_chat_id: v('cfgTelegramChatId'),
-    quota_budget_per_day: n('cfgQuotaBudget'),
-    quota_usage_timezone: (() => { const e = el('cfgQuotaUsageTimezone'); return e ? e.value : 'local'; })(),
-    channel_meta_max_age_days: (() => { const e = el('cfgChannelMetaMaxAge'); const v = e ? parseInt(e.value, 10) : 30; return Number.isNaN(v) ? 30 : v; })(),
-    notify_on_scan_error: c('cfgNotifyOnScanError'),
-    scan_error_notify_cooldown_seconds: (() => { const e = el('cfgScanErrorCooldown'); return e ? parseInt(e.value, 10) || 300 : 300; })(),
-    scan_jitter_seconds: (() => { const e = el('cfgScanJitter'); return e ? parseInt(e.value, 10) || 0 : 0; })(),
+    global_feishu_url: el('cfgFeishu') ? v('cfgFeishu') : (S.global_feishu_url ?? ''),
+    global_dingtalk_url: el('cfgDingtalk') ? v('cfgDingtalk') : (S.global_dingtalk_url ?? ''),
+    global_dingtalk_sign_secret: el('cfgDingtalkSecret') ? (v('cfgDingtalkSecret') || '') : (S.global_dingtalk_sign_secret ?? ''),
+    global_wecom_url: el('cfgWecom') ? v('cfgWecom') : (S.global_wecom_url ?? ''),
+    global_telegram_token: el('cfgTelegramToken') ? v('cfgTelegramToken') : (S.global_telegram_token ?? ''),
+    global_telegram_chat_id: el('cfgTelegramChatId') ? v('cfgTelegramChatId') : (S.global_telegram_chat_id ?? ''),
+    quota_budget_per_day: el('cfgQuotaBudget') ? n('cfgQuotaBudget') : (typeof S.quota_budget_per_day === 'number' ? S.quota_budget_per_day : 8000),
+    quota_usage_timezone: (() => {
+      const e = el('cfgQuotaUsageTimezone');
+      if (e) return e.value;
+      return S.quota_usage_timezone || 'local';
+    })(),
+    channel_meta_max_age_days: (() => {
+      const e = el('cfgChannelMetaMaxAge');
+      if (e) {
+        const x = parseInt(e.value, 10);
+        return Number.isNaN(x) ? 30 : x;
+      }
+      const x = S.channel_meta_max_age_days;
+      return typeof x === 'number' && !Number.isNaN(x) ? x : 30;
+    })(),
+    notify_on_scan_error: el('cfgNotifyOnScanError') ? c('cfgNotifyOnScanError') : !!S.notify_on_scan_error,
+    scan_error_notify_cooldown_seconds: (() => {
+      const e = el('cfgScanErrorCooldown');
+      if (e) return parseInt(e.value, 10) || 300;
+      const x = S.scan_error_notify_cooldown_seconds;
+      return typeof x === 'number' ? x : 300;
+    })(),
+    scan_jitter_seconds: (() => {
+      const e = el('cfgScanJitter');
+      if (e) return parseInt(e.value, 10) || 0;
+      const x = S.scan_jitter_seconds;
+      return typeof x === 'number' ? x : 0;
+    })(),
     quota_alert_thresholds: (() => {
       const e = el('cfgQuotaAlertThresholds');
-      if (!e || !e.value.trim()) return [80, 90, 100];
-      const arr = e.value.split(/[,，\s]+/).map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n) && n >= 1 && n <= 100);
-      return arr.length ? arr : [80, 90, 100];
+      if (e) {
+        if (!e.value.trim()) return [80, 90, 100];
+        const arr = e.value.split(/[,，\s]+/).map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n) && n >= 1 && n <= 100);
+        return arr.length ? arr : [80, 90, 100];
+      }
+      const t = S.quota_alert_thresholds;
+      return Array.isArray(t) && t.length ? t : [80, 90, 100];
     })(),
-    channel_meta_health_check_enabled: c('cfgChannelMetaHealthEnabled'),
+    channel_meta_health_check_enabled: el('cfgChannelMetaHealthEnabled') ? c('cfgChannelMetaHealthEnabled') : S.channel_meta_health_check_enabled !== false,
     channel_meta_health_check_interval_hours: (() => {
       const e = el('cfgChannelMetaHealthInterval');
-      const v = e ? parseInt(e.value, 10) : 24;
-      return Number.isNaN(v) || v < 1 ? 24 : v;
+      if (e) {
+        const x = parseInt(e.value, 10);
+        return Number.isNaN(x) || x < 1 ? 24 : x;
+      }
+      const x = S.channel_meta_health_check_interval_hours;
+      return typeof x === 'number' && !Number.isNaN(x) && x >= 1 ? x : 24;
     })(),
-    notify_on_channel_meta_mismatch: c('cfgNotifyChannelMetaMismatch'),
-    download_cookies_file: v('cfgCookiesFile'),
-    download_output_path: v('cfgDownloadPath'),
-    enable_aria2: c('cfgEnableAria2'),
-    default_sub_langs: v('cfgSubLangs') || 'zh-Hans,en',
-    default_api_key_id: v('cfgDefaultApiKey') || null,
+    notify_on_channel_meta_mismatch: el('cfgNotifyChannelMetaMismatch') ? c('cfgNotifyChannelMetaMismatch') : S.notify_on_channel_meta_mismatch !== false,
+    download_cookies_file: el('cfgCookiesFile') ? v('cfgCookiesFile') : (S.download_cookies_file ?? ''),
+    download_output_path: el('cfgDownloadPath') ? v('cfgDownloadPath') : (S.download_output_path ?? ''),
+    enable_aria2: el('cfgEnableAria2') ? c('cfgEnableAria2') : !!S.enable_aria2,
+    default_sub_langs: el('cfgSubLangs') ? (v('cfgSubLangs') || 'zh-Hans,en') : (S.default_sub_langs || 'zh-Hans,en'),
+    default_api_key_id: el('cfgDefaultApiKey') ? (v('cfgDefaultApiKey') || null) : (S.default_api_key_id ?? null),
 
-    // AI 视频切片配置
-    llm_provider: (() => { const e = el('cfgLlmProvider'); return e ? e.value : 'qwen'; })(),
-    llm_api_key: v('cfgLlmApiKey'),
-    llm_model: v('cfgLlmModel'),
-    llm_base_url: v('cfgLlmBaseUrl'),
-    llm_min_score: (() => { const e = el('cfgLlmMinScore'); return e ? parseFloat(e.value) || 7.0 : 7.0; })(),
-    llm_category: (() => { const e = el('cfgLlmCategory'); return e ? e.value : 'knowledge'; })(),
+    llm_provider: (() => {
+      const e = el('cfgLlmProvider');
+      if (e) return e.value;
+      return S.llm_provider || 'qwen';
+    })(),
+    llm_api_key: el('cfgLlmApiKey') ? v('cfgLlmApiKey') : (S.llm_api_key ?? ''),
+    llm_model: el('cfgLlmModel') ? v('cfgLlmModel') : (S.llm_model ?? ''),
+    llm_base_url: el('cfgLlmBaseUrl') ? v('cfgLlmBaseUrl') : (S.llm_base_url ?? ''),
+    llm_min_score: (() => {
+      const e = el('cfgLlmMinScore');
+      if (e) return parseFloat(e.value) || 7.0;
+      const x = S.llm_min_score;
+      return typeof x === 'number' && !Number.isNaN(x) ? x : 7.0;
+    })(),
+    llm_category: (() => {
+      const e = el('cfgLlmCategory');
+      if (e) return e.value;
+      return S.llm_category || 'knowledge';
+    })(),
+    clip_embed_thumbnail: el('cfgClipEmbedThumbnail') ? c('cfgClipEmbedThumbnail') : S.clip_embed_thumbnail !== false,
+    clip_embed_subtitle: el('cfgClipEmbedSubtitle') ? c('cfgClipEmbedSubtitle') : S.clip_embed_subtitle !== false,
+    clip_adapt_aspect_ratio: el('cfgClipAdaptAspectRatio') ? c('cfgClipAdaptAspectRatio') : S.clip_adapt_aspect_ratio !== false,
 
-    // 系统默认动态代理配置
-    system_dynamic_proxy_enabled: c('cfg_system_dynamic_proxy_enabled'),
-    apply_dynamic_proxy_to_new_accounts: c('cfg_apply_dynamic_proxy_to_new_accounts'),
-    apply_dynamic_proxy_to_existing_accounts: c('cfg_apply_dynamic_proxy_to_existing_accounts'),
-    allow_free_proxy: c('cfg_allow_free_proxy'),
-    allow_free_proxy_for_auto_download: c('cfg_allow_free_proxy_for_auto_download'),
-    allow_free_proxy_with_cookies: c('cfg_allow_free_proxy_with_cookies'),
-    manual_direct_fallback: c('cfg_manual_direct_fallback'),
-    auto_direct_fallback: c('cfg_auto_direct_fallback'),
-    default_proxy_protocol_order: (() => { const e = el('cfg_default_proxy_protocol_order'); return e ? e.value.split(',').map(s => s.trim()).filter(Boolean) : []; })(),
-    default_session_mode: (() => { const e = el('cfg_default_session_mode'); return e ? e.value : 'sticky'; })(),
-    default_sticky_minutes: (() => { const e = el('cfg_default_sticky_minutes'); return e ? parseInt(e.value) || 10 : 10; })(),
-    mask_proxy_in_logs: c('cfg_mask_proxy_in_logs'),
+    system_dynamic_proxy_enabled: el('cfg_system_dynamic_proxy_enabled') ? c('cfg_system_dynamic_proxy_enabled') : !!S.system_dynamic_proxy_enabled,
+    apply_dynamic_proxy_to_new_accounts: el('cfg_apply_dynamic_proxy_to_new_accounts') ? c('cfg_apply_dynamic_proxy_to_new_accounts') : S.apply_dynamic_proxy_to_new_accounts !== false,
+    apply_dynamic_proxy_to_existing_accounts: el('cfg_apply_dynamic_proxy_to_existing_accounts') ? c('cfg_apply_dynamic_proxy_to_existing_accounts') : !!S.apply_dynamic_proxy_to_existing_accounts,
+    allow_free_proxy: el('cfg_allow_free_proxy') ? c('cfg_allow_free_proxy') : S.allow_free_proxy !== false,
+    allow_free_proxy_for_auto_download: el('cfg_allow_free_proxy_for_auto_download') ? c('cfg_allow_free_proxy_for_auto_download') : !!S.allow_free_proxy_for_auto_download,
+    allow_free_proxy_with_cookies: el('cfg_allow_free_proxy_with_cookies') ? c('cfg_allow_free_proxy_with_cookies') : !!S.allow_free_proxy_with_cookies,
+    manual_direct_fallback: el('cfg_manual_direct_fallback') ? c('cfg_manual_direct_fallback') : S.manual_direct_fallback !== false,
+    auto_direct_fallback: el('cfg_auto_direct_fallback') ? c('cfg_auto_direct_fallback') : !!S.auto_direct_fallback,
+    default_proxy_protocol_order: (() => {
+      const e = el('cfg_default_proxy_protocol_order');
+      if (e) return e.value.split(',').map(s => s.trim()).filter(Boolean);
+      const p = S.default_proxy_protocol_order;
+      if (Array.isArray(p)) return p;
+      if (typeof p === 'string') return p.split(',').map(s => s.trim()).filter(Boolean);
+      return ['http', 'https', 'socks5', 'socks4'];
+    })(),
+    default_session_mode: (() => {
+      const e = el('cfg_default_session_mode');
+      if (e) return e.value;
+      return S.default_session_mode || 'sticky';
+    })(),
+    default_sticky_minutes: (() => {
+      const e = el('cfg_default_sticky_minutes');
+      if (e) return parseInt(e.value, 10) || 10;
+      const x = S.default_sticky_minutes;
+      return typeof x === 'number' && !Number.isNaN(x) ? x : 10;
+    })(),
+    mask_proxy_in_logs: el('cfg_mask_proxy_in_logs') ? c('cfg_mask_proxy_in_logs') : S.mask_proxy_in_logs !== false,
   };
   const r = await api('POST', '/config', body);
   if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
@@ -142,7 +207,6 @@ export async function saveConfig() {
 // ── API Keys ────────────────────────────────────────────────────────
 
 export async function openApiKeys() {
-  openModal('modalApiKeys');
   await loadApiKeysList();
 }
 
@@ -324,3 +388,11 @@ export async function deleteApiKey(id) {
 
 // Shared API key selector refresh — re-exported from accounts
 export { refreshApiKeySelectors } from './accounts.js';
+
+window.init_api_keys_page = openApiKeys;
+window.init_settings_page = openConfig;
+window.init_settings_notify_page = openConfig;
+window.init_settings_api_page = openConfig;
+window.init_settings_download_page = openConfig;
+window.init_settings_ai_page = openConfig;
+window.init_settings_dynamic_page = openConfig;

@@ -1,9 +1,9 @@
-<!-- 模态: 添加/编辑动态代理提供方 -->
-<div class="modal-overlay" id="modalDynamicProviderForm">
-  <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto">
+<!-- 模态: 添加/编辑动态代理提供方（与账户 / API Key 表单弹框同款壳层） -->
+<div class="modal-overlay modal-overlay--account" id="modalDynamicProviderForm" role="dialog" aria-modal="true" aria-labelledby="dynFormTitle">
+  <div class="modal modal--account">
     <div class="modal-header">
       <div class="modal-title" id="dynFormTitle">添加动态代理提供方</div>
-      <button class="modal-close" onclick="closeModal('modalDynamicProviderForm')">✕</button>
+      <button type="button" class="modal-close" onclick="closeModal('modalDynamicProviderForm')" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="dynId">
@@ -244,8 +244,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')">取消</button>
-      <button class="btn btn-dyn-primary" onclick="saveDynamicProvider()">保存提供方</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveDynamicProvider()">保存提供方</button>
     </div>
   </div>
 </div>
