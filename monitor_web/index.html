@@ -20,117 +20,196 @@
 <link rel="stylesheet" href="/static/css/api-key.css">
 <link rel="stylesheet" href="/static/css/theme.css">
 <link rel="stylesheet" href="/static/css/clip-detail.css">
+<link rel="stylesheet" href="/static/css/sidebar.css">
 </head>
 <body>
-<div class="app">
-  <!-- 顶部栏 (extracted to templates/header.html) -->
-  <div id="app-header"></div>
-
-  <!-- 主内容 -->
-  <main class="main">
-    <!-- 统计卡片 -->
-    <div class="card">
-      <div class="stats-grid" id="statsGrid">
-        <div class="stat-card">
-          <div class="stat-label">监控账户</div>
-          <div class="stat-value" id="statAccounts">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">总扫描次数</div>
-          <div class="stat-value" id="statScans">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">新增视频</div>
-          <div class="stat-value" id="statNew">—</div>
-        </div>
-        <div class="stat-card" id="quotaCard" style="display:none">
-          <div class="stat-label">API Quota</div>
-          <div class="stat-value" id="statQuota">—</div>
-          <div class="progress-bar" style="height:4px;background:var(--border);border-radius:2px;margin-top:4px">
-            <div id="quotaBar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
-          </div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="quotaSub">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">最后扫描</div>
-          <div class="stat-value" id="statLast" style="font-size:14px">—</div>
-        </div>
-      </div>
+<div class="app" id="app">
+  <!-- 侧边栏 -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar__logo">
+      <div class="sidebar__logo-icon">▶</div>
+      <span class="sidebar__logo-text">YouTube 监控</span>
     </div>
-
-    <!-- 账户列表 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">
-          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">户</div>
-          监控账户
-        </div>
-        <div class="actions">
-          <div id="schedulerControls">
-            <button class="btn btn-primary" onclick="openAddAccount()">+ 添加账户</button>
-            <button class="btn btn-success" id="btnToggleScheduler" onclick="toggleScheduler()">▶ 启动监控</button>
-          </div>
-          <button class="btn btn-ghost" onclick="reloadJobs()">↻ 重载任务</button>
-        </div>
-      </div>
-      <div class="card-account-search">
-        <input
-          class="form-input"
-          id="accountSearch"
-          type="search"
-          placeholder="搜索账户名称或频道 URL…"
-          oninput="filterAccountTable(this.value)"
-          style="max-width:280px"
-        >
-        <span class="account-count" id="accountCount" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>名称</th>
-              <th>频道 URL</th>
-              <th>API Key</th>
-              <th>模式</th>
-              <th>间隔</th>
-              <th>获取</th>
-              <th>状态</th>
-              <th>通知</th>
-              <th>代理</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="accountsTable">
-          </tbody>
-        </table>
-      </div>
-      <div class="empty-state" id="emptyAccounts" style="display:none">
-        <div class="empty-icon" aria-hidden="true">—</div>
-        <div class="empty-title">暂无监控账户</div>
-        <div class="empty-desc">点击右上角「添加账户」开始监控 YouTube 频道</div>
-        <button class="btn btn-primary" onclick="openAddAccount()">+ 添加第一个账户</button>
-      </div>
+    <div class="sidebar__nav">
+      <a class="sidebar__item sidebar__item--active" data-page="dashboard">
+        <span class="sidebar__item-icon">📊</span>
+        <span class="sidebar__item-label">数据概览</span>
+      </a>
+      <a class="sidebar__item" data-page="channels">
+        <span class="sidebar__item-icon">📺</span>
+        <span class="sidebar__item-label">账户管理</span>
+      </a>
+      <a class="sidebar__item" data-page="downloads">
+        <span class="sidebar__item-icon">⬇️</span>
+        <span class="sidebar__item-label">批量下载</span>
+      </a>
+      <a class="sidebar__item" data-page="api-keys">
+        <span class="sidebar__item-icon">🔑</span>
+        <span class="sidebar__item-label">API Keys</span>
+      </a>
+      <a class="sidebar__item" data-page="proxy-pools">
+        <span class="sidebar__item-icon">🌐</span>
+        <span class="sidebar__item-label">代理池</span>
+      </a>
+      <a class="sidebar__item" data-page="dynamic-providers">
+        <span class="sidebar__item-icon">🔄</span>
+        <span class="sidebar__item-label">动态代理</span>
+      </a>
+      <a class="sidebar__item" data-page="clip-history">
+        <span class="sidebar__item-icon">✂️</span>
+        <span class="sidebar__item-label">切片历史</span>
+      </a>
+      <a class="sidebar__item" data-page="settings">
+        <span class="sidebar__item-icon">⚙️</span>
+        <span class="sidebar__item-label">全局配置</span>
+      </a>
     </div>
+    <div class="sidebar__footer">
+      <button class="sidebar__toggle" id="sidebarToggle">
+        <span class="sidebar__toggle-icon">‹</span>
+        <span class="sidebar__toggle-label">收起</span>
+      </button>
+    </div>
+  </nav>
 
-    <!-- 扫描日志 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">
-          <div class="card-title-icon" style="background:var(--success-dim);color:var(--success)" aria-hidden="true">事</div>
-          扫描事件日志
-        </div>
-        <div style="font-size:11px;color:var(--text-dim)" id="eventCount">最近 20 条</div>
+  <!-- 主内容区 -->
+  <div class="app__main" id="appMain">
+    <!-- 顶部栏 -->
+    <header class="header">
+      <div class="header-left">
+        <span style="font-size:13px;color:var(--text-muted)">YouTube 监控</span>
       </div>
-      <div class="card-body">
-        <div class="log-area" id="logArea">
-          <div class="empty-state" style="padding:24px">
-            <div class="empty-title" style="font-size:13px">暂无扫描记录</div>
+      <div class="header-right">
+        <button class="btn btn--sm btn--ghost" id="langToggle">CN / EN</button>
+      </div>
+    </header>
+
+    <!-- 页面内容 -->
+    <main class="main">
+      <!-- Dashboard (page-dashboard) -->
+      <section class="page page--active" id="page-dashboard">
+        <div class="card">
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+              <div class="stat-label">监控账户</div>
+              <div class="stat-value" id="statAccounts">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">总扫描次数</div>
+              <div class="stat-value" id="statScans">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">新增视频</div>
+              <div class="stat-value" id="statNew">—</div>
+            </div>
+            <div class="stat-card" id="quotaCard" style="display:none">
+              <div class="stat-label">API Quota</div>
+              <div class="stat-value" id="statQuota">—</div>
+              <div class="progress-bar" style="height:4px;background:var(--border);border-radius:2px;margin-top:4px">
+                <div id="quotaBar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
+              </div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="quotaSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">最后扫描</div>
+              <div class="stat-value" id="statLast" style="font-size:14px">—</div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-  </main>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">事</div>
+              扫描事件日志
+            </div>
+            <div style="font-size:11px;color:var(--text-dim)" id="eventCount">最近 20 条</div>
+          </div>
+          <div class="card-body">
+            <div class="log-area" id="logArea">
+              <div class="empty-state" style="padding:24px">
+                <div class="empty-title" style="font-size:13px">暂无扫描记录</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Channels (page-channels) -->
+      <section class="page" id="page-channels">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">户</div>
+              监控账户
+            </div>
+            <div class="actions">
+              <div id="schedulerControls">
+                <button class="btn btn--primary" onclick="openAddAccount()">+ 添加账户</button>
+                <button class="btn btn--success" id="btnToggleScheduler" onclick="toggleScheduler()">▶ 启动监控</button>
+              </div>
+              <button class="btn btn--ghost" onclick="reloadJobs()">↻ 重载任务</button>
+            </div>
+          </div>
+          <div class="card-account-search">
+            <input
+              class="form-input"
+              id="accountSearch"
+              type="search"
+              placeholder="搜索账户名称或频道 URL…"
+              oninput="filterAccountTable(this.value)"
+              style="max-width:280px"
+            >
+            <span class="account-count" id="accountCount" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>名称</th>
+                  <th>频道 URL</th>
+                  <th>API Key</th>
+                  <th>模式</th>
+                  <th>间隔</th>
+                  <th>获取</th>
+                  <th>状态</th>
+                  <th>通知</th>
+                  <th>代理</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="accountsTable">
+              </tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="emptyAccounts" style="display:none">
+            <div class="empty-icon" aria-hidden="true">—</div>
+            <div class="empty-title">暂无监控账户</div>
+            <div class="empty-desc">点击右上角「添加账户」开始监控 YouTube 频道</div>
+            <button class="btn btn--primary" onclick="openAddAccount()">+ 添加第一个账户</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Downloads -->
+      <section class="page" id="page-downloads"></section>
+
+      <!-- API Keys -->
+      <section class="page" id="page-api-keys"></section>
+
+      <!-- Proxy Pools -->
+      <section class="page" id="page-proxy-pools"></section>
+
+      <!-- Dynamic Providers -->
+      <section class="page" id="page-dynamic-providers"></section>
+
+      <!-- Clip History -->
+      <section class="page" id="page-clip-history"></section>
+
+      <!-- Settings -->
+      <section class="page" id="page-settings"></section>
+    </main>
+  </div>
 </div>
 
 <!-- 模态: 添加/编辑账户 -->
