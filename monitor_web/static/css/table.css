@@ -17,42 +17,32 @@
   background: var(--surface2);
 }
 
-/* ── Table ─────────────────────────────────────────────────────────── */
-.table-wrap {
-  overflow-x: auto;
-  max-height: 480px;
-  overflow-y: auto;
-}
-thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--surface2);
-}
-table {
+/* ── Table (BEM) ─────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: var(--r-md); }
+.table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
-thead th {
-  padding: 10px 16px;
+.table__header-cell {
   text-align: left;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  background: var(--surface2);
   border-bottom: 1px solid var(--border);
+  background: var(--surface2);
   white-space: nowrap;
 }
-tbody tr {
+.table__cell {
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  transition: background 0.1s;
+  color: var(--text);
 }
-tbody tr:last-child { border-bottom: none; }
-tbody tr:hover { background: var(--surface2); }
-td { padding: 12px 16px; vertical-align: middle; }
+.table__row:last-child .table__cell { border-bottom: none; }
+.table__row:hover .table__cell { background: var(--bg); }
+
+/* Table cell variants (preserved for backward compatibility) */
 .td-mono {
   font-family: var(--mono);
   font-size: 12px;
