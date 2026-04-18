@@ -20,11 +20,11 @@
 }
 .btn--primary { background: var(--accent); color: var(--surface); }
 .btn--primary:hover { background: var(--accent-hover); }
-.btn--success { background: var(--success); color: #fff; }
+.btn--success { background: var(--success); color: var(--surface); }
 .btn--success:hover { filter: brightness(1.1); }
-.btn--danger { background: var(--error); color: #fff; }
+.btn--danger { background: var(--error); color: var(--surface); }
 .btn--danger:hover { filter: brightness(1.1); }
-.btn--warning { background: var(--warning); color: #fff; }
+.btn--warning { background: var(--warning); color: var(--surface); }
 .btn--warning:hover { filter: brightness(1.1); }
 .btn--ghost {
   background: transparent;
@@ -55,9 +55,9 @@
   font-size: 12px;
   font-weight: 500;
 }
-.tag--success { background: #dcfce7; color: #166534; }
-.tag--warning { background: #fef3c7; color: #92400e; }
-.tag--error { background: #fee2e2; color: #991b1b; }
+.tag--success { background: var(--success-dim); color: var(--success); }
+.tag--warning { background: var(--warning-dim); color: var(--warning); }
+.tag--error { background: var(--error-dim); color: var(--error); }
 .tag--info { background: var(--accent-dim); color: var(--accent); }
 .tag--muted { background: var(--surface3); color: var(--text-muted); }
 .tag--feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }

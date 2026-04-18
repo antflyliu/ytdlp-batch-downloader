@@ -221,37 +221,3 @@
 }
 #modalBatchDownload .modal-footer .btn { padding: 8px 20px; }
 
-/* ── Scanning Animation ────────────────────────────────────────────── */
-.scanning {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent);
-}
-.spinner {
-  width: 14px; height: 14px;
-  border: 2px solid var(--accent-dim);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── Log Area ──────────────────────────────────────────────────────── */
-.log-area {
-  background: var(--bg);
-  border-radius: var(--r-md);
-  padding: 12px 16px;
-  max-height: 200px;
-  overflow-y: auto;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--text-muted);
-}
-.log-line { display: flex; gap: 8px; }
-.log-time { color: var(--text-dim); flex-shrink: 0; }
-.log-msg { color: var(--text-muted); }
-.log-msg.ok { color: var(--success); }
-.log-msg.err { color: var(--error); }
-.log-msg.info { color: var(--accent); }
