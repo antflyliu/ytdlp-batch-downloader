@@ -1,41 +1,60 @@
-/* ── Form ──────────────────────────────────────────────────────────── */
-.form-group {
-  margin-bottom: 18px;
-}
-.form-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
+/* ── Form Inputs (BEM) ──────────────────────────────────────────────── */
 .form-input {
   width: 100%;
-  padding: 10px 14px;
-  background: var(--surface2);
+  padding: 8px 12px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  color: var(--text);
-  font-family: var(--font);
+  border-radius: var(--r-lg);
+  font-family: var(--font-sans);
   font-size: 14px;
+  color: var(--text);
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .form-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-dim);
+  box-shadow: var(--shadow-ring) var(--accent);
 }
 .form-input::placeholder { color: var(--text-dim); }
-.form-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-sep {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 20px 0;
+.form-input--error { border-color: var(--error); }
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 6px;
 }
-.form-help-text {
-  font-size: 11px;
+
+.form-group { margin-bottom: 16px; }
+
+.form-hint {
+  font-size: 12px;
   color: var(--text-dim);
   margin-top: 4px;
+}
+
+/* Checkbox */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+}
+.checkbox-box {
+  width: 18px; height: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 150ms ease-out;
+}
+.checkbox-label input:checked + .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ── Platform Selector ─────────────────────────────────────────────── */
@@ -59,38 +78,6 @@
 .platform-btn.active-dingtalk { background: rgba(22,119,255,0.15); border-color: var(--dingtalk); color: var(--dingtalk); }
 .platform-btn.active-wecom { background: rgba(82,196,26,0.15); border-color: var(--wecom); color: var(--wecom); }
 .platform-btn.active-telegram { background: rgba(38,165,228,0.15); border-color: var(--telegram); color: var(--telegram); }
-
-/* ── Checkbox ──────────────────────────────────────────────────────── */
-.checkbox-group { display: flex; gap: 16px; }
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-muted);
-  user-select: none;
-}
-.checkbox-label input { display: none; }
-.checkbox-box {
-  width: 18px; height: 18px;
-  border: 2px solid var(--border);
-  border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.checkbox-label input:checked + .checkbox-box {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.checkbox-box::after {
-  content: '\2713';
-  font-size: 10px;
-  color: #fff;
-  display: none;
-}
-.checkbox-label input:checked + .checkbox-box::after { display: block; }
 
 /* ── Select ────────────────────────────────────────────────────────── */
 select.form-input {
