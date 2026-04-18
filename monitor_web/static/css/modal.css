@@ -2,86 +2,76 @@
    modal.css — Modal dialog styles
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Modal (Canonical) ──────────────────────────────────────────────── */
-.modal-overlay {
+/* ── Modal (BEM) ───────────────────────────────────────────────────── */
+.modal {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.7);
-  backdrop-filter: blur(4px);
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-modal, 1000);
+  background: rgba(0,0,0,0.3);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s;
+  transition: opacity 250ms ease-out;
 }
-.modal-overlay.show { opacity: 1; pointer-events: auto; }
-.modal {
+.modal--open { opacity: 1; pointer-events: auto; }
+
+.modal__container {
   background: var(--surface);
-  border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  width: 560px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: var(--shadow);
-  transform: scale(0.95);
-  transition: transform 0.2s;
+  box-shadow: var(--shadow-whisper);
+  width: 90%;
+  max-width: 560px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(8px);
+  transition: transform 250ms ease-out;
 }
-.modal-overlay.show .modal { transform: scale(1); }
-.modal-header {
+.modal--open .modal__container { transform: translateY(0); }
+
+.modal__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
-  gap: 12px;
 }
-.modal-title { font-size: 16px; font-weight: 700; color: var(--text); }
-.modal-close {
+.modal__title { font-size: 15px; font-weight: 600; color: var(--text); }
+.modal__close {
   width: 28px; height: 28px;
-  border-radius: var(--r-sm);
-  background: var(--surface2);
-  border: 1px solid var(--border-medium);
-  color: var(--text-muted);
-  cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px;
-  transition: all 0.15s;
-  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: none; border: none;
+  color: var(--text-muted); cursor: pointer; font-size: 18px;
 }
-.modal-close:hover { background: var(--surface3); color: var(--text); }
-.modal-close:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.modal-body { padding: 20px 24px; }
-.modal-footer {
-  padding: 16px 24px;
-  border-top: 1px solid var(--border);
+.modal__close:hover { background: var(--surface2); color: var(--text); }
+
+.modal__body { padding: 20px; overflow-y: auto; flex: 1; }
+.modal__footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
 }
 
-/* ── Modal modifier classes (replace scattered per-modal overrides) ─── */
-/* Accent left border — canonical: <div class="modal modal--accent"> */
+/* ── Modal modifier classes ────────────────────────────────────────── */
 .modal--accent { border-left: 3px solid var(--accent); }
-/* Danger — canonical: <div class="modal modal--danger"> */
 .modal--danger { border-left: 3px solid var(--error); }
-/* Warning */
 .modal--warning { border-left: 3px solid var(--warning); }
 
-/* ── Z-index scale (eliminates hard-coded z-index values) ────────────── */
+/* ── Z-index scale ─────────────────────────────────────────────────── */
 :root {
-  --z-modal:      1000;  /* default modals */
-  --z-modal-high: 1100;  /* app confirm, nested modals */
-  --z-toast:      2000;  /* toasts */
-  --z-drawer:     900;  /* drawers */
+  --z-modal:      1000;
+  --z-modal-high: 1100;
+  --z-toast:      2000;
+  --z-drawer:     900;
 }
 
 /* ── Full-screen Video Detail Modal ───────────────────────────────── */
-/* 覆盖 modalVideoDetail 的通用模态样式，改为全屏独立页面 */
 #modalVideoDetail {
   align-items: stretch;
   justify-content: stretch;
@@ -133,7 +123,7 @@
   flex-shrink: 0;
 }
 
-/* ── Proxy Pool Modal ──────────────────────────────────────────────── */
+/* ── Proxy Pool Modal ─────────────────────────────────────────────── */
 #modalProxyPools .modal-header {
   border-bottom: 1.5px solid var(--proxy-border);
 }
@@ -197,7 +187,6 @@
     linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
   gap: 0;
 }
-/* 工作台主体：工具条 + 固定高度调度区 + 可滚动表格区（避免日志撑版） */
 #modalDynamicProviders .modal-body > .dyn-toolbar-row {
   flex-shrink: 0;
 }
@@ -223,16 +212,12 @@
   color: var(--dyn-text);
 }
 
-/* ── 批量下载弹窗 ───────────────────────────────── */
-/* DEPRECATED: Use <div class="modal modal--accent"> instead.
-   The .modal--accent modifier class (defined above) provides the left border.
-   The old .modal-header border-left override can be removed once HTML is updated. */
+/* ── Batch Download Modal ─────────────────────────────────────────── */
 #modalBatchDownload .modal-header {
-  /* border-left: 3px solid var(--accent); — now via .modal--accent */
   border-bottom: 1.5px solid var(--border);
 }
 #modalBatchDownload .modal-footer {
-  padding: 12px 20px; /* narrower than canonical 16px 24px */
+  padding: 12px 20px;
 }
 #modalBatchDownload .modal-footer .btn { padding: 8px 20px; }
 
