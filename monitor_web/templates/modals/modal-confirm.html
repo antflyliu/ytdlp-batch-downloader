@@ -1,11 +1,11 @@
-<!-- 模态: 通用确认（替代原生 confirm，与现有 modal 组件一致） -->
-<div class="modal-overlay" id="modalAppConfirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle">
-  <div class="modal" style="max-width:440px">
+<!-- 模态: 通用确认（与「添加账户」同款 sheet 壳层） -->
+<div class="modal-overlay modal-overlay--account" id="modalAppConfirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle">
+  <div class="modal modal--account">
     <div class="modal-header">
       <div class="modal-title" id="appConfirmTitle"></div>
       <button type="button" class="modal-close" onclick="closeAppConfirm(false)" aria-label="关闭">✕</button>
     </div>
-    <div class="modal-body" style="padding-top:12px">
+    <div class="modal-body modal-app-confirm-body">
       <p class="modal-confirm-desc" id="appConfirmBody"></p>
       <div class="modal-confirm-checkbox-row" id="appConfirmCheckboxRow" hidden>
         <label class="checkbox-label modal-confirm-checkbox">

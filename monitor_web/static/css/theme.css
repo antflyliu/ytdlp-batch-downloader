@@ -1,11 +1,8 @@
-/* ── Theme: App Confirm Modal ────────────────────────────────────────── */
-/* App Confirm Modal: z-index above business modals (e.g. in dynamic proxy drawer).
-   DEPRECATED: Migrate to canonical modal.css with .modal--accent modifier.
-   The .modal--accent class now provides the left border. */
+/* ── Theme: App Confirm Modal（壳层由 modal.css sheet 与「添加账户」一致）──────── */
+#modalAppConfirm.modal-overlay {
+  z-index: var(--z-modal-high, 1100);
+}
 
-#modalAppConfirm.modal-overlay { z-index: var(--z-modal-high, 1100); }
-
-/* App-confirm specific content */
 #modalAppConfirm .modal-confirm-desc {
   margin: 0;
   font-size: 13px;
@@ -13,15 +10,18 @@
   line-height: 1.6;
   white-space: pre-line;
 }
+
 #modalAppConfirm .modal-confirm-checkbox-row {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-cream);
 }
+
 #modalAppConfirm .modal-confirm-checkbox {
   align-items: flex-start;
   color: var(--text);
 }
+
 #modalAppConfirm .modal-confirm-checkbox input {
   display: block;
   position: absolute;
@@ -31,56 +31,34 @@
   padding: 0;
   border: 0;
   overflow: hidden;
-  clip: rect(0 0, 0, 0, 0);
+  clip: rect(0 0 0 0);
   clip-path: inset(50%);
 }
+
 #modalAppConfirm .modal-confirm-checkbox input:focus-visible + .checkbox-box,
 #modalAppConfirm .modal-confirm-checkbox:focus-within .checkbox-box {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
 #modalAppConfirm .checkbox-box {
   border-color: var(--border);
 }
-#modalAppConfirm .checkbox-label input:checked + .checkbox-box {
-  background: var(--success);
-  border-color: var(--success);
+
+/* 与账户弹框一致：选中态使用主题 accent，而非独立绿色 */
+#modalAppConfirm .checkbox-label input:checked + .checkbox-box,
+#modalAppConfirm .modal-confirm-checkbox input:checked + .checkbox-box {
+  background: var(--accent);
+  border-color: var(--accent);
 }
+
 #modalAppConfirm .modal-confirm-checkbox-hint {
   margin-top: 8px;
   margin-left: 26px;
   color: var(--text-muted);
 }
 
-/* DEPRECATED overrides — these duplicate modal.css canonical definitions.
-   Migration: use .modal--accent / .modal--danger modifiers instead. */
-#modalAppConfirm > .modal {
-  /* border-left: 3px solid var(--accent); — use .modal--accent on <div class="modal"> */
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+/* 危险确认：标题强调（壳层仍为 sheet） */
+#modalAppConfirm.modal-app-confirm--danger .modal-title {
+  color: var(--error);
 }
-#modalAppConfirm .modal-header { border-bottom-color: var(--border); }
-#modalAppConfirm .modal-title { color: var(--text); }
-#modalAppConfirm .modal-close {
-  /* Duplicates canonical .modal-close from modal.css — can be removed once HTML is clean */
-  background: var(--surface2);
-  border: 1px solid var(--border-medium);
-  color: var(--text-muted);
-}
-#modalAppConfirm .modal-close:hover { background: var(--surface3); color: var(--text); }
-#modalAppConfirm .btn-ghost {
-  /* Duplicates canonical .btn-ghost from common.css — can be removed once HTML is clean */
-  background: transparent;
-  border: 1px solid var(--border-medium);
-  color: var(--text-muted);
-}
-#modalAppConfirm .btn-ghost:hover { background: var(--surface2); color: var(--text); }
-
-/* Danger variant — DEPRECATED: use .modal.modal--danger instead */
-#modalAppConfirm.modal-app-confirm--danger > .modal {
-  /* border-left: 3px solid var(--error); — use .modal--danger */
-  border-color: var(--border);
-  box-shadow: var(--shadow), 0 0 0 1px var(--error-dim);
-}
-#modalAppConfirm.modal-app-confirm--danger .modal-title { color: var(--error); }

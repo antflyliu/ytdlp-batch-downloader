@@ -53,194 +53,6 @@
 .btn-ghost-proxy:hover::before { opacity: 1; }
 .btn-ghost-proxy svg { position: relative; z-index: 1; }
 
-/* 代理池演示入口 */
-#ppDemoSection {
-  background:
-    linear-gradient(135deg, rgba(99,102,241,0.08), rgba(99,102,241,0.02)),
-    rgba(9,14,20,0.92);
-  border: 1px solid rgba(99,102,241,0.18);
-  border-radius: 14px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
-}
-#ppDemoIcon {
-  width: 44px; height: 44px;
-  border-radius: 12px;
-  background: rgba(99,102,241,0.15);
-  border: 1px solid var(--proxy-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s;
-}
-#ppDemoSection:hover #ppDemoIcon {
-  background: rgba(99,102,241,0.25);
-  transform: scale(1.05);
-}
-#ppDemoIcon svg {
-  width: 20px; height: 20px;
-  stroke: var(--proxy-text);
-  stroke-width: 1.5;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-#ppDemoText {
-  flex: 1;
-  min-width: 0;
-}
-#ppDemoText h4 {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--proxy-text);
-  margin-bottom: 3px;
-}
-#ppDemoText p {
-  font-size: 11px;
-  color: rgba(99,102,241,0.6);
-  line-height: 1.4;
-}
-#ppDemoBtn {
-  flex-shrink: 0;
-  background: transparent;
-  border: 1.5px solid var(--proxy-border);
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--proxy-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font);
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-#ppDemoBtn:hover {
-  background: rgba(99,102,241,0.12);
-  border-color: var(--proxy-text);
-  box-shadow: 0 0 12px rgba(99,102,241,0.15);
-}
-#ppDemoBtn svg {
-  width: 14px; height: 14px;
-  stroke: currentColor;
-  stroke-width: 2;
-  fill: none;
-}
-
-/* 演示 iframe 视图 */
-#ppDemoView {
-  display: none;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-}
-#ppDemoView.show {
-  display: flex;
-}
-#ppDemoToolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(42,53,73,0.5);
-}
-#ppDemoToolbar span {
-  font-size: 12px;
-  color: var(--proxy-text);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-#ppDemoToolbar span svg {
-  width: 14px; height: 14px;
-  stroke: currentColor;
-  stroke-width: 2;
-  fill: none;
-}
-#ppDemoClose {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-family: var(--font);
-  transition: all 0.15s;
-}
-#ppDemoClose:hover {
-  background: var(--surface2);
-  color: var(--text);
-}
-#ppDemoFrame {
-  flex: 1;
-  border-radius: 10px;
-  border: 1px solid var(--proxy-border);
-  background: #000;
-  min-height: 0;
-}
-
-/* 代理池表格 */
-#ppTableView {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-.proxy-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.proxy-table th {
-  text-align: left;
-  padding: 10px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  border-bottom: 1px solid var(--border);
-}
-.proxy-table td {
-  padding: 13px 14px;
-  border-bottom: 1px solid rgba(42,53,73,0.5);
-  vertical-align: middle;
-}
-.proxy-table tr:last-child td { border-bottom: none; }
-.proxy-table tr:hover td { background: rgba(42,53,73,0.3); }
-.proxy-table .url-cell {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: -0.2px;
-}
-.proxy-table .name-cell {
-  font-weight: 500;
-  color: var(--text);
-}
-.proxy-table .status-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
 /* 代理池表单模态框 */
 .pp-scheme-tag {
   display: inline-flex;
@@ -279,47 +91,42 @@
   font-family: var(--mono);
 }
 
-/* 账户表单代理区域 */
+/* 账户表单代理区域（Claude 亮色：暖灰表面 + 陶土点缀，与弹窗其余部分一致） */
 .proxy-section {
-  background:
-    linear-gradient(180deg, rgba(99,102,241,0.08), rgba(99,102,241,0.03)),
-    rgba(9,14,20,0.9);
-  border: 1px solid rgba(99,102,241,0.18);
-  border-radius: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--r-lg);
   padding: 16px 16px 14px;
-  margin: 4px 0;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+  margin: 8px 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
   position: relative;
   overflow: hidden;
 }
 .proxy-section::after {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(99,102,241,0.35), transparent);
-  pointer-events: none;
+  display: none;
 }
 .proxy-section .form-label {
-  color: var(--proxy-text);
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
   margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  gap: 8px;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .proxy-section .form-label::before {
   content: '';
   display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--proxy-dot-on);
-  box-shadow: 0 0 6px var(--proxy-dot-on);
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 .proxy-section .form-hint {
-  color: rgba(99,102,241,0.6);
+  color: var(--text-dim);
 }
 .proxy-toggle-row {
   display: flex;
@@ -334,15 +141,15 @@
 }
 .proxy-toggle-title {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text);
   margin-bottom: 2px;
   letter-spacing: -0.01em;
 }
 .proxy-toggle-sub {
   font-size: 11px;
-  color: rgba(99,102,241,0.72);
-  line-height: 1.5;
+  color: var(--text-muted);
+  line-height: 1.55;
   max-width: 42ch;
 }
 .proxy-toggle-label {
@@ -358,9 +165,9 @@
 }
 .proxy-select-wrap select {
   width: 100%;
-  border-color: rgba(99,102,241,0.22);
-  background: rgba(8,12,18,0.78);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  border-color: var(--border);
+  background: var(--surface);
+  box-shadow: none;
 }
 .proxy-select-wrap select option[disabled] { color: var(--text-dim); }
 .proxy-mode-kicker {
@@ -369,12 +176,12 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(99,102,241,0.08);
-  border: 1px solid rgba(99,102,241,0.14);
-  color: rgba(99,102,241,0.82);
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   margin-bottom: 8px;
 }
@@ -383,8 +190,8 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--proxy-text);
-  box-shadow: 0 0 8px rgba(99,102,241,0.42);
+  background: var(--accent);
+  box-shadow: none;
 }
 
 /* 代理池工作台层级 */
@@ -713,43 +520,109 @@
 
 /* ── Dynamic Provider Components ─────────────────────────────────── */
 /* DEPRECATED: .dyn-ghost-btn / .btn-dyn-primary → .btn.btn-ghost / .btn.btn-primary (HTML 已迁移) */
-.dyn-scheduler-split {
-  margin: 14px 0 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.85fr);
-  gap: 14px;
-  align-items: stretch;
-  min-height: 220px;
-  height: min(340px, 38vh);
-  max-height: 420px;
-}
-.dyn-scheduler-card {
+/* 调度日志 + 说明：纵向堆叠，与浅色主界面一致 */
+.dyn-scheduler-stack {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  background: rgba(18, 21, 35, 0.58);
-  border: 1px solid rgba(135, 134, 127, 0.16);
-  border-radius: 18px;
-  padding: 14px 16px;
-  box-shadow: 0 0 0 1px rgba(232, 230, 220, 0.04) inset;
+  gap: 12px;
 }
-.dyn-scheduler-card-head {
-  flex-shrink: 0;
+
+/* 可折叠区块（默认由 [hidden] 收起） */
+.dyn-collapse {
+  overflow: hidden;
+}
+.dyn-collapse__trigger {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.18s ease;
+}
+.dyn-collapse__trigger:hover {
+  background: var(--surface2);
+}
+.dyn-collapse__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dyn-collapse__trigger-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.dyn-collapse__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.dyn-collapse.dyn-collapse--open .dyn-collapse__chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dyn-collapse__chevron {
+    transition: none;
+  }
+}
+.dyn-collapse__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dyn-collapse__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.45;
+  text-align: right;
+}
+@media (max-width: 640px) {
+  .dyn-collapse__hint {
+    flex: 1 1 100%;
+    text-align: left;
+    max-width: none;
+  }
+}
+.dyn-collapse__panel {
+  padding: 0 18px 16px;
+  background: var(--surface2);
+}
+.dyn-collapse__toolbar {
+  display: flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  padding: 12px 0 10px;
 }
-.dyn-scheduler-card-head--simple {
-  justify-content: flex-start;
-  margin-bottom: 0;
+.dyn-collapse__filter-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
+.dyn-collapse__filter {
+  width: auto;
+  min-width: 140px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--surface2);
+  border-color: var(--border-cream);
+}
+
 .dyn-scheduler-card-scroll {
   flex: 1 1 0;
-  margin-bottom: 6px;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -760,37 +633,89 @@
   width: 6px;
 }
 .dyn-scheduler-card-scroll::-webkit-scrollbar-thumb {
-  background: rgba(135, 134, 127, 0.35);
+  background: var(--surface3);
   border-radius: 999px;
 }
-#dynProviderSchedulerLogs.dyn-scheduler-card-scroll {
+.dyn-scheduler-logs-shell[data-dyn-scheduler-logs] {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-content: start;
+  padding-bottom: 4px;
 }
-.dyn-scheduler-help-body {
-  padding-top: 8px;
-  font-size: 12px;
-  color: #b0aea5;
-  line-height: 1.65;
+
+.dyn-log-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 0 4px;
+  line-height: 1.5;
+}
+.dyn-log-row {
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-cream);
+  padding: 10px 12px;
+  background: var(--surface2);
+}
+.dyn-log-row--success {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.06);
+}
+.dyn-log-row--error {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.06);
+}
+.dyn-log-row--unknown {
+  border-color: rgba(168, 85, 247, 0.2);
+  background: rgba(168, 85, 247, 0.05);
+}
+.dyn-log-row__head {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
 }
-.dyn-scheduler-help-body strong {
-  color: #d6d3d1;
+.dyn-log-row__title {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
 }
-@media (max-width: 640px) {
-  .dyn-scheduler-split {
-    grid-template-columns: 1fr;
-    height: auto;
-    max-height: none;
-    min-height: 0;
-  }
-  .dyn-scheduler-card {
-    max-height: min(280px, 42vh);
-  }
+.dyn-log-row__status {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.dyn-log-row--success .dyn-log-row__status { color: var(--success); }
+.dyn-log-row--error .dyn-log-row__status { color: var(--error); }
+.dyn-log-row--unknown .dyn-log-row__status { color: #a855f7; }
+.dyn-log-row__summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.dyn-log-row__time {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.dyn-scheduler-help-body--light {
+  padding: 4px 0 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.75;
+}
+.dyn-scheduler-help-body--light p {
+  margin: 0 0 10px;
+}
+.dyn-scheduler-help-body--light p:last-child {
+  margin-bottom: 0;
+}
+.dyn-scheduler-help-body--light strong {
+  color: var(--text);
+  font-weight: 600;
 }
 .dyn-section-title {
   font-size: 12px;
@@ -850,6 +775,55 @@
   stroke-width: 2;
   fill: none;
 }
+/* ── Provider Scheduler 卡片（动态代理页）：与账户页工具栏按钮同系 ─ */
+.dyn-scheduler-card__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 20px;
+}
+.dyn-scheduler-card__info {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.dyn-scheduler-card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.dyn-scheduler-card__kicker {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dyn-scheduler-card__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  line-height: 1.45;
+}
+.dyn-scheduler-card__next {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.dyn-scheduler-card__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 240px;
+  max-width: 100%;
+}
+.dyn-scheduler-card__toolbar .btn {
+  white-space: nowrap;
+}
+
 .dyn-table {
   width: 100%;
   border-collapse: collapse;
@@ -873,17 +847,42 @@
 }
 .dyn-table tr:last-child td { border-bottom: none; }
 .dyn-table tr:hover td { background: rgba(42,53,73,0.3); }
-.dyn-table .name-cell { font-weight: 500; color: var(--text); }
-.dyn-table .mono-cell {
+.dyn-table .name-cell,
+.dyn-provider-table .name-cell { font-weight: 500; color: var(--text); }
+.dyn-table .mono-cell,
+.dyn-provider-table .mono-cell {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-muted);
 }
-.dyn-table .chip-cell {
+.dyn-table .chip-cell,
+.dyn-provider-table .chip-cell {
   display: flex;
   align-items: center;
   gap: 5px;
   flex-wrap: wrap;
+}
+
+/* 内页提供方表：浅色表身（与 .dyn-table 深色模态表区分） */
+.table-wrap--accounts .dyn-provider-table {
+  font-size: 13px;
+}
+.table-wrap--accounts .dyn-provider-table th {
+  border-bottom: 1px solid var(--border-cream);
+  background: var(--surface2);
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0.3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.table-wrap--accounts .dyn-provider-table td {
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.table-wrap--accounts .dyn-provider-table tr:last-child td { border-bottom: none; }
+.table-wrap--accounts .dyn-provider-table tr:hover td {
+  background: rgba(201, 100, 66, 0.04);
 }
 .dyn-chip {
   display: inline-flex;
@@ -936,8 +935,10 @@
 .dyn-status-unknown { color: var(--text-dim); }
 .dyn-actions {
   display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 .dyn-table-shell {
   border-radius: 12px;
@@ -1044,20 +1045,7 @@
   margin-top: 1px;
 }
 
-/* toggle override for dyn color */
-#modalDynamicProviderForm .toggle-switch input:checked + .toggle-track {
-  background: var(--dyn-bg);
-  border-color: var(--dyn-border);
-}
-#modalDynamicProviderForm .toggle-switch input:checked + .toggle-track .toggle-thumb {
-  left: 18px;
-  background: var(--dyn-text);
-}
-.btn-dyn-primary {
-  background: var(--dyn-text);
-  color: #fff;
-}
-.btn-dyn-primary:hover { filter: brightness(1.1); }
+/* 动态提供方表单主按钮已统一为 .btn-primary（见 modal.css sheet 弹框） */
 
 /* ── Dynamic Provider UI ──────────────────────────────────────────── */
 .dp-summary {
@@ -1176,23 +1164,23 @@
 .routing-preview {
   margin-top: 12px;
   padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(99,102,241,0.14);
-  background: linear-gradient(180deg, rgba(99,102,241,0.08), rgba(255,255,255,0.015));
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
   display: none;
 }
 .routing-preview.show { display: block; }
 .routing-preview-title {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(129,140,248,0.92);
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 .routing-preview-main {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
   margin-bottom: 6px;
 }
@@ -1206,9 +1194,9 @@
   padding: 3px 8px;
   border-radius: 999px;
   font-size: 10px;
-  color: rgba(255,255,255,0.76);
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
 }
 .routing-preview-reason {
   font-size: 12px;
@@ -1218,6 +1206,6 @@
 .routing-preview-warnings {
   margin-top: 8px;
   font-size: 11px;
-  color: #fbbf24;
+  color: var(--warning);
   line-height: 1.5;
 }

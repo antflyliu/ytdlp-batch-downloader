@@ -1,9 +1,9 @@
 <!-- 模态: 添加/编辑账户 -->
-<div class="modal-overlay" id="modalAccount">
-  <div class="modal">
+<div class="modal-overlay modal-overlay--account" id="modalAccount" role="dialog" aria-modal="true" aria-labelledby="modalAccountTitle">
+  <div class="modal modal--account">
     <div class="modal-header">
       <div class="modal-title" id="modalAccountTitle">添加监控账户</div>
-      <button class="modal-close" onclick="closeModal('modalAccount')">✕</button>
+      <button type="button" class="modal-close" onclick="closeModal('modalAccount')" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="accId">
@@ -154,8 +154,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modalAccount')">取消</button>
-      <button class="btn btn-primary" onclick="saveAccount()">保存</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalAccount')">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveAccount()">保存</button>
     </div>
   </div>
 </div>

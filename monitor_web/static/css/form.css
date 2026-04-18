@@ -12,8 +12,15 @@
   outline: none;
 }
 .form-input:focus {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-ring) var(--accent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-dim);
+}
+#modalAccount .form-input:focus,
+#modalApiKeyForm .form-input:focus,
+#modalProxyPoolForm .form-input:focus,
+#modalDynamicProviderForm .form-input:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-dim);
 }
 .form-input::placeholder { color: var(--text-dim); }
 .form-input--error { border-color: var(--error); }
@@ -32,6 +39,15 @@
   font-size: 12px;
   color: var(--text-dim);
   margin-top: 4px;
+}
+.form-help-text {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: var(--surface2);
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--accent);
 }
 
 /* Checkbox */
@@ -82,31 +98,11 @@
 /* ── Select ────────────────────────────────────────────────────────── */
 select.form-input {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238896ab' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%235e5d59' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 32px;
   cursor: pointer;
-}
-
-/* ── Proxy Pool Form overrides ────────────────────────────────────── */
-#modalProxyPoolForm .form-label {
-  color: var(--accent);
-  font-size: 11px;
-}
-#modalProxyPoolForm .form-input:focus {
-  border-color: var(--border);
-  box-shadow: 0 0 0 3px var(--accent-dim), 0 1px 0 var(--border);
-}
-
-/* ── Dynamic Provider Form overrides ──────────────────────────────── */
-#modalDynamicProviderForm .form-label {
-  color: var(--accent);
-  font-size: 11px;
-}
-#modalDynamicProviderForm .form-input:focus {
-  border-color: var(--border);
-  box-shadow: 0 0 0 3px var(--accent-dim), 0 1px 0 var(--border);
 }
 
 /* ── Batch Download Form Elements ─────────────────────────────────── */
@@ -148,7 +144,7 @@ select.form-input {
   color: var(--text); font-size: 12px; font-family: var(--font);
   outline: none; transition: border-color 0.15s;
 }
-.bd-input:focus { border-color: var(--accent); }
+.bd-input:focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-dim); }
 .bd-select {
   flex: 1; background: var(--surface2); border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: 6px 10px;
@@ -166,5 +162,66 @@ select.form-input {
 .bd-filter-chip {
   padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--surface2); color: var(--text-dim); font-size: 11px; cursor: pointer;
+}
+
+/* ── Account Modal Form Sections ──────────────────────────────────── */
+.acc-form-section {
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border);
+}
+.acc-form-section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.acc-form-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.acc-form-section-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.acc-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 600px) {
+  .acc-form-row { grid-template-columns: 1fr; }
+}
+
+/* Checkbox group (horizontal) */
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Form row (horizontal field pairs) */
+.form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.form-row .form-group { flex: 1; min-width: 0; }
+
+/* Separator */
+.form-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
 }
 .bd-filter-chip.active { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }

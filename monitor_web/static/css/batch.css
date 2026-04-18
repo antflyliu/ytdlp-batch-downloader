@@ -1,8 +1,69 @@
 /* ═══════════════════════════════════════════════════════════════════
-   batch.css — Batch download modal-specific styles
-   (Recent items grid, progress, log — the .bd-* classes for the
-    recent-download cards inside the batch download modal)
+   batch.css — Batch download page styles
    ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page shell（与账户管理一致：标题区 + 卡片纵向堆叠，随 .main 滚动）── */
+#page-downloads {
+  flex-shrink: 0;
+  padding-bottom: 8px; /* 最后一卡与滚动条底部留白 */
+}
+#page-downloads .page-header {
+  flex-shrink: 0;
+}
+#page-downloads .card {
+  flex-shrink: 0; /* 与 layout.css .card 一致，避免被 flex 列压扁 */
+}
+
+/* ── Batch Download Pills (format selector) ───────────────────────── */
+.bd-pills { display: flex; gap: 6px; margin-bottom: 12px; }
+.bd-pill {
+  padding: 4px 12px; border-radius: var(--r-full); font-size: 12px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
+  cursor: pointer; transition: all 150ms;
+}
+.bd-pill:hover { border-color: var(--accent); color: var(--accent); }
+.bd-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Dropzone ──────────────────────────────────────────────────────── */
+.bd-dropzone {
+  border: 2px dashed var(--border); border-radius: var(--r-md);
+  padding: 28px 20px; text-align: center; cursor: pointer;
+  transition: border-color 200ms, background 200ms;
+  margin-bottom: 8px;
+}
+.bd-dropzone:hover { border-color: var(--accent); background: var(--accent-dim); }
+.bd-drop-icon { font-size: 28px; color: var(--text-dim); margin-bottom: 8px; }
+.bd-drop-text { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+.bd-drop-sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.bd-file-error { font-size: 11px; color: var(--error); padding: 4px 0; }
+
+/* ── Config Form ────────────────────────────────────────────────────── */
+.bd-config-grid { display: flex; flex-direction: column; gap: 12px; }
+.bd-form-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bd-label { font-size: 12px; color: var(--text-muted); min-width: 60px; }
+.bd-input {
+  flex: 1; min-width: 160px; padding: 6px 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+  font-size: 13px; font-family: inherit; transition: border-color 150ms;
+}
+.bd-input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-dim); }
+.bd-input-row { display: flex; gap: 8px; flex: 1; min-width: 200px; align-items: center; }
+.bd-select {
+  padding: 6px 10px; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text); font-size: 13px; font-family: inherit;
+}
+.bd-checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.bd-field-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+/* ── Filter Row ────────────────────────────────────────────────────── */
+.bd-filter-row { display: flex; gap: 6px; margin: 10px 0 6px; flex-wrap: wrap; }
+.bd-filter-chip {
+  padding: 3px 10px; border-radius: var(--r-full); font-size: 11px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
+  cursor: pointer; transition: all 150ms;
+}
+.bd-filter-chip:hover { border-color: var(--accent); color: var(--accent); }
+.bd-filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ── Batch Download Recent Items ──────────────────────────────────── */
 .bd-recent-grid { display: grid; gap: 8px; margin-top: 10px; }

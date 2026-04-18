@@ -26,6 +26,8 @@
 .btn--danger:hover { filter: brightness(1.1); }
 .btn--warning { background: var(--warning); color: var(--surface); }
 .btn--warning:hover { filter: brightness(1.1); }
+.btn--info { background: var(--accent); color: var(--surface); opacity: 0.8; }
+.btn--info:hover { opacity: 1; }
 .btn--ghost {
   background: transparent;
   color: var(--text-muted);

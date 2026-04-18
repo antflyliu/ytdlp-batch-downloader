@@ -19,6 +19,10 @@
   --accent-dim: rgba(201,100,66,0.12);
   --accent-ring: rgba(201,100,66,0.30);
 
+  /* Focus — DESIGN.md: Focus Blue (accessibility; only cool accent) */
+  --focus: #3898ec;
+  --focus-dim: rgba(56, 152, 236, 0.22);
+
   /* Semantic */
   --success: #22c55e;
   --success-dim: rgba(34,197,94,0.12);
@@ -26,6 +30,11 @@
   --error-dim: rgba(181,51,51,0.12);
   --warning: #f59e0b;
   --warning-dim: rgba(245,158,11,0.12);
+
+  /* Aliases (legacy / theme.css) */
+  --border-cream: #f0eee6;
+  --border-medium: #e8e6dc;
+  --shadow: var(--shadow-whisper);
 
   /* Platform */
   --feishu: #7B68EE;
@@ -55,16 +64,22 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', 'Cascadia Code', monospace;
 
-  /* Sidebar (Dark) */
-  --sidebar-bg: #141413;
-  --sidebar-surface: #1c1c1a;
-  --sidebar-border: #30302e;
-  --sidebar-text: #b0aea5;
-  --sidebar-text-active: #faf9f5;
-  --sidebar-hover: #30302e;
+  /* Sidebar (Claude light — Ivory / Border Cream, DESIGN.md §2) */
+  --sidebar-bg: #faf9f5;
+  --sidebar-surface: #ffffff;
+  --sidebar-border: #f0eee6;
+  --sidebar-text: #5e5d59;
+  --sidebar-text-active: #141413;
+  --sidebar-hover: #f0eee6;
   --sidebar-active: #c96442;  /* Terracotta left border */
 
   /* Scrollbar */
   --scrollbar-thumb: #d1cfc5;
   --scrollbar-track: #f5f4ed;
+
+  /* Proxy/Provider Theme (used in toggle-switch and provider.css) */
+  --proxy-bg: #2dd4bf;
+  --proxy-border: #2dd4bf;
+  --proxy-text: #2dd4bf;
+  --proxy-dot-on: rgba(45,212,191,0.6);
 }

@@ -281,6 +281,6 @@
   max-width: 52ch;
 }
 .form-group--dingtalk-addon .form-input:focus-visible {
-  border-color: var(--dingtalk);
-  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.2);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-dim);
 }

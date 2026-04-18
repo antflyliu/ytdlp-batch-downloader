@@ -17,6 +17,74 @@
   background: var(--surface2);
 }
 
+/* 代理池：与账户搜索条同款，右侧为说明文案 */
+.card-proxy-pool-meta {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.card-proxy-pool-meta .pp-demo-note {
+  margin-right: auto;
+}
+.card-proxy-pool-meta__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  text-align: right;
+  max-width: 420px;
+}
+@media (max-width: 720px) {
+  .card-proxy-pool-meta__hint {
+    margin-left: 0;
+    text-align: left;
+    max-width: none;
+  }
+}
+
+/* 代理池列表：状态列（与账户列表中 proxy 列风格一致） */
+.proxy-pool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.proxy-pool-status__on { color: var(--success); }
+.proxy-pool-status__off { color: var(--text-dim); }
+
+/* 账户管理：监控账户卡片内表格区域独立纵向滚动，表头粘性 */
+.main .card.card--accounts-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+.card--accounts-scroll .table-wrap--accounts {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-cream);
+  background: var(--surface);
+  margin: 0 16px 16px;
+}
+.card--accounts-scroll .accounts-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-shadow: 0 1px 0 var(--border-cream);
+}
+.card--accounts-scroll .card-pagination-bar {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
 /* ── Table (BEM) ─────────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; border-radius: var(--r-md); }
 .table {
@@ -42,6 +110,41 @@
 .table__row:last-child .table__cell { border-bottom: none; }
 .table__row:hover .table__cell { background: var(--bg); }
 
+/* Bare table styling (used in account list) */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+  background: var(--surface2);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+table tr:last-child td { border-bottom: none; }
+table tbody tr {
+  transition: background 120ms ease;
+}
+table tbody tr:hover td {
+  background: rgba(201,100,66,0.04);
+}
+table tbody tr:hover td:first-child {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+
 /* Table cell variants (preserved for backward compatibility) */
 .td-mono {
   font-family: var(--mono);
@@ -57,6 +160,102 @@
   font-size: 11px;
   color: var(--text-muted);
   max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 账户列表表：操作列按钮横向排列（避免窄列内文字竖排） ───────────── */
+table.accounts-table {
+  table-layout: auto;
+}
+table.accounts-table th:last-child,
+table.accounts-table td:last-child {
+  min-width: 18rem;
+  vertical-align: middle;
+}
+table.accounts-table .actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+}
+table.accounts-table .actions .btn-sm {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+table.accounts-table .actions .btn-sm:hover {
+  background: var(--surface3);
+  color: var(--text);
+}
+table.accounts-table .actions .btn-sm.info {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+table.accounts-table .actions .btn-sm.info:hover {
+  background: var(--accent);
+  color: var(--surface);
+}
+table.accounts-table .actions .btn-sm.danger {
+  background: var(--error-dim);
+  border-color: var(--error);
+  color: var(--error);
+}
+table.accounts-table .actions .btn-sm.danger:hover {
+  background: var(--error);
+  color: var(--surface);
+}
+table.accounts-table .actions .btn-sm.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+}
+table.accounts-table .actions .btn-sm.warning:hover {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--text);
+}
+table.accounts-table .actions .btn-sm.success {
+  background: var(--success-dim);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--success);
+}
+table.accounts-table .actions .btn-sm.success:hover {
+  background: rgba(34, 197, 94, 0.22);
+  color: var(--text);
+}
+
+/* 切片历史：仅「详情」一钮，操作列不必占满多按钮宽度 */
+table.accounts-table.clip-history-table th:last-child,
+table.accounts-table.clip-history-table td:last-child {
+  min-width: 5.5rem;
+}
+.clip-history-table .td-clip-account {
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-history-table .td-clip-video-title {
+  font-size: 12px;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -375,6 +574,6 @@
   max-width: 52ch;
 }
 .form-group--dingtalk-addon .form-input:focus-visible {
-  border-color: var(--dingtalk);
-  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.2);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-dim);
 }

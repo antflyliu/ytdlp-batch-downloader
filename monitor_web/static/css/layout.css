@@ -2,11 +2,11 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 body {
-  font-family: var(--font);
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 /* ── App Layout ────────────────────────────────────────────────────── */
@@ -71,9 +71,10 @@ body {
 
 /* ── Main Content ──────────────────────────────────────────────────── */
 .main {
-  flex: 1 1 0;      /* 占满顶栏以下剩余空间；basis 0 避免被内容撑破父级 */
+  flex: 1 1 0%;     /* 占满顶栏以下剩余空间；basis 0 避免被内容撑破父级 */
   min-height: 0;   /* flex 子项默认可收缩，配合 overflow 产生内部滚动条 */
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
