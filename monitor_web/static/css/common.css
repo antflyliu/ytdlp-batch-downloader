@@ -2,152 +2,98 @@
    common.css — Shared utility classes used across all component files
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Status Chip ───────────────────────────────────────────────────── */
-.status-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.status-chip.running {
-  background: var(--success-dim);
-  color: var(--success);
-  border: 1px solid rgba(34,197,94,0.3);
-}
-.status-chip.stopped {
-  background: var(--surface2);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-}
-.status-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.status-chip.running .status-dot {
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.2); }
-}
-
-/* ── Buttons ────────────────────────────────────────────────────────── */
+/* ── Buttons (BEM) ──────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
   border-radius: var(--r-md);
-  font-family: var(--font);
+  font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: all 0.15s;
+  transition: all 150ms ease-out;
   text-decoration: none;
   white-space: nowrap;
 }
-.btn-primary  { background: var(--accent);      color: #fff; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-success  { background: var(--success);      color: #fff; }
-.btn-success:hover { filter: brightness(1.1); }
-.btn-danger   { background: var(--error);         color: #fff; }
-.btn-danger:hover  { filter: brightness(1.1); }
-.btn-warning  { background: var(--warning);      color: #fff; }
-.btn-warning:hover { filter: brightness(1.1); }
-.btn-ghost {
+.btn--primary { background: var(--accent); color: var(--surface); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--success { background: var(--success); color: #fff; }
+.btn--success:hover { filter: brightness(1.1); }
+.btn--danger { background: var(--error); color: #fff; }
+.btn--danger:hover { filter: brightness(1.1); }
+.btn--warning { background: var(--warning); color: #fff; }
+.btn--warning:hover { filter: brightness(1.1); }
+.btn--ghost {
   background: transparent;
   color: var(--text-muted);
-  border: 1px solid var(--border-medium);
+  border: 1px solid var(--border);
 }
-.btn-ghost:hover { background: var(--surface2); color: var(--text); }
-.btn-icon {
-  width: 36px; height: 36px;
-  padding: 0;
+.btn--ghost:hover { background: var(--surface2); color: var(--text); }
+.btn--sm { padding: 4px 12px; font-size: 12px; }
+.btn--icon {
+  width: 36px; height: 36px; padding: 0;
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-sm);
   background: var(--surface2);
   color: var(--text-muted);
-  border: 1px solid var(--border-medium);
+  border: 1px solid var(--border);
   cursor: pointer;
   font-size: 16px;
-  transition: all 0.15s;
 }
-.btn-icon:hover { background: var(--surface3); color: var(--text); }
-.btn-sm {
-  padding: 5px 10px;
-  font-size: 11px;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  border: 1px solid var(--border-medium);
-  background: var(--surface2);
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-weight: 500;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.btn-sm:hover { background: var(--surface3); color: var(--text); }
-.btn-sm.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-sm.btn-primary:hover { background: var(--accent-hover); }
-.btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn--icon:hover { background: var(--surface3); color: var(--text); }
 
-/* Semantic solid buttons — canonical: class="btn btn-{semantic}" */
-.btn.btn-success { background: var(--success); color: #fff; }
-.btn.btn-success:hover { filter: brightness(1.1); }
-.btn.btn-danger  { background: var(--error);  color: #fff; }
-.btn.btn-danger:hover  { filter: brightness(1.1); }
-.btn.btn-warning { background: var(--warning); color: #fff; }
-.btn.btn-warning:hover { filter: brightness(1.1); }
-
-/* Semantic ghost small buttons — canonical: class="btn btn-sm btn-ghost-{semantic}" */
-.btn-sm.btn-ghost-success { border-color: rgba(34,197,94,0.4); color: var(--success); }
-.btn-sm.btn-ghost-success:hover { background: var(--success-dim); }
-.btn-sm.btn-ghost-danger  { border-color: rgba(239,68,68,0.4); color: var(--error); }
-.btn-sm.btn-ghost-danger:hover  { background: var(--error-dim); }
-.btn-sm.btn-ghost-warning { border-color: rgba(245,158,11,0.4); color: var(--warning); }
-.btn-sm.btn-ghost-warning:hover { background: var(--warning-dim); }
-.btn-sm.btn-ghost-info    { border-color: rgba(99,102,241,0.4); color: var(--accent); }
-.btn-sm.btn-ghost-info:hover    { background: var(--accent-dim); }
-
-/* ── DEPRECATED: Legacy button variants (remove in Phase 4) ────────── */
-/* .bd-btn-* (batch.css)      → .btn / .btn-sm / .btn-ghost
-   .btn-ghost-proxy (drawer) → .btn-ghost
-   .dyn-ghost-btn / .btn-dyn-primary / .pp-ghost-action (provider) → .btn-ghost / .btn-primary
-   .btn-sm.danger/warning/success/info → .btn.btn-sm.btn-ghost-{semantic} */
-
-/* ── Action Buttons Group ──────────────────────────────────────────── */
-.actions { display: flex; gap: 6px; align-items: center; }
-
-/* ── Tags ───────────────────────────────────────────────────────────── */
+/* ── Tags (BEM) ─────────────────────────────────────────────────────── */
 .tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
   font-weight: 500;
 }
-.tag-success { background: var(--success-dim); color: var(--success); }
-.tag-error { background: var(--error-dim); color: var(--error); }
-.tag-warning { background: rgba(245,158,11,0.12); color: var(--warning); }
-.tag-muted { background: var(--surface3); color: var(--text-muted); }
-.tag-accent { background: var(--accent-dim); color: var(--accent); }
-.tag-feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }
-.tag-dingtalk { background: rgba(22,119,255,0.15); color: var(--dingtalk); }
-.tag-wecom { background: rgba(82,196,26,0.15); color: var(--wecom); }
-.tag-telegram { background: rgba(38,165,228,0.15); color: var(--telegram); }
-.tag-downloaded { background: rgba(63,185,80,0.15); color: var(--success); }
-.tag-download-pending { background: rgba(139,148,158,0.15); color: var(--text-muted); }
-.tag-download-failed { background: rgba(248,81,73,0.15); color: var(--error); }
-.tag-downloading { background: rgba(240,136,62,0.18); color: var(--accent); }
+.tag--success { background: #dcfce7; color: #166534; }
+.tag--warning { background: #fef3c7; color: #92400e; }
+.tag--error { background: #fee2e2; color: #991b1b; }
+.tag--info { background: var(--accent-dim); color: var(--accent); }
+.tag--muted { background: var(--surface3); color: var(--text-muted); }
+.tag--feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }
+.tag--dingtalk { background: rgba(22,119,255,0.15); color: var(--dingtalk); }
+.tag--wecom { background: rgba(82,196,26,0.15); color: var(--wecom); }
+.tag--telegram { background: rgba(38,165,228,0.15); color: var(--telegram); }
+.tag--downloaded { background: rgba(63,185,80,0.15); color: var(--success); }
+.tag--download-pending { background: rgba(139,148,158,0.15); color: var(--text-muted); }
+.tag--download-failed { background: rgba(248,81,73,0.15); color: var(--error); }
+.tag--downloading { background: rgba(240,136,62,0.18); color: var(--accent); }
+
+/* ── Status (BEM) ──────────────────────────────────────────────────── */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  font-weight: 500;
+}
+.status__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status--running { background: var(--success-dim); color: var(--success); }
+.status--stopped { background: var(--surface2); color: var(--text-muted); }
+.status--running .status__dot { animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+/* ── Action Buttons Group ──────────────────────────────────────────── */
+.actions { display: flex; gap: 6px; align-items: center; }
 
 /* ── Scanning Animation ────────────────────────────────────────────── */
 .scanning {
