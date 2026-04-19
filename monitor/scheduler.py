@@ -637,18 +637,19 @@ def trigger_scan(account_id: int, auto_download: bool = False) -> None:
     _scan_account(account_id, auto_download=auto_download)
 
 
-def _scan_account(account_id: int, auto_download: bool = False) -> None:
+def _scan_account(account_id: int, auto_download: bool = False, from_scheduler: bool = False) -> None:
     """
-    执行单个账户的扫描任务
-    在 APScheduler 的线程池中执行
+    执行单个账户的扫描任务。
+    from_scheduler: 区分来自 APScheduler 定时调度还是手动触发。调度器关闭时只有
+    定时调度任务需要跳过，手动扫描（立即扫描）不受影响。
     """
     start_time = time.perf_counter()
 
     # 确保全局 Webhook 配置已加载（无论从 UI 还是调度器触发）
     _ensure_global_webhooks()
 
-    # 调度器关闭时，提前退出（避免无意义地继续执行）
-    if _scheduler_cancelled:
+    # 仅调度器定时任务在关闭时提前退出；手动触发（立即扫描）不受此标志影响
+    if from_scheduler and _scheduler_cancelled:
         _log.info(f"调度器已关闭，跳过账户扫描: id={account_id}")
         return
 
@@ -710,11 +711,13 @@ def _scan_account(account_id: int, auto_download: bool = False) -> None:
 
     try:
         # ── 1. 获取视频 ────────────────────────────────────
+        proxy = _db.get_account_proxy(account)
         fetcher = _fetcher.YouTubeFetcher(
             api_key=api_key,
             fetch_mode=account["fetch_mode"],
             fetch_limit=account["fetch_limit"],
             view_threshold=0,
+            proxy=proxy,
         )
         videos, channel_info = fetcher.fetch(
             account["channel_url"],
@@ -929,6 +932,7 @@ def start(auto_download: bool = False) -> tuple[bool, bool]:
                     start_date=datetime.now().astimezone(),
                 ),
                 args=[acc["id"]],
+                kwargs={"from_scheduler": True},
                 id=f"account_{acc['id']}",
                 name=f"{acc['name']} ({acc['channel_url']})",
                 replace_existing=True,

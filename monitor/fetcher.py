@@ -62,12 +62,14 @@ class YouTubeFetcher:
         fetch_limit: int = 5,
         published_after_days: int | None = None,
         view_threshold: int = 0,
+        proxy: str | None = None,
     ):
         self.api_key = api_key
         self.fetch_mode = fetch_mode
         self.fetch_limit = fetch_limit
         self.published_after_days = published_after_days
         self.view_threshold = view_threshold
+        self.proxy = proxy
 
     def _make_youtube_collector(
         self,
@@ -78,6 +80,7 @@ class YouTubeFetcher:
         """构造与当前 Fetcher 参数一致的收集器；extra 可传 uploads_playlist_id 等。"""
         return YouTubeDataCollector(
             api_key=self.api_key,
+            proxy=self.proxy,
             save_path=os.path.join(_project_root, "test_output"),
             logger_callback=log_cb,
             max_limit=self.fetch_limit,
