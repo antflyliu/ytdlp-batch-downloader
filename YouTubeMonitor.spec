@@ -87,6 +87,11 @@ a = Analysis(
         'logging_config',
         # 批量下载依赖
         'Youtube_Downloader',
+        # WebView2 / pywebview 依赖
+        'webview',
+        'webview.window',
+        'webview.event',
+        'monitor_ui_webview',
     ],
     hookspath=[],
     runtime_hooks=[],

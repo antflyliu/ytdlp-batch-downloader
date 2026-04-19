@@ -1146,7 +1146,7 @@ def _shutdown_existing_web_ui(port: int) -> bool:
             method="POST",
             headers={"Authorization": f"Bearer {token}"},
         )
-        with urllib.request.urlopen(req, timeout=2):
+        with urllib.request.urlopen(req, timeout=5):
             pass
         # 等待端口释放（最多约 5s），给旧服务更充足的关闭时间，避免误判失败
         for _ in range(17):
@@ -1162,10 +1162,10 @@ def _shutdown_existing_web_ui(port: int) -> bool:
 
 # ── 独立窗口入口 ──────────────────────────────────────────────────────────
 
-def run_standalone(force_restart: bool = False):
+def run_standalone(force_restart: bool = False, port: int = 5000):
     """启动 Web UI（代替 Tkinter 弹框）"""
     import time
-    port = 18999
+    # port = 18999  # ← 移除硬编码，使用参数 port
     server = None
     server_thread = None
     # 检查是否已在运行
@@ -1243,12 +1243,180 @@ def run_standalone(force_restart: bool = False):
         print("已停止。")
 
 
+# ── WebView2 内嵌浏览器入口（纯 pywebview，无 Tkinter） ──────────────────
+
+def run_standalone_webview(force_restart: bool = False,
+                            port: int = 5000,
+                            width: int = 1400,
+                            height: int = 900):
+    """
+    纯 pywebview 方案：使用 WebView2 内嵌浏览器加载 Web UI，
+    不使用任何 Tkinter 组件。
+
+    Args:
+        force_restart: 强制重启（关闭已有实例）
+        port: 本地 HTTP 服务器端口
+        width: 窗口宽度
+        height: 窗口高度
+
+    Flow:
+        1. WebView2 运行时检测
+        2. 未安装 → 引导安装 → 返回
+        3. 端口冲突检测（如已运行且 force_restart，关闭旧实例）
+        4. 启动 HTTP 服务器（ThreadedHTTPServer，避免阻塞）
+        5. 创建 pywebview 窗口并注册关闭回调
+        6. webview.start() 阻塞运行
+        7. 窗口关闭后清理 HTTP 服务器 + 调度器 + 下载线程
+    """
+    import time as _time
+    import threading
+    import http.server as _http
+    import socketserver
+
+    # 1. 检测 WebView2 Runtime
+    try:
+        from monitor_ui_webview import (
+            is_webview2_available,
+            show_webview2_install_dialog,
+            create_webview_window,
+        )
+    except ImportError:
+        _log.error("无法加载 WebView2 模块（monitor_ui_webview.py）")
+        _log.error("请确保 pywebview 已安装：pip install pywebview")
+        _log.error("作为替代，请使用 --browser 模式启动")
+        return
+
+    if not is_webview2_available():
+        _log.warning("WebView2 Runtime 未安装，正在引导安装...")
+        show_webview2_install_dialog()
+        _log.warning("安装完成后请重新启动程序")
+        return
+
+    # 2. 检查 HTTP 服务器是否已运行
+    already_running = False
+    try:
+        import urllib.request
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=1)
+        already_running = True
+    except Exception:
+        already_running = False
+
+    if already_running and force_restart:
+        _log.warning(f"检测到 HTTP 服务已在运行（端口 {port}），正在强制重启...")
+        if not _shutdown_existing_web_ui(port):
+            _log.error("强制重启失败：无法关闭旧 HTTP 服务")
+            return
+        already_running = False
+        _time.sleep(1)
+
+    # 3. 启动 HTTP 服务器（如未运行）
+    server = None
+    server_thread = None
+    if not already_running:
+        from monitor_server import MonitorHandler
+
+        class ThreadedHTTPServer(socketserver.ThreadingMixIn, _http.HTTPServer):
+            """每请求一线程，避免长时间 refresh 阻塞整站 API。"""
+            daemon_threads = True
+            allow_reuse_address = True
+
+        server = ThreadedHTTPServer(("127.0.0.1", port), MonitorHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        _time.sleep(0.8)
+        _log.info(f"HTTP 服务已启动: http://127.0.0.1:{port}")
+    else:
+        _log.info(f"HTTP 服务已在运行: http://127.0.0.1:{port}")
+
+    # 4. 清理函数（供窗口关闭回调使用）
+    def _cleanup():
+        _log.info("WebView2 窗口关闭，开始清理...")
+        if server is not None:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:
+                pass
+        try:
+            if _scheduler.is_running():
+                _scheduler.stop()
+        except Exception:
+            pass
+        try:
+            from monitor.scheduler import join_auto_download_workers
+            join_auto_download_workers(timeout_sec=30.0)
+        except Exception:
+            pass
+        _log.info("清理完成")
+
+    # 5. 创建 pywebview 窗口
+    url = f"http://127.0.0.1:{port}"
+    _log.info(f"创建 WebView2 窗口: {url}")
+    try:
+        window = create_webview_window(
+            url=url,
+            title="YouTube Monitor",
+            width=width,
+            height=height,
+        )
+    except RuntimeError as e:
+        _log.error(f"WebView2 窗口创建失败: {e}")
+        _log.error("请确保 WebView2 Runtime 已正确安装")
+        if server is not None:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:
+                pass
+        return
+
+    # 6. 注册窗口关闭回调（兼容 pywebview 2.x / 3.x+ / 6.x 语法）
+    def on_window_closed():
+        _cleanup()
+
+    try:
+        # pywebview 3.x+ / 6.x: window.events.closed
+        window.events.closed += on_window_closed
+    except (AttributeError, TypeError):
+        try:
+            # pywebview 2.x: window.closed
+            window.closed += on_window_closed
+        except Exception:
+            _log.warning("无法注册窗口关闭回调，webview.start() 返回后将执行清理")
+            # 不再静默 pass，而是记录警告
+
+    # 7. 启动 pywebview（阻塞，debug=True 便于诊断 WebView2 问题）
+    _log.info("启动 WebView2 事件循环...")
+    import webview
+    webview.start(debug=True)
+
+    # 8. 如果 webview.start() 返回（同步模式），执行清理
+    _cleanup()
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Launch Monitor Web UI")
-    parser.add_argument("--force-restart", action="store_true", help="关闭旧的 Web UI 进程并重启")
+    parser.add_argument("--force-restart", action="store_true", help="关闭旧的 HTTP 服务并重启")
+    parser.add_argument("--webview2", action="store_true", help="使用 WebView2 内嵌浏览器（需安装 WebView2 Runtime）")
+    parser.add_argument("--port", type=int, default=5000, help="HTTP 服务端口（默认 5000，两种模式通用）")
+    parser.add_argument("--width", type=int, default=1400, help="WebView2 窗口宽度（默认 1400）")
+    parser.add_argument("--height", type=int, default=900, help="WebView2 窗口高度（默认 900）")
     args = parser.parse_args()
-    run_standalone(force_restart=args.force_restart)
+
+    if args.webview2:
+        run_standalone_webview(
+            force_restart=args.force_restart,
+            port=args.port,
+            width=args.width,
+            height=args.height,
+        )
+    else:
+        # 浏览器模式：启动 HTTP 服务 + 打开外部 Chrome
+        run_standalone(
+            force_restart=args.force_restart,
+            port=args.port,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
