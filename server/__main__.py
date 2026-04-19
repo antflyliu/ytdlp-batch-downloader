@@ -487,9 +487,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         return self.path.split("?")[0]
 
     def _require_auth(self):
-        """验证 Bearer token，失败返回 401"""
-        if not hasattr(MonitorHandler, "_api_token") or MonitorHandler._api_token is None:
-            MonitorHandler._api_token = get_api_token(_db)
+        """验证 Bearer token，失败返回 401。环境变量 MONITOR_API_TOKEN 优先于数据库缓存。"""
+        # 环境变量优先：每次请求都重新读取，确保修改后立即生效
+        env_token = os.environ.get("MONITOR_API_TOKEN")
+        if env_token:
+            MonitorHandler._api_token = env_token
+        elif not hasattr(MonitorHandler, "_api_token") or MonitorHandler._api_token is None:
+            MonitorHandler._api_token = _db.get_api_token()
         auth_header = self.headers.get("Authorization", "")
         ok, err = verify_bearer_token(auth_header, MonitorHandler._api_token)
         if not ok:
