@@ -940,6 +940,46 @@
   align-items: center;
   gap: 8px;
 }
+/* 提供方列表：搜索 + 分页（与账户搜索条同系） */
+.dyn-provider-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.dyn-provider-list-toolbar .dyn-provider-search-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: min(100%, 420px);
+  font-size: 13px;
+}
+.dyn-provider-list-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-left: auto;
+  text-align: right;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.dyn-provider-pagination {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.dyn-provider-page-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 120px;
+  text-align: center;
+}
+
 .dyn-table-shell {
   border-radius: 12px;
   border: 1px solid rgba(42,53,73,0.8);

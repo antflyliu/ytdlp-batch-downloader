@@ -15,7 +15,7 @@ import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearF
 import { openConfig, saveConfig, openApiKeys, loadApiKeysList, openAddApiKey, openEditApiKey, saveApiKey, deleteApiKey, refreshApiKeySelectors } from './modules/config.js';
 import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, openAddProxyPool, openEditProxyPool, saveProxyPool, toggleProxyPool, deleteProxyPool } from './modules/proxyPool.js';
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
-import { openDynamicProviders, refreshDynamicProvidersUi, updateProviderSchedulerHint, loadProviderSchedulerLogs, syncDynLogFilters, toggleDynCollapse, loadDynamicProviderTable, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
+import { openDynamicProviders, refreshDynamicProvidersUi, updateProviderSchedulerHint, loadProviderSchedulerLogs, syncDynLogFilters, toggleDynCollapse, loadDynamicProviderTable, dynProviderGoPage, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
 import { openClipHistory } from './modules/clipHistory.js';
 
 // ── Component modules ───────────────────────────────────────────────
@@ -123,6 +123,7 @@ window.loadProviderSchedulerLogs = loadProviderSchedulerLogs;
 window.syncDynLogFilters = syncDynLogFilters;
 window.toggleDynCollapse = toggleDynCollapse;
 window.loadDynamicProviderTable = loadDynamicProviderTable;
+window.dynProviderGoPage = dynProviderGoPage;
 window.onDynAdapterTypeChange = onDynAdapterTypeChange;
 window.onDynListApiAuthToggle = onDynListApiAuthToggle;
 window.onDynListApiAdvToggle = onDynListApiAdvToggle;

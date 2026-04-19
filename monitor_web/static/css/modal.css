@@ -234,7 +234,8 @@
   inset: auto;
   width: min(100%, 760px);
   max-width: 760px;
-  max-height: min(88vh, 900px);
+  /* 限定弹层总高度；正文区单独 overflow-y，展开折叠 / 长列表均可滚动查看 */
+  max-height: min(92vh, 900px);
   margin: 0;
   display: flex;
   flex-direction: column;
@@ -267,6 +268,10 @@
   letter-spacing: -0.02em;
   color: var(--text);
 }
+/*
+ * 正文区整块可纵向滚动：避免 (1) flex:1 1 0 子项在父高为 auto 时高度为 0 导致列表「消失」
+ * (2) 折叠面板展开后被 overflow:hidden 裁切且无法下拉
+ */
 #modalDynamicProviders .modal-body {
   padding: 16px 22px 20px;
   background: var(--surface);
@@ -275,7 +280,9 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 #modalDynamicProviders .dyn-modal-toolbar {
   display: flex;
@@ -310,21 +317,41 @@
   text-transform: uppercase;
   color: var(--text-dim);
 }
+#modalDynamicProviders .dyn-provider-list-toolbar {
+  flex-shrink: 0;
+  margin: 0 -6px 12px;
+  width: calc(100% + 12px);
+}
+#modalDynamicProviders .dyn-provider-pagination {
+  flex-shrink: 0;
+}
 #modalDynamicProviders .modal-body > .dyn-toolbar-row {
   flex-shrink: 0;
 }
 #modalDynamicProviders .modal-body > .dyn-scheduler-stack {
   flex-shrink: 0;
 }
+/* 按内容自然增高，由 .modal-body 统一滚动；勿用 flex:1 1 0，否则在 auto 高度下易塌成 0 */
 #modalDynamicProviders .modal-body > .dyn-table-shell {
-  flex: 1 1 0;
-  min-height: 140px;
-  overflow: auto;
+  flex: 0 0 auto;
   margin-top: 0;
+  /* 与 sheet 内浅色卡片一致 */
+  border: 1px solid var(--border-cream);
+  background: var(--surface2);
+  border-radius: var(--r-lg);
+  overflow-x: auto;
+  overflow-y: visible;
+}
+#modalDynamicProviders .dyn-table-shell .accounts-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--border-cream);
 }
 #modalDynamicProviders .modal-body > .dyn-empty {
   flex: 1 1 auto;
   min-height: 120px;
+  overflow: auto;
 }
 
 /* ── Batch Download Modal ─────────────────────────────────────────── */
@@ -336,12 +363,13 @@
 }
 #modalBatchDownload .modal-footer .btn { padding: 8px 20px; }
 
-/* ── Sheet form modals: 账户 / API Key / 代理池 / 动态提供方 / 应用内确认框 ─ */
+/* ── Sheet form modals: 账户 / API Key / 代理池 / 动态提供方 / 应用内确认框 / 立即扫描 ─ */
 #modalAccount.modal-overlay,
 #modalApiKeyForm.modal-overlay,
 #modalProxyPoolForm.modal-overlay,
 #modalDynamicProviderForm.modal-overlay,
-#modalAppConfirm.modal-overlay {
+#modalAppConfirm.modal-overlay,
+#modalScanConfirm.modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -358,14 +386,16 @@
 #modalApiKeyForm.modal-overlay.show,
 #modalProxyPoolForm.modal-overlay.show,
 #modalDynamicProviderForm.modal-overlay.show,
-#modalAppConfirm.modal-overlay.show {
+#modalAppConfirm.modal-overlay.show,
+#modalScanConfirm.modal-overlay.show {
   display: flex;
 }
 #modalAccount > .modal.modal--account,
 #modalApiKeyForm > .modal.modal--account,
 #modalProxyPoolForm > .modal.modal--account,
 #modalDynamicProviderForm > .modal.modal--account,
-#modalAppConfirm > .modal.modal--account {
+#modalAppConfirm > .modal.modal--account,
+#modalScanConfirm > .modal.modal--account {
   position: relative;
   inset: auto;
   width: min(100%, 560px);
@@ -402,7 +432,8 @@
   max-width: 560px;
   max-height: min(90vh, 920px);
 }
-#modalAppConfirm > .modal.modal--account {
+#modalAppConfirm > .modal.modal--account,
+#modalScanConfirm > .modal.modal--account {
   width: min(100%, 440px);
   max-width: 440px;
   max-height: min(88vh, 640px);
@@ -411,7 +442,8 @@
 #modalApiKeyForm > .modal.modal--account.modal--open,
 #modalProxyPoolForm > .modal.modal--account.modal--open,
 #modalDynamicProviderForm > .modal.modal--account.modal--open,
-#modalAppConfirm > .modal.modal--account.modal--open {
+#modalAppConfirm > .modal.modal--account.modal--open,
+#modalScanConfirm > .modal.modal--account.modal--open {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
@@ -420,7 +452,8 @@
 #modalApiKeyForm .modal-header,
 #modalProxyPoolForm .modal-header,
 #modalDynamicProviderForm .modal-header,
-#modalAppConfirm .modal-header {
+#modalAppConfirm .modal-header,
+#modalScanConfirm .modal-header {
   padding: 18px 22px;
   border-bottom: 1px solid var(--border-cream);
 }
@@ -428,7 +461,8 @@
 #modalApiKeyForm .modal-title,
 #modalProxyPoolForm .modal-title,
 #modalDynamicProviderForm .modal-title,
-#modalAppConfirm .modal-title {
+#modalAppConfirm .modal-title,
+#modalScanConfirm .modal-title {
   font-family: var(--font);
   font-size: 1.125rem;
   font-weight: 500;
@@ -439,21 +473,24 @@
 #modalApiKeyForm .modal-body,
 #modalProxyPoolForm .modal-body,
 #modalDynamicProviderForm .modal-body,
-#modalAppConfirm .modal-body {
+#modalAppConfirm .modal-body,
+#modalScanConfirm .modal-body {
   padding: 20px 22px 18px;
 }
 #modalAccount .modal-body .form-group,
 #modalApiKeyForm .modal-body .form-group,
 #modalProxyPoolForm .modal-body .form-group,
 #modalDynamicProviderForm .modal-body .form-group,
-#modalAppConfirm .modal-body .form-group {
+#modalAppConfirm .modal-body .form-group,
+#modalScanConfirm .modal-body .form-group {
   margin-bottom: 1.125rem;
 }
 #modalAccount .modal-body .form-sep,
 #modalApiKeyForm .modal-body .form-sep,
 #modalProxyPoolForm .modal-body .form-sep,
 #modalDynamicProviderForm .modal-body .form-sep,
-#modalAppConfirm .modal-body .form-sep {
+#modalAppConfirm .modal-body .form-sep,
+#modalScanConfirm .modal-body .form-sep {
   margin: 1.25rem 0;
   border: none;
   border-top: 1px solid var(--border-cream);
@@ -462,7 +499,8 @@
 #modalApiKeyForm .modal-body .form-label,
 #modalProxyPoolForm .modal-body .form-label,
 #modalDynamicProviderForm .modal-body .form-label,
-#modalAppConfirm .modal-body .form-label {
+#modalAppConfirm .modal-body .form-label,
+#modalScanConfirm .modal-body .form-label {
   margin-bottom: 8px;
   color: var(--text);
 }
@@ -474,7 +512,8 @@
 #modalApiKeyForm .modal-body .form-row,
 #modalProxyPoolForm .modal-body .form-row,
 #modalDynamicProviderForm .modal-body .form-row,
-#modalAppConfirm .modal-body .form-row {
+#modalAppConfirm .modal-body .form-row,
+#modalScanConfirm .modal-body .form-row {
   gap: 14px;
 }
 /* 配额行：右侧复选框与左侧数字输入垂直对齐 */
@@ -511,7 +550,8 @@
 #modalApiKeyForm .modal-footer,
 #modalProxyPoolForm .modal-footer,
 #modalDynamicProviderForm .modal-footer,
-#modalAppConfirm .modal-footer {
+#modalAppConfirm .modal-footer,
+#modalScanConfirm .modal-footer {
   padding: 14px 22px 18px;
   background: var(--surface2);
   border-top: 1px solid var(--border-cream);
@@ -521,7 +561,8 @@
 #modalApiKeyForm .modal-footer .btn,
 #modalProxyPoolForm .modal-footer .btn,
 #modalDynamicProviderForm .modal-footer .btn,
-#modalAppConfirm .modal-footer .btn {
+#modalAppConfirm .modal-footer .btn,
+#modalScanConfirm .modal-footer .btn {
   min-height: 40px;
   padding: 0 18px;
   border-radius: var(--r-md);

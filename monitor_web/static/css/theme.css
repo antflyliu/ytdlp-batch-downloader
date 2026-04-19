@@ -1,9 +1,11 @@
-/* ── Theme: App Confirm Modal（壳层由 modal.css sheet 与「添加账户」一致）──────── */
-#modalAppConfirm.modal-overlay {
+/* ── Theme: App Confirm / 立即扫描（壳层由 modal.css sheet 与「添加账户」一致）──────── */
+#modalAppConfirm.modal-overlay,
+#modalScanConfirm.modal-overlay {
   z-index: var(--z-modal-high, 1100);
 }
 
-#modalAppConfirm .modal-confirm-desc {
+#modalAppConfirm .modal-confirm-desc,
+#modalScanConfirm .modal-confirm-desc {
   margin: 0;
   font-size: 13px;
   color: var(--text-muted);
@@ -11,18 +13,21 @@
   white-space: pre-line;
 }
 
-#modalAppConfirm .modal-confirm-checkbox-row {
+#modalAppConfirm .modal-confirm-checkbox-row,
+#modalScanConfirm .modal-confirm-checkbox-row {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--border-cream);
 }
 
-#modalAppConfirm .modal-confirm-checkbox {
+#modalAppConfirm .modal-confirm-checkbox,
+#modalScanConfirm .modal-confirm-checkbox {
   align-items: flex-start;
   color: var(--text);
 }
 
-#modalAppConfirm .modal-confirm-checkbox input {
+#modalAppConfirm .modal-confirm-checkbox input,
+#modalScanConfirm .modal-confirm-checkbox input {
   display: block;
   position: absolute;
   width: 1px;
@@ -36,23 +41,29 @@
 }
 
 #modalAppConfirm .modal-confirm-checkbox input:focus-visible + .checkbox-box,
-#modalAppConfirm .modal-confirm-checkbox:focus-within .checkbox-box {
+#modalAppConfirm .modal-confirm-checkbox:focus-within .checkbox-box,
+#modalScanConfirm .modal-confirm-checkbox input:focus-visible + .checkbox-box,
+#modalScanConfirm .modal-confirm-checkbox:focus-within .checkbox-box {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-#modalAppConfirm .checkbox-box {
+#modalAppConfirm .checkbox-box,
+#modalScanConfirm .checkbox-box {
   border-color: var(--border);
 }
 
 /* 与账户弹框一致：选中态使用主题 accent，而非独立绿色 */
 #modalAppConfirm .checkbox-label input:checked + .checkbox-box,
-#modalAppConfirm .modal-confirm-checkbox input:checked + .checkbox-box {
+#modalAppConfirm .modal-confirm-checkbox input:checked + .checkbox-box,
+#modalScanConfirm .checkbox-label input:checked + .checkbox-box,
+#modalScanConfirm .modal-confirm-checkbox input:checked + .checkbox-box {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-#modalAppConfirm .modal-confirm-checkbox-hint {
+#modalAppConfirm .modal-confirm-checkbox-hint,
+#modalScanConfirm .modal-confirm-checkbox-hint {
   margin-top: 8px;
   margin-left: 26px;
   color: var(--text-muted);

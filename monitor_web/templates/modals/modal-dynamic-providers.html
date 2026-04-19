@@ -82,6 +82,10 @@
         </div>
       </div>
 
+      <div class="dyn-provider-list-toolbar card-account-search">
+        <input type="search" id="dynProviderSearchModal" class="form-input dyn-provider-search-input" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
+        <span id="dynProviderListSummaryModal" class="dyn-provider-list-summary" aria-live="polite"></span>
+      </div>
       <div class="dyn-table-shell table-wrap--accounts">
         <table class="dyn-table accounts-table dyn-provider-table" id="dynProviderTable">
           <thead>
@@ -99,6 +103,11 @@
           <tbody id="dynProviderTableBody">
           </tbody>
         </table>
+      </div>
+      <div id="dynProviderPaginationModal" class="dyn-provider-pagination" style="display:none">
+        <button type="button" class="btn btn--sm btn--ghost" id="dynProviderPrevModal" onclick="dynProviderGoPage('modal', -1)">‹ 上一页</button>
+        <span id="dynProviderPageInfoModal" class="dyn-provider-page-info"></span>
+        <button type="button" class="btn btn--sm btn--ghost" id="dynProviderNextModal" onclick="dynProviderGoPage('modal', 1)">下一页 ›</button>
       </div>
       <div id="dynEmptyState" class="dyn-empty" style="display:none">
         <div class="dyn-empty-title">还没有配置动态代理提供方</div>

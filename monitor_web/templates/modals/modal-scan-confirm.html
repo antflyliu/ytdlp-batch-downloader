@@ -1,26 +1,24 @@
-<!-- 模态: 立即扫描确认 -->
-<div class="modal-overlay" id="modalScanConfirm">
-  <div class="modal" style="max-width:420px">
+<!-- 模态: 立即扫描确认（与 modalAppConfirm 同款 sheet：全屏遮罩 + 居中卡片） -->
+<div class="modal-overlay modal-overlay--account" id="modalScanConfirm" role="dialog" aria-modal="true" aria-labelledby="modalScanConfirmTitle">
+  <div class="modal modal--account">
     <div class="modal-header">
-      <div class="modal-title">立即扫描</div>
-      <button class="modal-close" onclick="closeScanConfirm()">✕</button>
+      <div class="modal-title" id="modalScanConfirmTitle">立即扫描</div>
+      <button type="button" class="modal-close" onclick="closeScanConfirm()" aria-label="关闭">✕</button>
     </div>
-    <div class="modal-body">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
-        确认立即扫描当前账户？
-      </div>
-      <label class="checkbox-label">
-        <input type="checkbox" id="scanNowAutoDownload" checked>
-        <span class="checkbox-box"></span>
-        扫描到新视频后立即下载
-      </label>
-      <div class="form-hint" style="margin-top:8px;margin-left:26px">
-        扫描完成后自动开始下载，最多 2 个视频同时下载。
+    <div class="modal-body modal-app-confirm-body">
+      <p class="modal-confirm-desc">确认立即扫描当前账户？</p>
+      <div class="modal-confirm-checkbox-row">
+        <label class="checkbox-label modal-confirm-checkbox">
+          <input type="checkbox" id="scanNowAutoDownload" checked>
+          <span class="checkbox-box"></span>
+          <span>扫描到新视频后立即下载</span>
+        </label>
+        <div class="form-hint modal-confirm-checkbox-hint">扫描完成后自动开始下载，最多 2 个视频同时下载。</div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeScanConfirm()">取消</button>
-      <button class="btn btn-primary" onclick="confirmScanNow()">开始扫描</button>
+      <button type="button" class="btn btn-ghost" onclick="closeScanConfirm()">取消</button>
+      <button type="button" class="btn btn-primary" onclick="confirmScanNow()">开始扫描</button>
     </div>
   </div>
 </div>
