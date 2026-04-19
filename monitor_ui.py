@@ -1388,7 +1388,7 @@ def run_standalone_webview(force_restart: bool = False,
     # 7. 启动 pywebview（阻塞，debug=True 便于诊断 WebView2 问题）
     _log.info("启动 WebView2 事件循环...")
     import webview
-    webview.start(debug=True)
+    webview.start(debug=False)
 
     # 8. 如果 webview.start() 返回（同步模式），执行清理
     _cleanup()
@@ -1398,25 +1398,34 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Launch Monitor Web UI")
     parser.add_argument("--force-restart", action="store_true", help="关闭旧的 HTTP 服务并重启")
-    parser.add_argument("--webview2", action="store_true", help="使用 WebView2 内嵌浏览器（需安装 WebView2 Runtime）")
+    parser.add_argument("--browser", action="store_true", help="强制使用外部浏览器（默认：自动选择，WebView2 可用时优先使用）")
     parser.add_argument("--port", type=int, default=5000, help="HTTP 服务端口（默认 5000，两种模式通用）")
     parser.add_argument("--width", type=int, default=1400, help="WebView2 窗口宽度（默认 1400）")
     parser.add_argument("--height", type=int, default=900, help="WebView2 窗口高度（默认 900）")
     args = parser.parse_args()
 
-    if args.webview2:
-        run_standalone_webview(
-            force_restart=args.force_restart,
-            port=args.port,
-            width=args.width,
-            height=args.height,
-        )
-    else:
-        # 浏览器模式：启动 HTTP 服务 + 打开外部 Chrome
+    if args.browser:
+        # 强制浏览器模式
         run_standalone(
             force_restart=args.force_restart,
             port=args.port,
         )
+    else:
+        # 默认：优先 WebView2，不可用则回退到浏览器模式
+        from monitor_ui_webview import is_webview2_available
+        if is_webview2_available():
+            run_standalone_webview(
+                force_restart=args.force_restart,
+                port=args.port,
+                width=args.width,
+                height=args.height,
+            )
+        else:
+            print("[Monitor UI] WebView2 Runtime 未安装，回退到浏览器模式")
+            run_standalone(
+                force_restart=args.force_restart,
+                port=args.port,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════
