@@ -211,6 +211,8 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 - 批量下载 GUI：使用 `YouTube批量下载器.spec`，生成 `dist/YouTube批量下载器.exe`
 - 仅监控服务：使用 `YouTubeMonitor.spec`，生成 `dist/YouTubeMonitor.exe`
 
+> **WebView2 默认**：双击 `YouTubeMonitor.exe` 默认使用 WebView2 内嵌窗口；WebView2 不可用时自动回退 Chrome。使用 `--browser` 可强制 Chrome。
+
 ---
 
 ## YouTube 频道监控
@@ -219,10 +221,13 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
 
 | 方式 | 命令 | 说明 |
 |------|------|------|
-| Web 服务（默认端口 5000） | `python monitor_server.py` | 浏览器访问控制台；可加 `--port`、`--no-browser` |
-| 独立拉起 Web（端口 18999） | `python monitor_ui.py` | 无 Tk 时也可只开浏览器界面 |
+| **独立 WebView2 GUI** | `python monitor_ui.py` | 默认 WebView2 内嵌窗口；WebView2 不可用时自动回退 Chrome；端口 5000 |
+| Web 服务（端口 5000） | `python monitor_server.py` | 浏览器访问控制台；可加 `--port`、`--no-browser` |
+| 强制浏览器模式 | `python monitor_ui.py --browser` | 强制使用外部 Chrome，绕过 WebView2 |
 | 无界面调度 | `python -m monitor` | 常驻调度；`--once` 单次跑完全部账户 |
 | CLI 管理账户 | `python -m monitor --list` / `--add ...` | 详见 `monitor/__main__.py` 帮助 |
+
+> **WebView2**：Windows 10/11 内置，无需安装。双击 exe 默认使用 WebView2，无需额外操作。
 
 ### 配置与数据
 
@@ -238,13 +243,13 @@ python Youtube_Downloader.py -i urls.xlsx -o videos --no-aria2 --concurrent-frag
   - 掩码显示：前端显示 `AIza••••••••xxxx` 格式，完整 Key 值仅存于数据库
 
 > **安全注意**：`data/monitor.db` 包含明文 API Key。备份文件（`data/backup/`）会自动排除 `api_keys` 表，但物理文件访问仍可读取 Key。请妥善保管数据库文件，避免意外泄露。
-- **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义。前端 Web UI 会自动从 `/api/token` 获取并存储到 `sessionStorage`。
+- **REST API 认证**：除 `/api/status` 外，所有 `/api/*` 端点均需携带 `Authorization: Bearer <token>` 请求头。Token 在首次启动时自动生成并存储于 `app_state` 表；可通过环境变量 `MONITOR_API_TOKEN` 自定义（**环境变量优先于数据库**，设置后立即生效）。前端 Web UI 会自动从 `/api/token` 获取并存储到 `sessionStorage`。
 
 ### 安全机制
 
 | 机制 | 说明 |
 |------|------|
-| **Bearer Token** | 所有 API 端点（除 `/api/status`）需认证，防止未授权访问 |
+| **Bearer Token** | 所有 API 端点（除 `/api/status`）需认证；`MONITOR_API_TOKEN` 环境变量优先于数据库 Token，设置后立即生效 |
 | **API Key 掩码** | REST API 返回 `AIza••••••••xxxx` 格式，完整 Key 仅存于 DB |
 | **速率限制** | 每 IP 每分钟 60 次请求，超限返回 429 + `Retry-After`（`server/middleware/rate_limit.py`） |
 | **CORS 白名单** | 仅允许 `localhost`/`127.0.0.1`/`[::1]` origin |
@@ -413,7 +418,7 @@ ytdlp-batch-downloader/
 │   ├── static/js/router.js, i18n.js, sidebar.js
 │   ├── static/i18n/zh.json, en.json
 │   └── templates/pages/      # settings-hub, settings-download, settings-api, …
-├── monitor_ui.py              # 监控 Tk 页面或独立 Web 启动器
+├── monitor_ui.py              # 监控 WebView2/浏览器双模式启动器
 ├── .claude/skills/            # Claude Code Skill 定义
 │   ├── yt-dlp-batch-download/SKILL.md
 │   └── youtube-channel-monitor/SKILL.md
@@ -435,6 +440,7 @@ ytdlp-batch-downloader/
 |------|------|
 | 批量 GUI | tkinter |
 | 下载 | yt-dlp、可选 aria2c、ffmpeg |
+| 监控 GUI | pywebview + WebView2（Windows 内置，无依赖）；不可用时回退 Chrome |
 | 监控服务 | 标准库 `http.server`（ThreadingHTTPServer）、SQLite、APScheduler |
 | API | Google YouTube Data API v3（`google-api-python-client`） |
 | 通知 | requests → 飞书 / 钉钉 / 企业微信 Webhook |
