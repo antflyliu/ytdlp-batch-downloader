@@ -58,7 +58,6 @@ def check_webview2() -> tuple[bool, str | None]:
     except Exception as e:
         _log.warning(f"WebView2 检测时发生意外错误: {e}")
         return False, None
-        return False, None
 
 
 def is_webview2_available() -> bool:
