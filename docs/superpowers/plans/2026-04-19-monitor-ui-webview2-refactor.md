@@ -550,33 +550,44 @@ def run_standalone_webview(force_restart: bool = False,
     _cleanup()
 ```
 
-- [ ] **Step 2.3: 更新 `__main__` 入口，增加 `--webview2` 参数**
+- [ ] **Step 2.3: 更新 `__main__` 入口，默认 WebView2**
 
 在 `monitor_ui.py` 的 `if __name__ == "__main__":` 块中：
 
 ```python
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Launch Monitor UI")
+    parser = argparse.ArgumentParser(description="Launch Monitor Web UI")
     parser.add_argument("--force-restart", action="store_true",
                         help="关闭旧的 HTTP 服务并重启")
-    parser.add_argument("--webview2", action="store_true",
-                        help="使用 WebView2 内嵌浏览器（需安装 WebView2 Runtime）")
+    parser.add_argument("--browser", action="store_true",
+                        help="强制使用外部浏览器（默认：WebView2 优先，不可用时回退）")
     parser.add_argument("--port", type=int, default=5000,
                         help="HTTP 服务端口（默认 5000，两种模式通用）")
     args = parser.parse_args()
 
-    if args.webview2:
-        run_standalone_webview(
-            force_restart=args.force_restart,
-            port=args.port,
-        )
+    if args.browser:
+        run_standalone(force_restart=args.force_restart, port=args.port)
     else:
-        # 浏览器模式：启动 HTTP 服务 + 打开外部 Chrome
-        run_standalone(
-            force_restart=args.force_restart,
-            port=args.port,
-        )
+        # 默认：优先 WebView2，不可用则回退到浏览器模式
+        from monitor_ui_webview import is_webview2_available
+        if is_webview2_available():
+            run_standalone_webview(
+                force_restart=args.force_restart,
+                port=args.port,
+                width=args.width,
+                height=args.height,
+            )
+        else:
+            print("[Monitor UI] WebView2 Runtime 未安装，回退到浏览器模式")
+            run_standalone(force_restart=args.force_restart, port=args.port)
+```
+
+**用户体验：**
+- 双击 exe → 自动 WebView2（可用时）
+- WebView2 不可用 → 自动回退 Chrome
+- `dist\YouTubeMonitor.exe --browser` → 强制 Chrome（备用）
+- `dist\YouTubeMonitor.exe --webview2`（旧参数，已废弃，行为同默认）
 ```
 
 - [ ] **Step 2.4: 验证基本功能**
@@ -597,10 +608,11 @@ git commit -m "feat: 添加 run_standalone_webview() 纯 pywebview 模式 (Phase
 
 - 纯 pywebview 方案：完全不使用 Tkinter 组件
 - 端口统一：run_standalone() 和 run_standalone_webview() 默认都使用端口 5000
-- run_standalone() 支持 port 参数，--port 命令行参数对浏览器模式也生效
+- 双击 exe 默认 WebView2，不可用时自动回退 Chrome
+- 新增 --browser 强制浏览器模式（备用）
+- pywebview.start(debug=False) 关闭 DevTools
 - WebView2 检测失败时引导安装（MessageBox + bootstrapper 下载）
-- pywebview.start() 阻塞运行，窗口关闭后自动清理 HTTP 服务器 + 调度器 + 下载线程
-- 新增 --webview2 和 --port 命令行参数，--browser 模式（默认）保持不变"
+- pywebview.start() 阻塞运行，窗口关闭后自动清理 HTTP 服务器 + 调度器 + 下载线程"
 ```
 
 ---
