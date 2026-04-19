@@ -323,17 +323,16 @@ def create_webview_window(url: str, title: str = "YouTube Monitor",
     return window
 
 
-def start_webview(window, http_port: int = 5000):
+def start_webview(window):
     """
-    启动 pywebview 事件循环，在单独线程中运行。
+    启动 pywebview 事件循环（阻塞）。
 
     Args:
         window: webview.create_window() 返回的窗口对象
-        http_port: 本地 HTTP 服务器端口（用于生成 URL）
 
     Note:
-        pywebview.start() 是阻塞调用，应在单独线程中运行。
-        调用方负责启动 HTTP 服务器。
+        pywebview.start() 是阻塞调用。
+        HTTP 服务器由调用方在单独线程中启动（见 run_standalone_webview）。
     """
     import webview
     webview.start()
@@ -355,23 +354,52 @@ git commit -m "feat: 添加 WebView2 检测与 pywebview 封装模块 (Phase 1)
 - WebView2 Runtime 检测：系统路径 + Edge 安装目录 + pywebview 自动检测
 - Bootstrapper 下载：Evergreen Bootstrapper，支持 /silent 静默安装
 - 安装引导：MessageBox 弹框提示下载地址，静默安装或引导用户手动安装
-- pywebview 懒加载封装：避免未安装时 import 报错"
+- pywebview 懒加载封装：create_webview_window() 避免未安装时 import 报错"
 ```
 
 ---
 
 ## Phase 2：纯 pywebview 启动入口（无 Tkinter 外壳）
 
-### Task 2: 修改 `monitor_ui.py` — 新增 `run_standalone_webview()`
+### Task 2: 修改 `monitor_ui.py` — 新增 `run_standalone_webview()` + 统一端口
 
 **Files:**
 - Modify: `monitor_ui.py`
 
-> **设计说明**：纯 pywebview 方案 — 不使用任何 Tkinter 组件。pywebview 直接创建原生窗口并加载 Web UI。HTTP 服务器端口与浏览器模式统一（默认 5000）。端口冲突时复用 `run_standalone()` 的现有检测逻辑。
+> **设计说明**：纯 pywebview 方案 — 不使用任何 Tkinter 组件。pywebview 直接创建原生窗口并加载 Web UI。**两种模式端口统一（默认 5000）**，`run_standalone()` 和 `run_standalone_webview()` 共用同一端口，默认不再使用 18999。端口冲突时自动选择下一可用端口。
 
 ---
 
-- [ ] **Step 2.1: 添加 `run_standalone_webview()` 函数**
+- [ ] **Step 2.1: 修改 `run_standalone()` — 端口统一为 5000，支持 `port` 参数**
+
+将 `monitor_ui.py` 中 `run_standalone()` 的端口硬编码改为默认 5000，并接受 `port` 参数：
+
+```python
+# 旧代码（monitor_ui.py:1165-1226）
+# def run_standalone(force_restart: bool = False):
+#     port = 18999  ← 改为下方的默认 5000
+
+def run_standalone(force_restart: bool = False, port: int = 5000):
+    """
+    启动 Web UI（代替 Tkinter 弹框）。
+
+    Args:
+        force_restart: 强制重启（关闭已有实例）
+        port: HTTP 服务器端口（默认 5000，与 WebView2 模式统一）
+    """
+    # ... 原有逻辑 ...
+    # port = 18999  ← 删除此行，使用参数 port: int = 5000
+```
+
+**改动点：**
+1. 函数签名加 `port: int = 5000`
+2. 删除函数内 `port = 18999` 硬编码
+3. `run_standalone()` 末尾 `webbrowser.open()` 使用参数 `port` 而非硬编码
+4. `run_standalone()` 内 `already_running` 检查 URL 使用参数 `port`
+
+---
+
+- [ ] **Step 2.2: 添加 `run_standalone_webview()` 函数**
 
 在 `monitor_ui.py` 末尾（`run_standalone()` 函数之后）添加：
 
@@ -522,7 +550,7 @@ def run_standalone_webview(force_restart: bool = False,
     _cleanup()
 ```
 
-- [ ] **Step 2.2: 更新 `__main__` 入口，增加 `--webview2` 参数**
+- [ ] **Step 2.3: 更新 `__main__` 入口，增加 `--webview2` 参数**
 
 在 `monitor_ui.py` 的 `if __name__ == "__main__":` 块中：
 
@@ -535,7 +563,7 @@ if __name__ == "__main__":
     parser.add_argument("--webview2", action="store_true",
                         help="使用 WebView2 内嵌浏览器（需安装 WebView2 Runtime）")
     parser.add_argument("--port", type=int, default=5000,
-                        help="HTTP 服务端口（默认 5000）")
+                        help="HTTP 服务端口（默认 5000，两种模式通用）")
     args = parser.parse_args()
 
     if args.webview2:
@@ -544,11 +572,14 @@ if __name__ == "__main__":
             port=args.port,
         )
     else:
-        # 回退：启动 HTTP 服务 + 打开外部浏览器
-        run_standalone(force_restart=args.force_restart)
+        # 浏览器模式：启动 HTTP 服务 + 打开外部 Chrome
+        run_standalone(
+            force_restart=args.force_restart,
+            port=args.port,
+        )
 ```
 
-- [ ] **Step 2.3: 验证基本功能**
+- [ ] **Step 2.4: 验证基本功能**
 
 ```bash
 # 验证模块导入不报错
@@ -558,15 +589,16 @@ python -c "from monitor_ui_webview import is_webview2_available, check_webview2;
 python -m py_compile monitor_ui.py && echo "SYNTAX OK"
 ```
 
-- [ ] **Step 2.4: 提交 Phase 2**
+- [ ] **Step 2.5: 提交 Phase 2**
 
 ```bash
 git add monitor_ui.py
 git commit -m "feat: 添加 run_standalone_webview() 纯 pywebview 模式 (Phase 2)
 
 - 纯 pywebview 方案：完全不使用 Tkinter 组件
+- 端口统一：run_standalone() 和 run_standalone_webview() 默认都使用端口 5000
+- run_standalone() 支持 port 参数，--port 命令行参数对浏览器模式也生效
 - WebView2 检测失败时引导安装（MessageBox + bootstrapper 下载）
-- HTTP 服务器复用现有逻辑，端口默认 5000
 - pywebview.start() 阻塞运行，窗口关闭后自动清理 HTTP 服务器 + 调度器 + 下载线程
 - 新增 --webview2 和 --port 命令行参数，--browser 模式（默认）保持不变"
 ```
