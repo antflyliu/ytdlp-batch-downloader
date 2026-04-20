@@ -216,7 +216,8 @@ def reset_videos_for_retry(video_ids: list[int], account_id: int) -> None:
                SET download_status = 'pending',
                    retry_count = 0,
                    failed_reason = NULL,
-                   failed_at = NULL
+                   failed_at = NULL,
+                   failed_event_id = NULL
                WHERE id IN ({placeholders})
                AND download_status = 'failed'""",
             video_ids,

@@ -1130,6 +1130,9 @@ def start(auto_download: bool = False) -> tuple[bool, bool]:
         _db.init_db()
         _db.ensure_app_state_table()
 
+        # 重启恢复：将 running 状态标记为 failed（防止僵尸任务）
+        _db.mark_stale_running_videos_interrupted()
+
         _scheduler = apscheduler.schedulers.background.BackgroundScheduler(
             timezone="Asia/Shanghai",
             job_defaults={

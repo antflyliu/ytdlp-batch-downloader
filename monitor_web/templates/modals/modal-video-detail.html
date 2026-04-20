@@ -21,6 +21,13 @@
       <div class="vd-modal-toolbar mvd-toolbar">
         <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
         <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <select class="form-input" id="vdStatusFilter" style="width:100px" onchange="vdSearch()">
+          <option value="">全部状态</option>
+          <option value="downloaded">已下载</option>
+          <option value="downloading">下载中</option>
+          <option value="failed">失败</option>
+          <option value="pending">待下载</option>
+        </select>
         <select class="form-input" id="vdSortBy" style="width:140px" onchange="vdSearch()">
           <option value="published_at">发布时间</option>
           <option value="view_count">浏览量</option>
@@ -33,6 +40,7 @@
         </select>
         <button type="button" class="btn btn-sm" onclick="vdSearch()">搜索</button>
         <button type="button" class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
+        <button type="button" class="btn btn-sm btn-retry" id="vdRetryBtn" onclick="vdRetryFailed()" style="display:none">重试失败 (<span id="vdRetryCount">0</span>)</button>
         <label class="vd-toolbar-spacer" style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
           <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
           <span id="vdSubLabel">字幕:否</span>

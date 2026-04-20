@@ -757,6 +757,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_batch_task_cancel(task_id)
         elif path == "/api/clips":
             self._api_clip_create(body)
+        elif path == "/api/videos/retry":
+            self._api_videos_retry(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -1228,6 +1230,30 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "任务不存在"}, 404)
             return
         self._send_json(task)
+
+    def _api_videos_retry(self, body: dict):
+        """POST /api/videos/retry — 重试失败视频"""
+        video_ids = body.get("video_ids", [])
+        account_id = body.get("account_id")
+
+        # 输入验证
+        if not isinstance(video_ids, list) or not video_ids:
+            self._send_json({"error": "video_ids 必须是非空列表"}, 400)
+            return
+        if not isinstance(account_id, int):
+            self._send_json({"error": "account_id 必须是整数"}, 400)
+            return
+
+        # 验证账户存在
+        account = _db.get_account(account_id)
+        if not account:
+            self._send_json({"error": "账户不存在"}, 404)
+            return
+
+        # 重试：将 failed 视频重置为 pending
+        from monitor.db.queries.videos import reset_videos_for_retry
+        reset_videos_for_retry(video_ids, account_id)
+        self._send_json({"ok": True, "retried": len(video_ids)})
 
     def _api_scheduler_start(self, body: dict):
         auto_dl = bool(body.get("auto_download", False))
@@ -1873,23 +1899,35 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         sort_dir  = params.get("sort_dir",  ["desc"])[0]
         page      = int(params.get("page",  ["1"])[0])
         page_size = int(params.get("page_size", ["20"])[0])
+        status    = params.get("status", [None])[0] or None
 
-        videos, total = _db.get_account_videos(
-            account_id=acc_id_int,
-            title_kw=title_kw,
-            url_kw=url_kw,
-            sort_by=sort_by,
-            sort_dir=sort_dir,
-            page=page,
-            page_size=min(page_size, 100),
-        )
-        self._send_json({
-            "videos": videos,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "pages": (total + page_size - 1) // page_size,
-        })
+        if status:
+            videos = _db.get_account_videos_filtered(acc_id_int, status)
+            total = len(videos)
+            self._send_json({
+                "videos": videos,
+                "total": total,
+                "page": 1,
+                "page_size": total,
+                "pages": 1,
+            })
+        else:
+            videos, total = _db.get_account_videos(
+                account_id=acc_id_int,
+                title_kw=title_kw,
+                url_kw=url_kw,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                page=page,
+                page_size=min(page_size, 100),
+            )
+            self._send_json({
+                "videos": videos,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "pages": (total + page_size - 1) // page_size,
+            })
 
     def _api_account_videos_batch_download(self, acc_id: str, body: dict):
         video_ids = body.get("video_ids", [])

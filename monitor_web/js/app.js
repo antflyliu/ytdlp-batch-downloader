@@ -11,7 +11,7 @@ import '../static/js/i18n.js';
 // ── Feature modules ────────────────────────────────────────────────
 import { toast, openModal, closeModal, showAppConfirm, closeAppConfirm, showAppConfirmWithCheckbox, closeScanConfirm } from './modules/ui.js';
 import { refresh, loadStats, refreshAccounts, openAddAccount, openEditAccount, onApiKeySelectChanged, toggleProxySection, onAccountProxyModeChange, onDynamicProxySettingChange, previewAccountRouting, refreshProxyPoolSelectors, saveAccount, deleteAccount, scanNow, confirmScanNow, selectPlatform, updateFeishuModeUI, PROXY_MODE_HELP, startAutoRefresh, stopAutoRefresh } from './modules/accounts.js';
-import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearFilters, vdToggle, vdToggleAll, vdBatchDownload, _updateVdSubLabelText, _getVdSubPayload, _vdDlDone } from './modules/videoDetail.js';
+import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearFilters, vdToggle, vdToggleAll, vdBatchDownload, vdRetryFailed, _updateVdSubLabelText, _getVdSubPayload, _vdDlDone } from './modules/videoDetail.js';
 import { openConfig, saveConfig, openApiKeys, loadApiKeysList, openAddApiKey, openEditApiKey, saveApiKey, deleteApiKey, refreshApiKeySelectors } from './modules/config.js';
 import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, openAddProxyPool, openEditProxyPool, saveProxyPool, toggleProxyPool, deleteProxyPool } from './modules/proxyPool.js';
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
@@ -81,6 +81,7 @@ window.vdClearFilters = vdClearFilters;
 window.vdToggle = vdToggle;
 window.vdToggleAll = vdToggleAll;
 window.vdBatchDownload = vdBatchDownload;
+window.vdRetryFailed = vdRetryFailed;
 window._updateVdSubLabelText = _updateVdSubLabelText;
 window._getVdSubPayload = _getVdSubPayload;
 window._vdDlDone = _vdDlDone;

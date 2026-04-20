@@ -44,8 +44,10 @@ export async function vdLoad() {
   const sortDir = (el('vdSortDir') || {value:'desc'}).value;
   const pageSizeEl = el('vdPageSize');
   const pageSize = pageSizeEl ? (parseInt(pageSizeEl.value, 10) || 20) : 20;
+  const statusFilter = (el('vdStatusFilter') || {value:''}).value;
   const videoPath = '/accounts/' + _vdAccId + '/videos?title_kw=' + encodeURIComponent(titleKw) +
     '&url_kw=' + encodeURIComponent(urlKw) + '&sort_by=' + sortBy + '&sort_dir=' + sortDir +
+    (statusFilter ? '&status=' + encodeURIComponent(statusFilter) : '') +
     '&page=' + _vdPage + '&page_size=' + pageSize;
   const [res, accs] = await Promise.all([
     api('GET', videoPath),
@@ -82,6 +84,22 @@ export async function vdLoad() {
   const _d2 = (id, v) => { const e = document.getElementById(id); if (e) e.disabled = v; };
   _s2('vdTotal', '共 ' + res.total + ' 条'); _s2('vdPageInfo', res.page + ' / ' + res.pages + ' 页');
   _d2('vdPrevBtn', res.page <= 1); _d2('vdNextBtn', res.page >= res.pages);
+
+  // 状态筛选模式下隐藏分页（因为 get_account_videos_filtered 不支持分页）
+  const footerBar = document.querySelector('.vd-modal-toolbar--footer');
+  if (footerBar) footerBar.style.display = statusFilter ? 'none' : '';
+
+  // 显示重试按钮（仅"失败"筛选时）
+  const retryBtn = document.getElementById('vdRetryBtn');
+  const retryCount = document.getElementById('vdRetryCount');
+  if (retryBtn && retryCount) {
+    if (statusFilter === 'failed') {
+      retryBtn.style.display = '';
+      retryCount.textContent = res.total;
+    } else {
+      retryBtn.style.display = 'none';
+    }
+  }
   if (!res.videos || res.videos.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
     return;
@@ -134,14 +152,53 @@ export function vdChangePageSize() { setVdPage(1); vdLoad(); }
 export function vdClearFilters() {
   const ts = document.getElementById('vdTitleSearch');
   const us = document.getElementById('vdUrlSearch');
+  const sf = document.getElementById('vdStatusFilter');
   const sb = document.getElementById('vdSortBy');
   const sd = document.getElementById('vdSortDir');
   if (ts) ts.value = '';
   if (us) us.value = '';
+  if (sf) sf.value = '';
   if (sb) sb.value = 'published_at';
   if (sd) sd.value = 'desc';
   setVdPage(1);
   vdLoad();
+}
+
+export async function vdRetryFailed() {
+  const retryBtn = document.getElementById('vdRetryBtn');
+  if (!retryBtn) return;
+  const count = parseInt(document.getElementById('vdRetryCount').textContent || '0', 10);
+  if (count === 0) return;
+  if (!confirm('确定要重试 ' + count + ' 个失败视频吗？')) return;
+  retryBtn.disabled = true;
+  retryBtn.innerHTML = '<span class="spinner"></span> 重试中...';
+  try {
+    // 收集当前表格中所有失败视频的 ID
+    const rows = document.querySelectorAll('#vdTbody tr[data-id]');
+    const videoIds = [...rows].map(r => parseInt(r.dataset.id)).filter(id => !isNaN(id));
+    if (videoIds.length === 0) {
+      toast('没有可重试的视频', 'warning');
+      retryBtn.disabled = false;
+      retryBtn.innerHTML = '重试失败 (<span id="vdRetryCount">0</span>)';
+      return;
+    }
+    const r = await api('POST', '/api/videos/retry', {
+      video_ids: videoIds,
+      account_id: _vdAccId,
+    });
+    if (r.ok) {
+      toast(r.retried + ' 个视频已重试', 'ok');
+      setVdPage(1);
+      setVdSelClear();
+      vdLoad();
+    } else {
+      toast('重试失败: ' + (r.error || ''), 'err');
+    }
+  } catch (e) {
+    toast('重试请求失败: ' + (e.message || ''), 'err');
+  }
+  retryBtn.disabled = false;
+  retryBtn.innerHTML = '重试失败 (<span id="vdRetryCount">' + count + '</span>)';
 }
 
 export function vdToggle(id, checked) {
