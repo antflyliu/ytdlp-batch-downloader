@@ -62,7 +62,13 @@ def _wait_for_proxy_cooldown(proxy: str) -> bool:
 def _set_proxy_cooldown(proxy: str, retry_count: int) -> None:
     """设置 proxy 退避状态（线程安全）"""
     with _proxy_lock:
-        _proxy_cooldown_until[proxy] = time.monotonic() + _get_backoff_seconds(retry_count)
+        now = time.monotonic()
+        # 清理已过期的 proxy key，防止字典无限膨胀
+        expired = [k for k, v in _proxy_cooldown_until.items() if v <= now]
+        for k in expired:
+            _proxy_cooldown_until.pop(k, None)
+            _proxy_retry_count.pop(k, None)
+        _proxy_cooldown_until[proxy] = now + _get_backoff_seconds(retry_count)
         _proxy_retry_count[proxy] = retry_count
 
 
@@ -83,8 +89,13 @@ def _wait_for_direct_cooldown() -> bool:
 def _set_direct_cooldown(retry_count: int) -> None:
     """设置全局直连退避状态（线程安全）"""
     global _direct_cooldown_until, _direct_retry_count
+    now = time.monotonic()
+    # 清理已过期的直连退避
+    if _direct_cooldown_until is not None and _direct_cooldown_until <= now:
+        _direct_cooldown_until = None
+        _direct_retry_count = 0
     with _direct_lock:
-        _direct_cooldown_until = time.monotonic() + _get_backoff_seconds(retry_count)
+        _direct_cooldown_until = now + _get_backoff_seconds(retry_count)
         _direct_retry_count = retry_count
 
 # 平台级全局 Webhook URL
@@ -684,19 +695,99 @@ def _handle_rate_limited(
     cookies_file, extra_ydl_opts, cfg,
     retry_count: int = 0,
 ):
-    """处理单个视频的 429 退遇重试逻辑。最多 3 次后切直连。"""
-    is_proxy = proxy is not None
+    """
+    处理单个视频的 429 退避重试逻辑。使用循环避免递归深度风险。
+    最多 3 次代理退避后切换直连，直连最多 3 次退避。
+    """
+    MAX_RETRIES = 3
+    while True:
+        is_proxy = proxy is not None
+        if is_proxy:
+            _wait_for_proxy_cooldown(proxy)
+            retry_count += 1
+            _log.warning(f"代理退避结束，重试视频: {url} (retry={retry_count})")
+            _db.update_videos_download_status([vid], retry_count=retry_count)
+            try:
+                results = batch_download(
+                    [url], output_path, "best",
+                    proxy=proxy,
+                    cookies_file=cookies_file,
+                    concurrent_fragments=2,
+                    extra_ydl_opts=extra_ydl_opts,
+                )
+                r = results[0] if results else {}
+                if r.get("状态") == "成功":
+                    _db.update_videos_download_status(
+                        [vid], "downloaded",
+                        download_path=r.get("video_path", ""),
+                        retry_count=0,
+                    )
+                    return
+                if r.get("is_rate_limited"):
+                    if retry_count >= MAX_RETRIES:
+                        _log.warning(f"代理退避重试 {retry_count} 次后仍 429，切换直连: {url}")
+                        proxy = None  # 切换直连
+                        retry_count = 0
+                        continue
+                    _set_proxy_cooldown(proxy, retry_count)
+                    # 继续循环
+                else:
+                    _db.update_videos_download_status(
+                        [vid], "failed",
+                        download_error=r.get("信息"),
+                        retry_count=0,
+                        failed_reason="proxy_download_error",
+                        failed_at=_db.now_iso(),
+                    )
+                    return
+            except Exception as exc:
+                _db.update_videos_download_status(
+                    [vid], "failed",
+                    download_error=f"退避重试异常: {exc}",
+                    retry_count=0,
+                    failed_reason="backoff_exception",
+                    failed_at=_db.now_iso(),
+                )
+                return
+        else:
+            # 直连退避（委托给循环处理）
+            _handle_direct_fallback(
+                vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+                initial_retry_count=retry_count,
+            )
+            return
+
+
+def _handle_direct_fallback(
+    vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+    initial_retry_count: int = 0,
+):
+    """直连 429 退避重试（独立于代理退避），使用循环避免递归深度风险。"""
+    retry_count = initial_retry_count
     MAX_RETRIES = 3
 
-    if is_proxy:
-        _wait_for_proxy_cooldown(proxy)
+    while True:
+        _wait_for_direct_cooldown()
         retry_count += 1
-        _log.warning(f"代理退遇结束，重试视频: {url} (retry={retry_count})")
         _db.update_videos_download_status([vid], retry_count=retry_count)
+
+        if retry_count > MAX_RETRIES:
+            _db.update_videos_download_status(
+                [vid], "failed",
+                download_error=f"429 rate limit after {MAX_RETRIES} retries",
+                retry_count=0,
+                failed_reason="direct_rate_limit_exhausted",
+                failed_at=_db.now_iso(),
+            )
+            return
+
+        _set_direct_cooldown(retry_count)
+        _log.warning(f"直连退避 {retry_count}/{MAX_RETRIES} 次: {url}")
+
         try:
             results = batch_download(
                 [url], output_path, "best",
-                proxy=proxy,
+                proxy=None,
                 cookies_file=cookies_file,
                 concurrent_fragments=2,
                 extra_ydl_opts=extra_ydl_opts,
@@ -709,105 +800,25 @@ def _handle_rate_limited(
                     retry_count=0,
                 )
                 return
-            if r.get("is_rate_limited"):
-                if retry_count >= MAX_RETRIES:
-                    _log.warning(f"代理退遇重试 {retry_count} 次后仍 429，切换直连: {url}")
-                    _handle_direct_fallback(
-                        vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
-                        initial_retry_count=retry_count,
-                    )
-                else:
-                    _set_proxy_cooldown(proxy, retry_count)
-                    _wait_for_proxy_cooldown(proxy)
-                    _handle_rate_limited(
-                        vid, url, record, proxy, output_path,
-                        cookies_file, extra_ydl_opts, cfg,
-                        retry_count=retry_count,
-                    )
-            else:
+            if not r.get("is_rate_limited"):
                 _db.update_videos_download_status(
                     [vid], "failed",
                     download_error=r.get("信息"),
                     retry_count=0,
-                    failed_reason="proxy_download_error",
+                    failed_reason="direct_download_error",
                     failed_at=_db.now_iso(),
                 )
+                return
+            # 继续循环（is_rate_limited=True）
         except Exception as exc:
             _db.update_videos_download_status(
                 [vid], "failed",
-                download_error=f"退遇重试异常: {exc}",
+                download_error=f"直连退避重试异常: {exc}",
                 retry_count=0,
-                failed_reason="backoff_exception",
+                failed_reason="direct_backoff_exception",
                 failed_at=_db.now_iso(),
             )
-    else:
-        _handle_direct_fallback(
-            vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
-            initial_retry_count=retry_count,
-        )
-
-
-def _handle_direct_fallback(
-    vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
-    initial_retry_count: int = 0,
-):
-    """直连 429 退遇重试（狡立于代理退遇）"""
-    retry_count = initial_retry_count
-    MAX_RETRIES = 3
-
-    _wait_for_direct_cooldown()
-    retry_count += 1
-    _db.update_videos_download_status([vid], retry_count=retry_count)
-
-    if retry_count > MAX_RETRIES:
-        _db.update_videos_download_status(
-            [vid], "failed",
-            download_error=f"429 rate limit after {MAX_RETRIES} retries",
-            retry_count=0,
-            failed_reason="direct_rate_limit_exhausted",
-            failed_at=_db.now_iso(),
-        )
-        return
-
-    _set_direct_cooldown(retry_count)
-    _log.warning(f"直连退遇 {retry_count}/{MAX_RETRIES} 次: {url}")
-
-    try:
-        results = batch_download(
-            [url], output_path, "best",
-            proxy=None,
-            cookies_file=cookies_file,
-            concurrent_fragments=2,
-            extra_ydl_opts=extra_ydl_opts,
-        )
-        r = results[0] if results else {}
-        if r.get("状态") == "成功":
-            _db.update_videos_download_status(
-                [vid], "downloaded",
-                download_path=r.get("video_path", ""),
-                retry_count=0,
-            )
-        elif r.get("is_rate_limited"):
-            _handle_direct_fallback(
-                vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
-                initial_retry_count=retry_count,
-            )
-        else:
-            _db.update_videos_download_status(
-                [vid], "failed",
-                download_error=r.get("信息"),
-                retry_count=0,
-                failed_reason="direct_download_error",
-                failed_at=_db.now_iso(),
-            )
-    except Exception as exc:
-        _db.update_videos_download_status(
-            [vid], "failed",
-            download_error=f"直连退遇重试异常: {exc}",
-            retry_count=0,
-            failed_reason="direct_backoff_exception",
-            failed_at=_db.now_iso(),
-        )
+            return
 
 
 def _auto_download_videos(

@@ -173,7 +173,7 @@ export async function vdRetryFailed() {
   retryBtn.disabled = true;
   retryBtn.innerHTML = '<span class="spinner"></span> 重试中...';
   try {
-    // 收集当前表格中所有失败视频的 ID
+    // 收集当前表格行 ID（当前页），兼容少量失败场景
     const rows = document.querySelectorAll('#vdTbody tr[data-id]');
     const videoIds = [...rows].map(r => parseInt(r.dataset.id)).filter(id => !isNaN(id));
     if (videoIds.length === 0) {

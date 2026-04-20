@@ -1240,7 +1240,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if not isinstance(video_ids, list) or not video_ids:
             self._send_json({"error": "video_ids 必须是非空列表"}, 400)
             return
-        if not isinstance(account_id, int):
+        if not isinstance(account_id, int) or account_id <= 0:
             self._send_json({"error": "account_id 必须是整数"}, 400)
             return
 

@@ -130,7 +130,8 @@ def get_account_videos(
                 published_at, upload_date, duration_sec,
                 view_count, like_count, comment_count,
                 notify_status, download_status, download_at, download_path,
-                fetched_at
+                fetched_at,
+                retry_count, failed_reason, failed_at
                FROM monitor_videos
                WHERE {where_sql}
                ORDER BY {order_col} {order_dir}
