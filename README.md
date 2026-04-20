@@ -532,7 +532,8 @@ Claude Code 启动时自动扫描 `~/.claude/skills/` 下的所有 `SKILL.md` �
 > $env:MONITOR_API_TOKEN="123456"
 > python monitor_server.py --force-restart
 > cd dist
-> YouTubeMonitor.exe
+> YouTubeMonitor.exe --force-restart
+> YouTubeMonitor.exe --browser
 ```
 
 
