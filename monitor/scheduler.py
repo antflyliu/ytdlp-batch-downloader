@@ -867,6 +867,13 @@ def _auto_download_videos(
     _log.info(f"自动下载任务已全部提交: {len(urls)} 个视频")
 
 
+def trigger_scan(account_id: int, auto_download: bool = False) -> None:
+    """
+    公开方法：触发指定账户的手动扫描（立即扫描）。
+    供 server/__main__.py 的 Web UI 端点调用。
+    """
+    _scan_account(account_id, auto_download=auto_download)
+
 
 def _scan_account(account_id: int, auto_download: bool = False, from_scheduler: bool = False) -> None:
     """
