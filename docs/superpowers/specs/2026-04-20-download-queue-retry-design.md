@@ -14,7 +14,7 @@
 
 1. **per-account 独立下载池** — 每账户独立线程池（max_workers 可配置，默认 2），账户间互不干扰
 2. **429 退避重试** — 直连/代理 429 后按退避时间重试（60s → 120s → 180s，上限，最多 3 次；每次加 0~10s jitter）
-3. **失败持久化** — 3 次重试均失败后写入 `monitor_videos` 表（含 event_id 批次信息），Web UI 手动勾选重试
+3. **失败持久化** — 3 次重试均失败后更新 `monitor_videos` 已有记录：`download_status='failed'` + 写入 `failed_reason`/`failed_at`/`failed_event_id`/`retry_count`；Web UI 手动勾选重试
 
 ---
 
@@ -243,7 +243,7 @@ WHERE download_status = 'running'
 2. **线程安全退避状态** — `_proxy_lock` / `_direct_lock` 保护所有退避状态的读写
 3. **per-account 池** — `_account_pools[account_id]` 管理账户独立线程池，lazy 创建，账户禁用时销毁
 4. **退避时间** — `min(60 * retry_count, 180) + random(0, 10)`，上限 180s
-5. **持久化** — 每次提交下载前更新 `retry_count`，最终失败时写入 `failed_reason/failed_at/failed_event_id`
+5. **持久化** — 每次提交下载前更新 `retry_count`，最终失败时更新 `failed_reason/failed_at/failed_event_id`
 6. **重启恢复** — 服务启动时将 `running` 标记为 `failed`
 7. **pending_retry 纯内存** — 不写入 SQLite，进程重启时在退避中的视频会丢失（由重启恢复统一处理）
 
