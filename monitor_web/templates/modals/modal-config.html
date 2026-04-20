@@ -2,187 +2,187 @@
 <div class="modal-overlay" id="modalConfig">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">全局配置</div>
+      <div class="modal-title" data-i18n="config.title">全局配置</div>
       <button class="modal-close" onclick="closeModal('modalConfig')">✕</button>
     </div>
     <div class="modal-body">
       <div class="config-grid">
         <div class="form-group">
-          <label class="form-label" style="color:var(--feishu)">飞书 Webhook</label>
+          <label class="form-label" style="color:var(--feishu)" data-i18n="config.feishuWebhook">飞书 Webhook</label>
           <input class="form-input" id="cfgFeishu" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
-          <div class="form-hint">账户级 URL 会覆盖此处全局配置</div>
+          <div class="form-hint" data-i18n="config.feishuHint">账户级 URL 会覆盖此处全局配置</div>
         </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--dingtalk)">钉钉 Webhook</label>
+          <label class="form-label" style="color:var(--dingtalk)" data-i18n="config.dingtalkWebhook">钉钉 Webhook</label>
           <input class="form-input" id="cfgDingtalk" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx">
         </div>
         <div class="form-group form-group--dingtalk-addon">
-          <label class="form-label form-label--platform" for="cfgDingtalkSecret">钉钉加签密钥（全局）</label>
+          <label class="form-label form-label--platform" for="cfgDingtalkSecret" data-i18n="config.dingtalkSecretGlobal">钉钉加签密钥（全局）</label>
           <input class="form-input" id="cfgDingtalkSecret" type="password" name="global_dingtalk_sign_secret" autocomplete="new-password" inputmode="text" spellcheck="false" placeholder="SEC 开头，与上方全局钉钉 Webhook 同一机器人" aria-describedby="cfgDingtalkSecretHint">
-          <div class="form-hint" id="cfgDingtalkSecretHint">若全局钉钉机器人开启了「加签」，在此填写与 Webhook 成对的 SEC；未加签留空。账户级 Webhook 仍优先使用账户里的加签密钥。</div>
+          <div class="form-hint" id="cfgDingtalkSecretHint" data-i18n="config.dingtalkSecretGlobalHint">若全局钉钉机器人开启了「加签」，在此填写与 Webhook 成对的 SEC；未加签留空。账户级 Webhook 仍优先使用账户里的加签密钥。</div>
         </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--wecom)">企业微信 Webhook</label>
+          <label class="form-label" style="color:var(--wecom)" data-i18n="config.wecomWebhook">企业微信 Webhook</label>
           <input class="form-input" id="cfgWecom" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
         </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--telegram)">Telegram Bot Token</label>
+          <label class="form-label" style="color:var(--telegram)" data-i18n="config.telegramBotToken">Telegram Bot Token</label>
           <input class="form-input" id="cfgTelegramToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ" autocomplete="new-password">
-          <div class="form-hint">格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取</div>
+          <div class="form-hint" data-i18n="config.telegramBotTokenHint">格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取</div>
         </div>
         <div class="form-group">
-          <label class="form-label" style="color:var(--telegram)">Telegram Chat ID</label>
+          <label class="form-label" style="color:var(--telegram)" data-i18n="config.telegramChatId">Telegram Chat ID</label>
           <input class="form-input" id="cfgTelegramChatId" placeholder="123456789">
-          <div class="form-hint">发送目标的 Chat ID，私聊机器人或群组 ID（负数带前缀）</div>
+          <div class="form-hint" data-i18n="config.telegramChatIdHint">发送目标的 Chat ID，私聊机器人或群组 ID（负数带前缀）</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">每日 API Quota 上限（兜底）</label>
+          <label class="form-label" data-i18n="config.quotaBudget">每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
-          <div class="form-hint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。统计口径为 <strong>配额单位（units）</strong>，与 Google Cloud 控制台一致（非 HTTP 调用次数）。</div>
+          <div class="form-hint" data-i18n="config.quotaBudgetHint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。统计口径为 <strong>配额单位（units）</strong>，与 Google Cloud 控制台一致（非 HTTP 调用次数）。</div>
         </div>
         <div class="form-group" style="margin-top:8px">
-          <label class="form-label">配额统计时区</label>
+          <label class="form-label" data-i18n="config.quotaTimezone">配额统计时区</label>
           <select class="form-input" id="cfgQuotaUsageTimezone" style="max-width:280px">
-            <option value="local">本地时区（与系统日期对齐）</option>
-            <option value="America/Los_Angeles">America/Los_Angeles（与 YouTube 控制台「按太平洋日」更接近）</option>
+            <option value="local" data-i18n="config.localTimezone">本地时区（与系统日期对齐）</option>
+            <option value="America/Los_Angeles" data-i18n="config.pacificTimezone">America/Los_Angeles（与 YouTube 控制台「按太平洋日」更接近）</option>
           </select>
-          <div class="form-hint">切换后仅影响「按日」累计的日期边界；历史行仍按原 date_key 保留。</div>
+          <div class="form-hint" data-i18n="config.timezoneHint">切换后仅影响「按日」累计的日期边界；历史行仍按原 date_key 保留。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">频道元数据缓存 TTL（天）</label>
+          <label class="form-label" data-i18n="config.channelMetaTTL">频道元数据缓存 TTL（天）</label>
           <input class="form-input" id="cfgChannelMetaMaxAge" type="number" placeholder="30" style="width:100px" min="0" step="1">
-          <div class="form-hint">超过该天数会重新请求 channels 元数据并写回 SQLite。设为 <strong>0</strong> 表示永不过期（与旧行为一致）。</div>
+          <div class="form-hint" data-i18n="config.channelMetaTTLHint">超过该天数会重新请求 channels 元数据并写回 SQLite。设为 <strong>0</strong> 表示永不过期（与旧行为一致）。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">扫描失败时推送 Webhook</label>
+          <label class="form-label" data-i18n="config.notifyOnScanError">扫描失败时推送 Webhook</label>
           <label class="checkbox-label" style="margin-top:6px">
             <input type="checkbox" id="cfgNotifyOnScanError">
             <span class="checkbox-box"></span>
-            启用（与飞书/钉钉/Telegram 全局或账户级 Webhook 一致）
+            <span data-i18n="config.notifyOnScanErrorEnable">启用（与飞书/钉钉/Telegram 全局或账户级 Webhook 一致）</span>
           </label>
-          <div class="form-hint">同一账户在冷却时间内只发一次，避免刷屏（见下一项）。</div>
+          <div class="form-hint" data-i18n="config.notifyOnScanErrorHint">同一账户在冷却时间内只发一次，避免刷屏（见下一项）。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">扫描失败告警冷却（秒）</label>
+          <label class="form-label" data-i18n="config.scanErrorCooldown">扫描失败告警冷却（秒）</label>
           <input class="form-input" id="cfgScanErrorCooldown" type="number" placeholder="300" style="width:100px" min="60" step="1">
         </div>
         <div class="form-group">
-          <label class="form-label">定时扫描错峰（秒）</label>
+          <label class="form-label" data-i18n="config.scanJitter">定时扫描错峰（秒）</label>
           <input class="form-input" id="cfgScanJitter" type="number" placeholder="0" style="width:100px" min="0" step="1">
-          <div class="form-hint">每次扫描在 0～N 秒随机延迟，减轻多账户同 Key 同时触发。0 表示关闭。</div>
+          <div class="form-hint" data-i18n="config.scanJitterHint">每次扫描在 0～N 秒随机延迟，减轻多账户同 Key 同时触发。0 表示关闭。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">配额预警阈值（%）</label>
+          <label class="form-label" data-i18n="config.quotaAlertThresholds">配额预警阈值（%）</label>
           <input class="form-input" id="cfgQuotaAlertThresholds" placeholder="80,90,100" style="max-width:240px">
-          <div class="form-hint">逗号分隔，如 80,90,100；达到对应占用比例时推送（每日每档最多一次）。</div>
+          <div class="form-hint" data-i18n="config.quotaAlertThresholdsHint">逗号分隔，如 80,90,100；达到对应占用比例时推送（每日每档最多一次）。</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">频道元数据健康检查（uploads 列表）</label>
+          <label class="form-label" data-i18n="config.channelMetaHealth">频道元数据健康检查（uploads 列表）</label>
           <label class="checkbox-label" style="margin-top:6px">
             <input type="checkbox" id="cfgChannelMetaHealthEnabled">
             <span class="checkbox-box"></span>
-            启用（缓存命中时按间隔用 channels.list 校验 uploads_playlist_id，约 1 unit/次）
+            <span data-i18n="config.channelMetaHealthEnable">启用（缓存命中时按间隔用 channels.list 校验 uploads_playlist_id，约 1 unit/次）</span>
           </label>
           <div class="form-hint" style="margin-top:8px">
-            <label class="form-label" style="display:inline">检查间隔（小时）</label>
+            <label class="form-label" style="display:inline" data-i18n="config.healthCheckInterval">检查间隔（小时）</label>
             <input class="form-input" id="cfgChannelMetaHealthInterval" type="number" placeholder="24" style="width:90px;display:inline-block;margin-left:8px" min="1" step="1">
           </div>
           <label class="checkbox-label" style="margin-top:8px">
             <input type="checkbox" id="cfgNotifyChannelMetaMismatch">
             <span class="checkbox-box"></span>
-            不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → Telegram 优先）
+            <span data-i18n="config.notifyChannelMetaMismatch">不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → Telegram 优先）</span>
           </label>
         </div>
         <div class="form-group">
-          <label class="form-label">默认 API Key</label>
+          <label class="form-label" data-i18n="config.defaultApiKey">默认 API Key</label>
           <select class="form-input" id="cfgDefaultApiKey" style="width:100%">
-            <option value="">— 无默认 Key（需手动指定）—</option>
+            <option value="" data-i18n="config.noDefaultKey">— 无默认 Key（需手动指定）—</option>
           </select>
-          <div class="form-hint">账户未指定 API Key 时使用此默认 Key。可在顶部「API Keys」中添加更多 Key。</div>
+          <div class="form-hint" data-i18n="config.defaultApiKeyHint">账户未指定 API Key 时使用此默认 Key。可在顶部「API Keys」中添加更多 Key。</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">Cookie 文件路径</label>
+          <label class="form-label" data-i18n="config.cookiesFile">Cookie 文件路径</label>
           <input class="form-input" id="cfgCookiesFile" placeholder="例: C:\cookies.txt">
-          <div class="form-hint">Netscape 格式 (.txt) 或 JSON 格式 (.json)。留空则不使用 Cookie。可通过浏览器扩展 "Get cookies.txt LOCALLY" 导出。</div>
+          <div class="form-hint" data-i18n="config.cookiesFileHint">Netscape 格式 (.txt) 或 JSON 格式 (.json)。留空则不使用 Cookie。可通过浏览器扩展 "Get cookies.txt LOCALLY" 导出。</div>
         </div>
         <div class="form-group">
-          <label class="form-label">下载保存路径</label>
+          <label class="form-label" data-i18n="config.downloadPath">下载保存路径</label>
           <input class="form-input" id="cfgDownloadPath" placeholder="留空默认: videos/">
-          <div class="form-hint">视频下载文件的保存目录（绝对路径）</div>
+          <div class="form-hint" data-i18n="config.downloadPathHint">视频下载文件的保存目录（绝对路径）</div>
         </div>
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <label class="form-label">下载加速</label>
+          <label class="form-label" data-i18n="config.downloadAcceleration">下载加速</label>
           <label class="checkbox-label" style="margin-top:6px">
             <input type="checkbox" id="cfgEnableAria2">
             <span class="checkbox-box"></span>
-            启用 aria2 多连接加速
+            <span data-i18n="config.enableAria2Enable">启用 aria2 多连接加速</span>
           </label>
-          <div class="form-hint">开启后所有下载（启动监控自动下载、立即扫描自动下载、视频详情下载选中）均使用 aria2c 16 连接并发，速度显著提升。需提前安装 aria2 并加入 PATH。</div>
+          <div class="form-hint" data-i18n="config.enableAria2Hint">开启后所有下载（启动监控自动下载、立即扫描自动下载、视频详情下载选中）均使用 aria2c 16 连接并发，速度显著提升。需提前安装 aria2 并加入 PATH。</div>
         </div>
         <div class="form-group" style="margin-top:8px">
-          <label class="form-label">字幕语言（批量下载时）</label>
+          <label class="form-label" data-i18n="config.subLangs">字幕语言（批量下载时）</label>
           <input class="form-input" id="cfgSubLangs" placeholder="zh-Hans,en">
-          <div class="form-hint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
+          <div class="form-hint" data-i18n="config.subLangsHint">开启「字幕」开关后，yt-dlp 下载的字幕语言，逗号分隔。需要在配置中设置 cookies 文件才能下载官方字幕。</div>
         </div>
 
         <!-- ===== AI 视频切片配置 ===== -->
         <div class="settings-section">
-          <h3 class="section-title">AI 视频切片</h3>
+          <h3 class="section-title" data-i18n="config.aiClipSection">AI 视频切片</h3>
           <div class="form-group">
-            <label class="form-label">LLM 提供商</label>
+            <label class="form-label" data-i18n="config.llmProvider">LLM 提供商</label>
             <select class="form-input" id="cfgLlmProvider" style="max-width:280px">
-              <option value="qwen">通义千问 (Qwen)</option>
-              <option value="openai">OpenAI</option>
-              <option value="ollama">Ollama (本地)</option>
-              <option value="groq">Groq</option>
+              <option value="qwen" data-i18n="config.llmQwen">通义千问 (Qwen)</option>
+              <option value="openai" data-i18n="config.llmOpenai">OpenAI</option>
+              <option value="ollama" data-i18n="config.llmOllama">Ollama (本地)</option>
+              <option value="groq" data-i18n="config.llmGroq">Groq</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">API Key</label>
+            <label class="form-label" data-i18n="config.llmApiKey">API Key</label>
             <input class="form-input" id="cfgLlmApiKey" type="password" placeholder="sk-..." autocomplete="new-password">
           </div>
           <div class="form-group">
-            <label class="form-label">模型名称</label>
+            <label class="form-label" data-i18n="config.llmModel">模型名称</label>
             <input class="form-input" id="cfgLlmModel" placeholder="qwen-plus / gpt-4o / llama3">
-            <div class="form-hint">留空使用提供商默认模型</div>
+            <div class="form-hint" data-i18n="config.llmModelHint">留空使用提供商默认模型</div>
           </div>
           <div class="form-group">
-            <label class="form-label">自定义 API 地址</label>
+            <label class="form-label" data-i18n="config.llmBaseUrl">自定义 API 地址</label>
             <input class="form-input" id="cfgLlmBaseUrl" placeholder="https://api.example.com/v1（留空使用官方地址）">
-            <div class="form-hint">适用于代理或自建 API 端点</div>
+            <div class="form-hint" data-i18n="config.llmBaseUrlHint">适用于代理或自建 API 端点</div>
           </div>
           <div class="form-group">
-            <label class="form-label">精彩片段最低评分</label>
+            <label class="form-label" data-i18n="config.llmMinScore">精彩片段最低评分</label>
             <input class="form-input" id="cfgLlmMinScore" type="number" min="1" max="10" step="0.1" placeholder="7.0" style="width:100px">
-            <div class="form-hint">1-10 分，仅保留高于此分数的片段</div>
+            <div class="form-hint" data-i18n="config.llmMinScoreHint">1-10 分，仅保留高于此分数的片段</div>
           </div>
           <div class="form-group">
-            <label class="form-label">视频内容类型</label>
+            <label class="form-label" data-i18n="config.llmCategory">视频内容类型</label>
             <select class="form-input" id="cfgLlmCategory" style="max-width:280px">
-              <option value="knowledge">知识类（教程/科普/解答）</option>
-              <option value="entertainment">娱乐类（游戏/音乐/综艺）</option>
-              <option value="vlog">生活类（Vlog/日常/开箱）</option>
-              <option value="news">新闻类（热点/资讯/评论）</option>
+              <option value="knowledge" data-i18n="config.llmCatKnowledge">知识类（教程/科普/解答）</option>
+              <option value="entertainment" data-i18n="config.llmCatEntertainment">娱乐类（游戏/音乐/综艺）</option>
+              <option value="vlog" data-i18n="config.llmCatVlog">生活类（Vlog/日常/开箱）</option>
+              <option value="news" data-i18n="config.llmCatNews">新闻类（热点/资讯/评论）</option>
             </select>
-            <div class="form-hint">不同类型影响 AI 话题识别和评分权重</div>
+            <div class="form-hint" data-i18n="config.llmCategoryHint">不同类型影响 AI 话题识别和评分权重</div>
           </div>
           <div class="form-group">
-            <label class="form-label">切片增强功能</label>
+            <label class="form-label" data-i18n="config.clipEnhanceFeatures">切片增强功能</label>
             <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
               <label class="checkbox-label">
                 <input type="checkbox" id="cfgClipEmbedThumbnail" checked>
                 <span class="checkbox-box"></span>
-                生成封面图（切片起始+0.5s 帧，JPG 格式）
+                <span data-i18n="config.clipEmbedThumbnail">生成封面图（切片起始+0.5s 帧，JPG 格式）</span>
               </label>
               <label class="checkbox-label">
                 <input type="checkbox" id="cfgClipEmbedSubtitle" checked>
                 <span class="checkbox-box"></span>
-                软字幕封装（MKV 容器，播放器可切换开关）
+                <span data-i18n="config.clipEmbedSubtitle">软字幕封装（MKV 容器，播放器可切换开关）</span>
               </label>
               <label class="checkbox-label">
                 <input type="checkbox" id="cfgClipAdaptAspectRatio" checked>
                 <span class="checkbox-box"></span>
-                长宽比自适应（原片 9:16 输出 9:16，16:9 输出 16:9）
+                <span data-i18n="config.clipAdaptAspectRatio">长宽比自适应（原片 9:16 输出 9:16，16:9 输出 16:9）</span>
               </label>
             </div>
           </div>
@@ -190,13 +190,13 @@
 
         <!-- ===== 系统默认动态代理 ===== -->
         <div class="settings-section">
-          <h3 class="section-title">系统默认动态代理</h3>
+          <h3 class="section-title" data-i18n="config.dynProxySection">系统默认动态代理</h3>
 
           <!-- 开关: 启用系统默认动态代理 -->
           <div class="setting-row">
             <label class="setting-label">
-              启用系统默认动态代理
-              <span class="setting-desc">当账户固定代理不可用时，系统自动尝试动态代理线路。</span>
+              <span data-i18n="config.dynProxyEnable">启用系统默认动态代理</span>
+              <span class="setting-desc" data-i18n="config.dynProxyEnableDesc">当账户固定代理不可用时，系统自动尝试动态代理线路。</span>
             </label>
             <label class="toggle-switch">
               <input type="checkbox" id="cfg_system_dynamic_proxy_enabled" onchange="onDynamicProxySettingChange()">
@@ -207,8 +207,8 @@
           <!-- 开关: 新账户默认继承 -->
           <div class="setting-row">
             <label class="setting-label">
-              新账户默认继承系统动态代理
-              <span class="setting-desc">新建账户时，如果没有绑定固定代理，将自动按系统策略选择。</span>
+              <span data-i18n="config.dynProxyNewAccount">新账户默认继承系统动态代理</span>
+              <span class="setting-desc" data-i18n="config.dynProxyNewAccountDesc">新建账户时，如果没有绑定固定代理，将自动按系统策略选择。</span>
             </label>
             <label class="toggle-switch">
               <input type="checkbox" id="cfg_apply_dynamic_proxy_to_new_accounts" onchange="onDynamicProxySettingChange()">
@@ -219,8 +219,8 @@
           <!-- 开关: 历史账户启用回退 -->
           <div class="setting-row">
             <label class="setting-label">
-              对现有账户统一启用系统回退
-              <span class="setting-desc" style="color:#f59e0b">注意：开启后将改变现有账户行为，请确认。</span>
+              <span data-i18n="config.dynProxyExistingAccount">对现有账户统一启用系统回退</span>
+              <span class="setting-desc" style="color:#f59e0b" data-i18n="config.dynProxyExistingAccountWarn">注意：开启后将改变现有账户行为，请确认。</span>
             </label>
             <label class="toggle-switch">
               <input type="checkbox" id="cfg_apply_dynamic_proxy_to_existing_accounts" onchange="onDynamicProxySettingChange()">
@@ -230,12 +230,12 @@
 
           <!-- 风险控制区块 -->
           <div class="settings-subsection">
-            <h4 class="subsection-title">风险控制</h4>
+            <h4 class="subsection-title" data-i18n="config.riskControlSection">风险控制</h4>
 
             <!-- 免费代理参与手动下载 -->
             <div class="setting-row">
               <label class="setting-label">
-                允许免费代理参与手动下载
+                <span data-i18n="config.riskFreeProxyManual">允许免费代理参与手动下载</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_allow_free_proxy" onchange="onDynamicProxySettingChange()">
@@ -246,7 +246,7 @@
             <!-- 免费代理参与自动下载 -->
             <div class="setting-row">
               <label class="setting-label">
-                允许免费代理参与自动下载
+                <span data-i18n="config.riskFreeProxyAuto">允许免费代理参与自动下载</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_allow_free_proxy_for_auto_download" onchange="onDynamicProxySettingChange()">
@@ -257,8 +257,8 @@
             <!-- Cookie下载禁止免费代理 -->
             <div class="setting-row">
               <label class="setting-label">
-                带 Cookie 下载禁止免费代理
-                <span class="setting-desc">安全策略：Cookie 下载默认不使用免费公共代理。</span>
+                <span data-i18n="config.riskCookieNoFreeProxy">带 Cookie 下载禁止免费代理</span>
+                <span class="setting-desc" data-i18n="config.riskCookieNoFreeProxyDesc">安全策略：Cookie 下载默认不使用免费公共代理。</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_allow_free_proxy_with_cookies" onchange="onDynamicProxySettingChange()">
@@ -269,7 +269,7 @@
             <!-- 手动下载允许直连兜底 -->
             <div class="setting-row">
               <label class="setting-label">
-                手动下载允许直连兜底
+                <span data-i18n="config.riskManualDirectFallback">手动下载允许直连兜底</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_manual_direct_fallback" onchange="onDynamicProxySettingChange()">
@@ -280,8 +280,8 @@
             <!-- 自动下载允许直连兜底 -->
             <div class="setting-row">
               <label class="setting-label">
-                自动下载允许直连兜底
-                <span class="setting-desc" style="color:#f59e0b">注意：自动下载默认不允许直连，请确认。</span>
+                <span data-i18n="config.riskAutoDirectFallback">自动下载允许直连兜底</span>
+                <span class="setting-desc" style="color:#f59e0b" data-i18n="config.riskAutoDirectFallbackWarn">注意：自动下载默认不允许直连，请确认。</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_auto_direct_fallback" onchange="onDynamicProxySettingChange()">
@@ -292,39 +292,39 @@
 
           <!-- 高级设置区块 -->
           <details class="settings-details">
-            <summary>高级设置</summary>
+            <summary data-i18n="config.advancedSettings">高级设置</summary>
 
             <!-- 协议优先级 -->
             <div class="setting-row">
               <label class="setting-label">
-                协议优先级
-                <span class="setting-desc">按顺序尝试代理协议</span>
+                <span data-i18n="config.proxyProtocolOrder">协议优先级</span>
+                <span class="setting-desc" data-i18n="config.proxyProtocolOrderDesc">按顺序尝试代理协议</span>
               </label>
               <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="min-width:280px;max-width:100%;width:auto;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
-                <option value="http,https,socks5,socks4">HTTP → HTTPS → SOCKS5 → SOCKS4（推荐）</option>
-                <option value="http,https,socks5">HTTP → HTTPS → SOCKS5</option>
-                <option value="https,http,socks5,socks4">HTTPS → HTTP → SOCKS5 → SOCKS4</option>
-                <option value="https,http,socks5">HTTPS → HTTP → SOCKS5</option>
-                <option value="socks5,https,http,socks4">SOCKS5 → HTTPS → HTTP → SOCKS4</option>
-                <option value="socks5,https,http">SOCKS5 → HTTPS → HTTP</option>
+                <option value="http,https,socks5,socks4" data-i18n="config.proxyProtoHttpHttpsSocks5Socks4">HTTP → HTTPS → SOCKS5 → SOCKS4（推荐）</option>
+                <option value="http,https,socks5" data-i18n="config.proxyProtoHttpHttpsSocks5">HTTP → HTTPS → SOCKS5</option>
+                <option value="https,http,socks5,socks4" data-i18n="config.proxyProtoHttpsHttpSocks5Socks4">HTTPS → HTTP → SOCKS5 → SOCKS4</option>
+                <option value="https,http,socks5" data-i18n="config.proxyProtoHttpsHttpSocks5">HTTPS → HTTP → SOCKS5</option>
+                <option value="socks5,https,http,socks4" data-i18n="config.proxyProtoSocks5HttpsHttpSocks4">SOCKS5 → HTTPS → HTTP → SOCKS4</option>
+                <option value="socks5,https,http" data-i18n="config.proxyProtoSocks5HttpsHttp">SOCKS5 → HTTPS → HTTP</option>
               </select>
             </div>
 
             <!-- 会话模式 -->
             <div class="setting-row">
               <label class="setting-label">
-                默认会话模式
+                <span data-i18n="config.sessionMode">默认会话模式</span>
               </label>
               <select id="cfg_default_session_mode" onchange="onDynamicProxySettingChange()" style="width:200px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none">
-                <option value="sticky">粘性会话（推荐）</option>
-                <option value="rotating">轮换会话</option>
+                <option value="sticky" data-i18n="config.sessionSticky">粘性会话（推荐）</option>
+                <option value="rotating" data-i18n="config.sessionRotating">轮换会话</option>
               </select>
             </div>
 
             <!-- 粘性会话时长 -->
             <div class="setting-row">
               <label class="setting-label">
-                粘性会话时长（分钟）
+                <span data-i18n="config.stickyMinutes">粘性会话时长（分钟）</span>
               </label>
               <input type="number" id="cfg_default_sticky_minutes" value="10" min="1" max="60"
                      style="width:80px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.9);padding:6px 10px;font-size:13px;outline:none" onchange="onDynamicProxySettingChange()">
@@ -333,8 +333,8 @@
             <!-- 掩码代理日志 -->
             <div class="setting-row">
               <label class="setting-label">
-                日志中掩码代理地址
-                <span class="setting-desc">隐藏代理出口的具体 IP 和端口</span>
+                <span data-i18n="config.maskProxyLogs">日志中掩码代理地址</span>
+                <span class="setting-desc" data-i18n="config.maskProxyLogsDesc">隐藏代理出口的具体 IP 和端口</span>
               </label>
               <label class="toggle-switch">
                 <input type="checkbox" id="cfg_mask_proxy_in_logs" checked onchange="onDynamicProxySettingChange()">
@@ -346,19 +346,17 @@
           <!-- 管理提供方入口 -->
           <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.15);border-radius:12px">
             <div>
-              <div style="font-size:12px;font-weight:600;color:var(--dyn-text);margin-bottom:2px">动态代理提供方管理</div>
-              <div style="font-size:11px;color:var(--text-muted)">添加、编辑和测试动态代理提供方（付费/免费）</div>
+              <div style="font-size:12px;font-weight:600;color:var(--dyn-text);margin-bottom:2px" data-i18n="config.dynProviderManageTitle">动态代理提供方管理</div>
+              <div style="font-size:11px;color:var(--text-muted)" data-i18n="config.dynProviderManageDesc">添加、编辑和测试动态代理提供方（付费/免费）</div>
             </div>
-            <button class="btn btn-sm" style="background:rgba(99,102,241,0.1);border-color:var(--dyn-border);color:var(--dyn-text);font-weight:600;flex-shrink:0" onclick="openDynamicProviders()">
-              管理提供方
-            </button>
+            <button class="btn btn-sm" style="background:rgba(99,102,241,0.1);border-color:var(--dyn-border);color:var(--dyn-text);font-weight:600;flex-shrink:0" onclick="openDynamicProviders()" data-i18n="config.dynProviderManageBtn">管理提供方</button>
           </div>
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modalConfig')">取消</button>
-      <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+      <button class="btn btn-ghost" onclick="closeModal('modalConfig')" data-i18n="common.cancel">取消</button>
+      <button class="btn btn-primary" onclick="saveConfig()" data-i18n="config.saveConfig">保存配置</button>
     </div>
   </div>
 </div>

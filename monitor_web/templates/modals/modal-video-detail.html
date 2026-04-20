@@ -3,53 +3,53 @@
   <div class="modal modal-video-detail">
     <div class="mvd-header">
       <div class="mvd-header-left">
-        <div class="mvd-eyebrow"><span id="vdAccountEyebrow">监控账户</span><span id="vdAccountName" class="mvd-account-name"></span></div>
-        <h2 class="mvd-title" id="vdModalTitle">视频详情</h2>
+        <div class="mvd-eyebrow"><span id="vdAccountEyebrow" data-i18n="videoDetail.monitorAccount">监控账户</span><span id="vdAccountName" class="mvd-account-name"></span></div>
+        <h2 class="mvd-title" id="vdModalTitle" data-i18n="videoDetail.title">视频详情</h2>
         <div class="mvd-meta">
-          <span class="mvd-kbd">ESC 关闭</span>
+          <span class="mvd-kbd" data-i18n="videoDetail.escClose">ESC 关闭</span>
           <span class="mvd-dot" aria-hidden="true"></span>
-          <span id="vdTotal" class="mvd-meta-item">共 — 条</span>
+          <span id="vdTotal" class="mvd-meta-item" data-i18n="videoDetail.totalCount">共 — 条</span>
         </div>
       </div>
       <div class="mvd-header-actions">
-        <button type="button" class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled>下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button type="button" class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled data-i18n="videoDetail.downloadSelected">下载选中 (<span id="vdSelCount">0</span>)</button>
         <button type="button" class="ccd-close" onclick="closeModal('modalVideoDetail')" aria-label="关闭"><span aria-hidden="true">×</span></button>
       </div>
     </div>
     <div class="modal-body mvd-body">
       <!-- 工具栏 -->
       <div class="vd-modal-toolbar mvd-toolbar">
-        <input class="form-input" id="vdTitleSearch" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
-        <input class="form-input" id="vdUrlSearch" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <input class="form-input" id="vdTitleSearch" data-i18n-placeholder="videoDetail.searchTitle" placeholder="搜索标题..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
+        <input class="form-input" id="vdUrlSearch" data-i18n-placeholder="videoDetail.searchUrl" placeholder="搜索链接..." style="width:220px" onkeydown="if(event.key==='Enter')vdSearch()">
         <select class="form-input" id="vdStatusFilter" style="width:100px" onchange="vdSearch()">
-          <option value="">全部状态</option>
-          <option value="downloaded">已下载</option>
-          <option value="downloading">下载中</option>
-          <option value="failed">失败</option>
-          <option value="pending">待下载</option>
+          <option value="" data-i18n="videoDetail.allStatus">全部状态</option>
+          <option value="downloaded" data-i18n="videoDetail.downloaded">已下载</option>
+          <option value="downloading" data-i18n="videoDetail.downloading">下载中</option>
+          <option value="failed" data-i18n="videoDetail.failed">失败</option>
+          <option value="pending" data-i18n="videoDetail.pending">待下载</option>
         </select>
         <select class="form-input" id="vdSortBy" style="width:140px" onchange="vdSearch()">
-          <option value="published_at">发布时间</option>
-          <option value="view_count">浏览量</option>
-          <option value="like_count">点赞数</option>
-          <option value="comment_count">评论数</option>
+          <option value="published_at" data-i18n="videoDetail.pubTime">发布时间</option>
+          <option value="view_count" data-i18n="videoDetail.viewCount">浏览量</option>
+          <option value="like_count" data-i18n="videoDetail.likeCount">点赞数</option>
+          <option value="comment_count" data-i18n="videoDetail.commentCount">评论数</option>
         </select>
         <select class="form-input" id="vdSortDir" style="width:90px" onchange="vdSearch()">
-          <option value="desc">降序</option>
-          <option value="asc">升序</option>
+          <option value="desc" data-i18n="videoDetail.desc">降序</option>
+          <option value="asc" data-i18n="videoDetail.asc">升序</option>
         </select>
-        <button type="button" class="btn btn-sm" onclick="vdSearch()">搜索</button>
-        <button type="button" class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)">重置</button>
-        <button type="button" class="btn btn-sm btn-retry" id="vdRetryBtn" onclick="vdRetryFailed()" style="display:none">重试失败 (<span id="vdRetryCount">0</span>)</button>
+        <button type="button" class="btn btn-sm" onclick="vdSearch()" data-i18n="videoDetail.search">搜索</button>
+        <button type="button" class="btn btn-sm" onclick="vdClearFilters()" style="color:var(--text-dim)" data-i18n="videoDetail.reset">重置</button>
+        <button type="button" class="btn btn-sm btn-retry" id="vdRetryBtn" onclick="vdRetryFailed()" style="display:none" data-i18n="videoDetail.retryFailed">重试失败 (<span id="vdRetryCount">0</span>)</button>
         <label class="vd-toolbar-spacer" style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
           <input type="checkbox" id="vdSubToggle" onchange="_updateVdSubLabelText()">
-          <span id="vdSubLabel">字幕:否</span>
+          <span id="vdSubLabel" data-i18n="videoDetail.subNo">字幕:否</span>
         </label>
       </div>
       <!-- 下载进度条 -->
       <div class="vd-dl-bar" id="vdDlBar">
         <div class="dl-info">
-          <span id="vdDlLabel">准备下载...</span>
+          <span id="vdDlLabel" data-i18n="videoDetail.preparing">准备下载...</span>
           <span id="vdDlPercent">0%</span>
         </div>
         <div class="dl-track"><div class="dl-fill" id="vdDlFill" style="width:0%"></div></div>
@@ -61,14 +61,14 @@
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
-              <th>标题</th>
-              <th style="width:90px">发布时间</th>
-              <th style="width:80px">时长</th>
-              <th style="width:90px">浏览量</th>
-              <th style="width:70px">点赞</th>
-              <th style="width:70px">评论</th>
-              <th style="width:90px">下载状态</th>
-              <th style="width:50px">操作</th>
+              <th data-i18n="videoDetail.titleCol">标题</th>
+              <th style="width:90px" data-i18n="videoDetail.pubTimeCol">发布时间</th>
+              <th style="width:80px" data-i18n="videoDetail.duration">时长</th>
+              <th style="width:90px" data-i18n="videoDetail.views">浏览量</th>
+              <th style="width:70px" data-i18n="videoDetail.likes">点赞</th>
+              <th style="width:70px" data-i18n="videoDetail.comments">评论</th>
+              <th style="width:90px" data-i18n="videoDetail.dlStatus">下载状态</th>
+              <th style="width:50px" data-i18n="videoDetail.actions">操作</th>
             </tr>
           </thead>
           <tbody id="vdTbody"></tbody>
@@ -76,13 +76,13 @@
       </div>
       <!-- 分页 -->
       <div class="vd-modal-toolbar vd-modal-toolbar--footer mvd-footer">
-        <button type="button" class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)">‹ 上一页</button>
+        <button type="button" class="btn btn-sm" id="vdPrevBtn" onclick="vdGoPage(-1)" data-i18n="videoDetail.prevPage">‹ 上一页</button>
         <span id="vdPageInfo" class="mvd-meta-item"></span>
-        <button type="button" class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)">下一页 ›</button>
+        <button type="button" class="btn btn-sm" id="vdNextBtn" onclick="vdGoPage(1)" data-i18n="videoDetail.nextPage">下一页 ›</button>
         <select class="form-input" id="vdPageSize" style="width:80px;font-size:12px" onchange="vdChangePageSize()">
-          <option value="20">20/页</option>
-          <option value="50">50/页</option>
-          <option value="100">100/页</option>
+          <option value="20" data-i18n="videoDetail.page20">20/页</option>
+          <option value="50" data-i18n="videoDetail.page50">50/页</option>
+          <option value="100" data-i18n="videoDetail.page100">100/页</option>
         </select>
       </div>
     </div>
