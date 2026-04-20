@@ -2,7 +2,7 @@
 <div class="modal-overlay modal-overlay--account" id="modalDynamicProviderForm" role="dialog" aria-modal="true" aria-labelledby="dynFormTitle">
   <div class="modal modal--account">
     <div class="modal-header">
-      <div class="modal-title" id="dynFormTitle">添加动态代理提供方</div>
+      <div class="modal-title" id="dynFormTitle" data-i18n="dynProviders.addProviderTitle">添加动态代理提供方</div>
       <button type="button" class="modal-close" onclick="closeModal('modalDynamicProviderForm')" aria-label="关闭">✕</button>
     </div>
     <div class="modal-body">
@@ -10,65 +10,65 @@
 
       <!-- 基础信息 -->
       <div class="form-group">
-        <label class="form-label" for="dynName">提供方名称</label>
-        <input class="form-input" id="dynName" placeholder="例如：ProxyMesh 住宅代理 / 免费ProxyAPI">
+        <label class="form-label" for="dynName" data-i18n="dynProviders.providerName">提供方名称</label>
+        <input class="form-input" id="dynName" data-i18n-placeholder="dynProviders.providerNamePlaceholder" placeholder="例如：ProxyMesh 住宅代理 / 免费ProxyAPI">
       </div>
 
       <div class="dyn-form-row">
         <div class="form-group">
-          <label class="form-label" for="dynBillingTier">计费层级</label>
+          <label class="form-label" for="dynBillingTier" data-i18n="dynProviders.billingTier">计费层级</label>
           <select class="form-input" id="dynBillingTier" onchange="onDynBillingTierChange()">
-            <option value="paid">付费（优先）</option>
-            <option value="free">免费（兜底）</option>
+            <option value="paid" data-i18n="dynProviders.paid">付费（优先）</option>
+            <option value="free" data-i18n="dynProviders.free">免费（兜底）</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="dynAdapterType">适配器类型</label>
+          <label class="form-label" for="dynAdapterType" data-i18n="dynProviders.adapterType">适配器类型</label>
           <select class="form-input" id="dynAdapterType" onchange="onDynAdapterTypeChange()">
-            <option value="rotating_gateway">旋转网关（推荐）</option>
-            <option value="local_gateway">本地网关</option>
-            <option value="public_feed">公共订阅源</option>
-            <option value="list_api">列表 API</option>
+            <option value="rotating_gateway" data-i18n="dynProviders.rotatingGateway">旋转网关（推荐）</option>
+            <option value="local_gateway" data-i18n="dynProviders.localGateway">本地网关</option>
+            <option value="public_feed" data-i18n="dynProviders.publicFeed">公共订阅源</option>
+            <option value="list_api" data-i18n="dynProviders.listApi">列表 API</option>
           </select>
         </div>
       </div>
 
       <div class="dyn-form-row">
         <div class="form-group">
-          <label class="form-label" for="dynPriority">优先级（数字越小越优先）</label>
+          <label class="form-label" for="dynPriority" data-i18n="dynProviders.priority">优先级（数字越小越优先）</label>
           <input class="form-input" id="dynPriority" type="number" value="100" min="1" max="999" placeholder="1~999">
         </div>
         <div class="form-group">
-          <label class="form-label" for="dynRefreshInterval">刷新间隔（分钟，0=禁用）</label>
+          <label class="form-label" for="dynRefreshInterval" data-i18n="dynProviders.refreshInterval">刷新间隔（分钟，0=禁用）</label>
           <input class="form-input" id="dynRefreshInterval" type="number" value="0" min="0" max="10080" placeholder="0=禁用自动刷新">
         </div>
       </div>
 
       <div class="dyn-form-row">
         <div class="form-group">
-          <label class="form-label" for="dynRiskLevel">风险等级</label>
+          <label class="form-label" for="dynRiskLevel" data-i18n="dynProviders.riskLevel">风险等级</label>
           <select class="form-input" id="dynRiskLevel">
-            <option value="low">低风险</option>
-            <option value="medium" selected>中等风险</option>
-            <option value="high">高风险</option>
+            <option value="low" data-i18n="dynProviders.riskLow">低风险</option>
+            <option value="medium" selected data-i18n="dynProviders.riskMedium">中等风险</option>
+            <option value="high" data-i18n="dynProviders.riskHigh">高风险</option>
           </select>
         </div>
       </div>
 
       <!-- 网关配置（rotating_gateway） -->
       <div id="dynGatewayConfig" class="dyn-config-section">
-        <div class="dyn-config-title">网关配置</div>
+        <div class="dyn-config-title" data-i18n="dynProviders.gatewayConfig">网关配置</div>
         <div class="form-group" style="margin-bottom:10px">
-          <label class="form-label" for="dynGatewayHost">网关地址</label>
+          <label class="form-label" for="dynGatewayHost" data-i18n="dynProviders.gatewayHost">网关地址</label>
           <input class="form-input" id="dynGatewayHost" placeholder="proxy.example.com">
         </div>
         <div class="dyn-form-row" style="margin-bottom:10px">
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="dynGatewayPort">端口</label>
+            <label class="form-label" for="dynGatewayPort" data-i18n="dynProviders.port">端口</label>
             <input class="form-input" id="dynGatewayPort" type="number" placeholder="8080">
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="dynProtocol">协议</label>
+            <label class="form-label" for="dynProtocol" data-i18n="dynProviders.protocol">协议</label>
             <select class="form-input" id="dynProtocol">
               <option value="http">HTTP</option>
               <option value="https">HTTPS</option>
@@ -79,11 +79,11 @@
         </div>
         <div class="dyn-form-row">
           <div class="form-group">
-            <label class="form-label" for="dynUsername">用户名</label>
+            <label class="form-label" for="dynUsername" data-i18n="dynProviders.username">用户名</label>
             <input class="form-input" id="dynUsername" placeholder="可选">
           </div>
           <div class="form-group">
-            <label class="form-label" for="dynPassword">密码</label>
+            <label class="form-label" for="dynPassword" data-i18n="dynProviders.password">密码</label>
             <input class="form-input" id="dynPassword" type="password" placeholder="可选">
           </div>
         </div>
@@ -91,48 +91,48 @@
 
       <!-- 本地网关配置（local_gateway） -->
       <div id="dynLocalConfig" class="dyn-config-section" style="display:none">
-        <div class="dyn-config-title">本地网关配置</div>
+        <div class="dyn-config-title" data-i18n="dynProviders.localConfig">本地网关配置</div>
         <div class="form-group" style="margin-bottom:0">
-          <label class="form-label" for="dynLocalProxyUrl">本地代理地址</label>
+          <label class="form-label" for="dynLocalProxyUrl" data-i18n="dynProviders.localProxyUrl">本地代理地址</label>
           <input class="form-input" id="dynLocalProxyUrl" placeholder="http://127.0.0.1:7890">
-          <div class="form-hint" style="margin-top:4px">填写本地运行的代理服务地址（如 Clash、v2ray 等）</div>
+          <div class="form-hint" style="margin-top:4px" data-i18n="dynProviders.localProxyUrlHint">填写本地运行的代理服务地址（如 Clash、v2ray 等）</div>
         </div>
       </div>
 
       <!-- 列表API配置（list_api / public_feed） -->
       <div id="dynListApiConfig" class="dyn-config-section" style="display:none">
-        <div class="dyn-config-title">列表 API 配置</div>
+        <div class="dyn-config-title" data-i18n="dynProviders.listApiConfig">列表 API 配置</div>
         <div class="form-group" style="margin-bottom:10px">
-          <label class="form-label" for="dynListApiAdapterName">列表解析适配器</label>
+          <label class="form-label" for="dynListApiAdapterName" data-i18n="dynProviders.listAdapter">列表解析适配器</label>
           <select class="form-input" id="dynListApiAdapterName" title="持久化为 config_json.adapter_name">
-            <option value="">通用 JSON（GET + 结果路径/字段映射）</option>
-            <option value="geonode">Geonode 列表 API</option>
+            <option value="" data-i18n="dynProviders.genericJson">通用 JSON（GET + 结果路径/字段映射）</option>
+            <option value="geonode" data-i18n="dynProviders.geonode">Geonode 列表 API</option>
           </select>
-          <div class="form-hint" style="margin-top:4px">Geonode 官方接口请选择「Geonode」；其它 JSON 接口可留空并配置结果路径。</div>
+          <div class="form-hint" style="margin-top:4px" data-i18n="dynProviders.listAdapterHint">Geonode 官方接口请选择「Geonode」；其它 JSON 接口可留空并配置结果路径。</div>
         </div>
         <div class="dyn-form-row" style="margin-bottom:8px">
           <div class="form-group" style="margin-bottom:0;flex:1">
-            <label class="form-label" for="dynListApiBaseUrl">API 地址</label>
+            <label class="form-label" for="dynListApiBaseUrl" data-i18n="dynProviders.apiUrl">API 地址</label>
             <input class="form-input" id="dynListApiBaseUrl" placeholder="https://proxylist.geonode.com">
           </div>
           <div class="form-group" style="margin-bottom:0;width:90px">
-            <label class="form-label" for="dynListApiLimit">每页数量</label>
+            <label class="form-label" for="dynListApiLimit" data-i18n="dynProviders.pageSize">每页数量</label>
             <input class="form-input" id="dynListApiLimit" type="number" value="50" min="1" max="500" placeholder="50">
           </div>
         </div>
         <div class="dyn-form-row" style="margin-bottom:8px">
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="dynListApiItemsPath">结果路径</label>
+            <label class="form-label" for="dynListApiItemsPath" data-i18n="dynProviders.itemsPath">结果路径</label>
             <input class="form-input" id="dynListApiItemsPath" placeholder="data（返回字段中的路径）">
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="dynListApiCountry">国家过滤</label>
+            <label class="form-label" for="dynListApiCountry" data-i18n="dynProviders.countryFilter">国家过滤</label>
             <input class="form-input" id="dynListApiCountry" placeholder="留空不限">
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="dynListApiProtocol">协议过滤</label>
+            <label class="form-label" for="dynListApiProtocol" data-i18n="dynProviders.protocolFilter">协议过滤</label>
             <select class="form-input" id="dynListApiProtocol">
-              <option value="">不限</option>
+              <option value="" data-i18n="dynProviders.noLimit">不限</option>
               <option value="http">HTTP</option>
               <option value="https">HTTPS</option>
               <option value="socks5">SOCKS5</option>
@@ -142,7 +142,7 @@
         </div>
         <div class="dyn-form-row" style="margin-bottom:4px">
           <div>
-            <div class="dyn-toggle-label">API 密钥认证</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.apiAuth">API 密钥认证</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynListApiHasAuth" onchange="onDynListApiAuthToggle()">
@@ -152,29 +152,29 @@
         <div id="dynListApiAuthFields" style="display:none">
           <div class="dyn-form-row">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label" for="dynListApiUsername">用户名</label>
+              <label class="form-label" for="dynListApiUsername" data-i18n="dynProviders.authUsername">用户名</label>
               <input class="form-input" id="dynListApiUsername" placeholder="可选">
             </div>
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label" for="dynListApiPassword">密码</label>
+              <label class="form-label" for="dynListApiPassword" data-i18n="dynProviders.authPassword">密码</label>
               <input class="form-input" id="dynListApiPassword" type="password" placeholder="可选">
             </div>
           </div>
         </div>
         <div id="dynListApiAdvSection" style="margin-top:6px">
-          <div class="dyn-adv-trigger" onclick="onDynListApiAdvToggle()">高级字段映射 ▾</div>
+          <div class="dyn-adv-trigger" onclick="onDynListApiAdvToggle()" data-i18n="dynProviders.advMapping">高级字段映射 ▾</div>
           <div id="dynListApiAdvFields" style="display:none;margin-top:6px">
             <div class="dyn-form-row" style="margin-bottom:4px">
               <div class="form-group" style="margin-bottom:0">
-                <label class="form-label" for="dynListApiHostField">Host 字段名</label>
+                <label class="form-label" for="dynListApiHostField" data-i18n="dynProviders.hostField">Host 字段名</label>
                 <input class="form-input" id="dynListApiHostField" value="ip" placeholder="ip">
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label class="form-label" for="dynListApiPortField">Port 字段名</label>
+                <label class="form-label" for="dynListApiPortField" data-i18n="dynProviders.portField">Port 字段名</label>
                 <input class="form-input" id="dynListApiPortField" value="port" placeholder="port">
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label class="form-label" for="dynListApiProtocolField">Protocol 字段名</label>
+                <label class="form-label" for="dynListApiProtocolField" data-i18n="dynProviders.protocolField">Protocol 字段名</label>
                 <input class="form-input" id="dynListApiProtocolField" value="protocols" placeholder="protocols 或 protocols,protocol">
               </div>
             </div>
@@ -184,11 +184,11 @@
 
       <!-- 功能开关 -->
       <div class="dyn-config-section" style="margin-top:8px">
-        <div class="dyn-config-title">功能支持</div>
+        <div class="dyn-config-title" data-i18n="dynProviders.featureSupport">功能支持</div>
         <div class="dyn-toggle-row">
           <div>
-            <div class="dyn-toggle-label">支持自动下载</div>
-            <div class="dyn-toggle-desc">参与自动下载时的代理路由</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.supportsAutoDl">支持自动下载</div>
+            <div class="dyn-toggle-desc" data-i18n="dynProviders.supportsAutoDlDesc">参与自动下载时的代理路由</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynSupportsAutoDownload" checked>
@@ -197,8 +197,8 @@
         </div>
         <div class="dyn-toggle-row">
           <div>
-            <div class="dyn-toggle-label">支持 Cookie 下载</div>
-            <div class="dyn-toggle-desc">可用于需要登录态的下载</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.supportsCookie">支持 Cookie 下载</div>
+            <div class="dyn-toggle-desc" data-i18n="dynProviders.supportsCookieDesc">可用于需要登录态的下载</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynSupportsCookies">
@@ -207,8 +207,8 @@
         </div>
         <div class="dyn-toggle-row">
           <div>
-            <div class="dyn-toggle-label">支持国家筛选</div>
-            <div class="dyn-toggle-desc">可指定出口 IP 的地理位置</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.supportsCountry">支持国家筛选</div>
+            <div class="dyn-toggle-desc" data-i18n="dynProviders.supportsCountryDesc">可指定出口 IP 的地理位置</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynSupportsCountryFilter">
@@ -217,8 +217,8 @@
         </div>
         <div class="dyn-toggle-row">
           <div>
-            <div class="dyn-toggle-label">支持粘性会话</div>
-            <div class="dyn-toggle-desc">同一 IP 保持一段时间（推荐开启）</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.supportsSticky">支持粘性会话</div>
+            <div class="dyn-toggle-desc" data-i18n="dynProviders.supportsStickyDesc">同一 IP 保持一段时间（推荐开启）</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynSupportsStickySession" checked>
@@ -227,8 +227,8 @@
         </div>
         <div class="dyn-toggle-row">
           <div>
-            <div class="dyn-toggle-label">立即启用</div>
-            <div class="dyn-toggle-desc">启用后参与路由决策</div>
+            <div class="dyn-toggle-label" data-i18n="dynProviders.enableNow">立即启用</div>
+            <div class="dyn-toggle-desc" data-i18n="dynProviders.enableNowDesc">启用后参与路由决策</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="dynEnabled" checked>
@@ -239,13 +239,13 @@
 
       <!-- 备注 -->
       <div class="form-group" style="margin-top:12px">
-        <label class="form-label" for="dynNotes">备注</label>
-        <input class="form-input" id="dynNotes" placeholder="可选，如服务地址、账号信息等">
+        <label class="form-label" for="dynNotes" data-i18n="dynProviders.notes">备注</label>
+        <input class="form-input" id="dynNotes" data-i18n-placeholder="dynProviders.notesPlaceholder" placeholder="可选，如服务地址、账号信息等">
       </div>
     </div>
     <div class="modal-footer">
-      <button type="button" class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')">取消</button>
-      <button type="button" class="btn btn-primary" onclick="saveDynamicProvider()">保存提供方</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalDynamicProviderForm')" data-i18n="common.cancel">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveDynamicProvider()" data-i18n="dynProviders.saveProvider">保存提供方</button>
     </div>
   </div>
 </div>
