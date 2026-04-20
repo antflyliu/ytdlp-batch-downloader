@@ -1,8 +1,8 @@
 <div class="page-header">
   <div>
-    <a class="settings-back-link" href="#/settings">← 返回配置概览</a>
-    <div class="page-title">API 与扫描</div>
-    <div class="page-desc">配额、扫描行为与元数据健康检查</div>
+    <a class="settings-back-link" href="#/settings" data-i18n="settings.backToSettings">← 返回配置概览</a>
+    <div class="page-title" data-i18n="settings.apiTitle">API 与扫描</div>
+    <div class="page-desc" data-i18n="settings.apiDesc">配额、扫描行为与元数据健康检查</div>
   </div>
   <div class="page-actions">
     <button type="button" class="btn btn--primary" onclick="saveConfig()">保存配置</button>
@@ -15,23 +15,23 @@
       <div class="card-header">
         <div class="card-title">
           <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📊</div>
-          API 配额
+          <span data-i18n="settings.apiQuota">API 配额</span>
         </div>
       </div>
       <div class="card-body">
         <div class="form-group">
-          <label class="form-label">每日 API Quota 上限（兜底）</label>
+          <label class="form-label" data-i18n="settings.apiQuotaBudget">每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
         </div>
         <div class="form-group">
-          <label class="form-label">配额统计时区</label>
+          <label class="form-label" data-i18n="settings.quotaTimezone">配额统计时区</label>
           <select class="form-input" id="cfgQuotaUsageTimezone" style="max-width:280px">
-            <option value="local">本地时区</option>
-            <option value="America/Los_Angeles">America/Los_Angeles（太平洋时间）</option>
+            <option value="local" data-i18n="settings.localTimezone">本地时区</option>
+            <option value="America/Los_Angeles" data-i18n="settings.pacificTimezone">America/Los_Angeles（太平洋时间）</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">配额预警阈值（%）</label>
+          <label class="form-label" data-i18n="settings.quotaAlert">配额预警阈值（%）</label>
           <input class="form-input" id="cfgQuotaAlertThresholds" placeholder="80,90,100" style="max-width:240px">
         </div>
       </div>
@@ -41,7 +41,7 @@
       <div class="card-header">
         <div class="card-title">
           <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🔍</div>
-          扫描行为
+          <span data-i18n="settings.scanBehavior">扫描行为</span>
         </div>
       </div>
       <div class="card-body">
@@ -49,30 +49,30 @@
           <label class="checkbox-label">
             <input type="checkbox" id="cfgNotifyOnScanError">
             <span class="checkbox-box"></span>
-            扫描失败时推送 Webhook
+            <span data-i18n="settings.notifyOnScanError">扫描失败时推送 Webhook</span>
           </label>
         </div>
         <div class="form-group">
-          <label class="form-label">频道元数据缓存 TTL（天）</label>
+          <label class="form-label" data-i18n="settings.channelMetaTTL">频道元数据缓存 TTL（天）</label>
           <input class="form-input" id="cfgChannelMetaMaxAge" type="number" placeholder="30" style="width:100px">
         </div>
         <div class="form-group">
-          <label class="form-label">扫描失败告警冷却（秒）</label>
+          <label class="form-label" data-i18n="settings.scanErrorCooldown">扫描失败告警冷却（秒）</label>
           <input class="form-input" id="cfgScanErrorCooldown" type="number" placeholder="300" style="width:100px">
         </div>
         <div class="form-group">
-          <label class="form-label">定时扫描错峰（秒）</label>
+          <label class="form-label" data-i18n="settings.scanJitter">定时扫描错峰（秒）</label>
           <input class="form-input" id="cfgScanJitter" type="number" placeholder="0" style="width:100px">
-          <div class="form-hint">0 表示关闭</div>
+          <div class="form-hint" data-i18n="settings.scanJitterHint">0 表示关闭</div>
         </div>
         <div class="form-group">
           <label class="checkbox-label">
             <input type="checkbox" id="cfgChannelMetaHealthEnabled">
             <span class="checkbox-box"></span>
-            频道元数据健康检查
+            <span data-i18n="settings.channelMetaHealth">频道元数据健康检查</span>
           </label>
           <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
-            <label class="form-label" style="margin:0;font-size:12px">检查间隔（小时）</label>
+            <label class="form-label" style="margin:0;font-size:12px" data-i18n="settings.healthCheckInterval">检查间隔（小时）</label>
             <input class="form-input" id="cfgChannelMetaHealthInterval" type="number" placeholder="24" style="width:90px">
           </div>
         </div>
@@ -80,7 +80,7 @@
           <label class="checkbox-label">
             <input type="checkbox" id="cfgNotifyChannelMetaMismatch">
             <span class="checkbox-box"></span>
-            频道元数据不一致时告警
+            <span data-i18n="settings.channelMetaMismatch">频道元数据不一致时告警</span>
           </label>
         </div>
       </div>

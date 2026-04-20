@@ -1,8 +1,8 @@
 <div class="page-header">
   <div>
-    <a class="settings-back-link" href="#/settings">← 返回配置概览</a>
-    <div class="page-title">AI 视频切片</div>
-    <div class="page-desc">LLM 与切片增强选项</div>
+    <a class="settings-back-link" href="#/settings" data-i18n="settings.backToSettings">← 返回配置概览</a>
+    <div class="page-title" data-i18n="settings.aiTitle">AI 视频切片</div>
+    <div class="page-desc" data-i18n="settings.aiDesc">LLM 与切片增强选项</div>
   </div>
   <div class="page-actions">
     <button type="button" class="btn btn--primary" onclick="saveConfig()">保存配置</button>
@@ -15,61 +15,61 @@
       <div class="card-header">
         <div class="card-title">
           <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">✂️</div>
-          AI 视频切片
+          <span data-i18n="settings.aiTitle">AI 视频切片</span>
         </div>
       </div>
       <div class="card-body">
         <div class="form-group">
-          <label class="form-label">LLM 提供商</label>
+          <label class="form-label" data-i18n="settings.llmProvider">LLM 提供商</label>
           <select class="form-input" id="cfgLlmProvider" style="max-width:280px">
-            <option value="qwen">通义千问 (Qwen)</option>
-            <option value="openai">OpenAI</option>
-            <option value="ollama">Ollama (本地)</option>
-            <option value="groq">Groq</option>
+            <option value="qwen" data-i18n="settings.llmQwen">通义千问 (Qwen)</option>
+            <option value="openai" data-i18n="settings.llmOpenai">OpenAI</option>
+            <option value="ollama" data-i18n="settings.llmOllama">Ollama (本地)</option>
+            <option value="groq" data-i18n="settings.llmGroq">Groq</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">API Key</label>
+          <label class="form-label" data-i18n="settings.llmApiKey">API Key</label>
           <input class="form-input" id="cfgLlmApiKey" type="password" placeholder="sk-...">
         </div>
         <div class="form-group">
-          <label class="form-label">模型名称</label>
-          <input class="form-input" id="cfgLlmModel" placeholder="qwen-plus / gpt-4o">
+          <label class="form-label" data-i18n="settings.llmModel">模型名称</label>
+          <input class="form-input" id="cfgLlmModel" data-i18n-placeholder="settings.llmModelPlaceholder" placeholder="qwen-plus / gpt-4o">
         </div>
         <div class="form-group">
-          <label class="form-label">自定义 API 地址</label>
-          <input class="form-input" id="cfgLlmBaseUrl" placeholder="留空使用官方地址">
+          <label class="form-label" data-i18n="settings.llmBaseUrl">自定义 API 地址</label>
+          <input class="form-input" id="cfgLlmBaseUrl" data-i18n-placeholder="settings.llmBaseUrlPlaceholder" placeholder="留空使用官方地址">
         </div>
         <div class="form-group">
-          <label class="form-label">精彩片段最低评分</label>
+          <label class="form-label" data-i18n="settings.llmMinScore">精彩片段最低评分</label>
           <input class="form-input" id="cfgLlmMinScore" type="number" placeholder="7.0" style="width:100px">
         </div>
         <div class="form-group">
-          <label class="form-label">视频内容类型</label>
+          <label class="form-label" data-i18n="settings.llmCategory">视频内容类型</label>
           <select class="form-input" id="cfgLlmCategory" style="max-width:280px">
-            <option value="knowledge">知识类</option>
-            <option value="entertainment">娱乐类</option>
-            <option value="vlog">生活类</option>
-            <option value="news">新闻类</option>
+            <option value="knowledge" data-i18n="settings.catKnowledge">知识类</option>
+            <option value="entertainment" data-i18n="settings.catEntertainment">娱乐类</option>
+            <option value="vlog" data-i18n="settings.catVlog">生活类</option>
+            <option value="news" data-i18n="settings.catNews">新闻类</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">切片增强功能</label>
+          <label class="form-label" data-i18n="settings.clipEnhanceFeatures">切片增强功能</label>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
             <label class="checkbox-label">
               <input type="checkbox" id="cfgClipEmbedThumbnail" checked>
               <span class="checkbox-box"></span>
-              生成封面图
+              <span data-i18n="settings.embedThumbnail">生成封面图</span>
             </label>
             <label class="checkbox-label">
               <input type="checkbox" id="cfgClipEmbedSubtitle" checked>
               <span class="checkbox-box"></span>
-              软字幕封装（MKV）
+              <span data-i18n="settings.embedSubtitle">软字幕封装（MKV）</span>
             </label>
             <label class="checkbox-label">
               <input type="checkbox" id="cfgClipAdaptAspectRatio" checked>
               <span class="checkbox-box"></span>
-              长宽比自适应
+              <span data-i18n="settings.adaptAspectRatio">长宽比自适应</span>
             </label>
           </div>
         </div>

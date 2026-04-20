@@ -119,19 +119,19 @@
         <div class="card">
           <div class="stats-grid" id="statsGrid">
             <div class="stat-card">
-              <div class="stat-label">监控账户</div>
+              <div class="stat-label" data-i18n="page.dashboard.statAccounts">监控账户</div>
               <div class="stat-value" id="statAccounts">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">总扫描次数</div>
+              <div class="stat-label" data-i18n="page.dashboard.statScans">总扫描次数</div>
               <div class="stat-value" id="statScans">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">新增视频</div>
+              <div class="stat-label" data-i18n="page.dashboard.statNew">新增视频</div>
               <div class="stat-value" id="statNew">—</div>
             </div>
             <div class="stat-card" id="quotaCard" style="display:none">
-              <div class="stat-label">API Quota</div>
+              <div class="stat-label" data-i18n="page.dashboard.statQuota">API Quota</div>
               <div class="stat-value" id="statQuota">—</div>
               <div class="progress-bar" style="height:4px;background:var(--border);border-radius:2px;margin-top:4px">
                 <div id="quotaBar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
@@ -139,7 +139,7 @@
               <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="quotaSub">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">最后扫描</div>
+              <div class="stat-label" data-i18n="page.dashboard.statLast">最后扫描</div>
               <div class="stat-value" id="statLast" style="font-size:14px">—</div>
             </div>
           </div>
@@ -148,14 +148,14 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">事</div>
-              扫描事件日志
+              <span data-i18n="page.dashboard.eventLog">扫描事件日志</span>
             </div>
-            <div style="font-size:11px;color:var(--text-dim)" id="eventCount">最近 20 条</div>
+            <div style="font-size:11px;color:var(--text-dim)" id="eventCount" data-i18n="page.dashboard.eventCountDefault">最近 20 条</div>
           </div>
           <div class="card-body">
             <div class="log-area" id="logArea">
               <div class="empty-state" style="padding:24px">
-                <div class="empty-title" style="font-size:13px">暂无扫描记录</div>
+                <div class="empty-title" style="font-size:13px" data-i18n="page.dashboard.noRecords">暂无扫描记录</div>
               </div>
             </div>
           </div>
@@ -166,22 +166,22 @@
       <section class="page" id="page-channels">
         <div class="page-header">
           <div>
-            <div class="page-title">账户管理</div>
-            <div class="page-desc">管理监控账户、扫描调度和通知渠道</div>
+            <div class="page-title" data-i18n="page.channels.title">账户管理</div>
+            <div class="page-desc" data-i18n="page.channels.desc">管理监控账户、扫描调度和通知渠道</div>
           </div>
         </div>
         <div class="card card--accounts-scroll">
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">户</div>
-              监控账户
+              <span data-i18n="account.title">监控账户</span>
             </div>
             <div class="actions">
               <div id="schedulerControls">
-                <button class="btn btn--primary" onclick="openAddAccount()">+ 添加账户</button>
-                <button class="btn btn--success" id="btnToggleScheduler" onclick="toggleScheduler()">▶ 启动监控</button>
+                <button class="btn btn--primary" onclick="openAddAccount()" data-i18n="page.channels.addAccount">+ 添加账户</button>
+                <button class="btn btn--success" id="btnToggleScheduler" onclick="toggleScheduler()" data-i18n="page.channels.toggleScheduler">▶ 启动监控</button>
               </div>
-              <button class="btn btn--ghost" onclick="reloadJobs()">↻ 重载任务</button>
+              <button class="btn btn--ghost" onclick="reloadJobs()" data-i18n="page.channels.reloadJobs">↻ 重载任务</button>
             </div>
           </div>
           <div class="card-account-search">
@@ -189,6 +189,7 @@
               class="form-input"
               id="accountSearch"
               type="search"
+              data-i18n-placeholder="page.channels.searchPlaceholder"
               placeholder="搜索账户名称或频道 URL…"
               oninput="filterAccountTable(this.value)"
               style="max-width:280px"
@@ -199,17 +200,17 @@
             <table class="accounts-table">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>名称</th>
-                  <th>频道 URL</th>
-                  <th>API Key</th>
-                  <th>模式</th>
-                  <th>间隔</th>
-                  <th>获取</th>
-                  <th>状态</th>
-                  <th>通知</th>
-                  <th>代理</th>
-                  <th>操作</th>
+                  <th data-i18n="page.channels.tableId">ID</th>
+                  <th data-i18n="page.channels.tableName">名称</th>
+                  <th data-i18n="page.channels.tableChannelUrl">频道 URL</th>
+                  <th data-i18n="page.channels.tableApiKey">API Key</th>
+                  <th data-i18n="page.channels.tableMode">模式</th>
+                  <th data-i18n="page.channels.tableInterval">间隔</th>
+                  <th data-i18n="page.channels.tableFetch">获取</th>
+                  <th data-i18n="page.channels.tableStatus">状态</th>
+                  <th data-i18n="page.channels.tableNotify">通知</th>
+                  <th data-i18n="page.channels.tableProxy">代理</th>
+                  <th data-i18n="page.channels.tableActions">操作</th>
                 </tr>
               </thead>
               <tbody id="accountsTable">
@@ -218,9 +219,9 @@
           </div>
           <div class="empty-state" id="emptyAccounts" style="display:none">
             <div class="empty-icon" aria-hidden="true">—</div>
-            <div class="empty-title">暂无监控账户</div>
-            <div class="empty-desc">点击右上角「添加账户」开始监控 YouTube 频道</div>
-            <button class="btn btn--primary" onclick="openAddAccount()">+ 添加第一个账户</button>
+            <div class="empty-title" data-i18n="page.channels.emptyTitle">暂无监控账户</div>
+            <div class="empty-desc" data-i18n="page.channels.emptyDesc">点击右上角「添加账户」开始监控 YouTube 频道</div>
+            <button class="btn btn--primary" onclick="openAddAccount()" data-i18n="page.channels.addFirst">+ 添加第一个账户</button>
           </div>
         </div>
       </section>
@@ -229,11 +230,11 @@
       <section class="page" id="page-downloads">
         <div class="page-header">
           <div>
-            <div class="page-title">批量下载</div>
-            <div class="page-desc">上传视频列表文件，批量下载 YouTube 视频</div>
+            <div class="page-title" data-i18n="page.downloads.title">批量下载</div>
+            <div class="page-desc" data-i18n="page.downloads.desc">上传视频列表文件，批量下载 YouTube 视频</div>
           </div>
           <div class="page-actions">
-            <button class="btn btn--primary" id="bdStartBtn" onclick="bdStart()">▶ 开始下载</button>
+            <button class="btn btn--primary" id="bdStartBtn" onclick="bdStart()" data-i18n="page.downloads.startDownload">▶ 开始下载</button>
           </div>
         </div>
 
@@ -242,24 +243,24 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📁</div>
-              上传视频列表
+              <span data-i18n="page.downloads.uploadTitle">上传视频列表</span>
             </div>
           </div>
           <div class="card-body">
             <div class="bd-pills" id="bdPills">
-              <button class="bd-pill active" data-fmt="excel" onclick="bdSwitchFmt(this)">Excel</button>
-              <button class="bd-pill" data-fmt="csv" onclick="bdSwitchFmt(this)">CSV</button>
-              <button class="bd-pill" data-fmt="txt" onclick="bdSwitchFmt(this)">TXT</button>
+              <button class="bd-pill active" data-fmt="excel" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatExcel">Excel</button>
+              <button class="bd-pill" data-fmt="csv" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatCsv">CSV</button>
+              <button class="bd-pill" data-fmt="txt" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatTxt">TXT</button>
             </div>
             <input type="hidden" id="bdFmt" value="excel">
             <div class="bd-dropzone" id="bdDropzone" onclick="bdTriggerFile()">
               <div id="bdDropIdle">
                 <div class="bd-drop-icon">——</div>
-                <div class="bd-drop-text">点击选择文件上传</div>
-                <div class="bd-drop-sub">支持 Excel · CSV · TXT</div>
+                <div class="bd-drop-text" data-i18n="page.downloads.dropzoneClick">点击选择文件上传</div>
+                <div class="bd-drop-sub" data-i18n="page.downloads.dropzoneSub">支持 Excel · CSV · TXT</div>
               </div>
               <div id="bdDropSelected" style="display:none">
-                <div class="bd-drop-icon" style="color:var(--success)">✓</div>
+                <div class="bd-drop-icon" style="color:var(--success)" data-i18n="page.downloads.dropzoneSelected">✓</div>
                 <div class="bd-drop-text" id="bdFileName"></div>
                 <div class="bd-drop-sub" id="bdUrlCount"></div>
               </div>
@@ -274,49 +275,49 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📦</div>
-              下载配置
+              <span data-i18n="page.downloads.configTitle">下载配置</span>
             </div>
           </div>
           <div class="card-body">
             <div class="bd-config-grid" id="bdConfig">
               <div class="bd-form-row">
-                <label class="bd-label">保存路径</label>
+                <label class="bd-label" data-i18n="page.downloads.outputPath">保存路径</label>
                 <div class="bd-input-row">
-                  <input class="bd-input" id="bdOutputPath" placeholder="默认使用全局配置">
-                  <button class="btn btn--sm btn--ghost" onclick="bdBrowsePath()">浏览</button>
+                  <input class="bd-input" id="bdOutputPath" data-i18n-placeholder="page.downloads.outputPathPlaceholder" placeholder="默认使用全局配置">
+                  <button class="btn btn--sm btn--ghost" onclick="bdBrowsePath()" data-i18n="page.downloads.browse">浏览</button>
                 </div>
               </div>
               <div class="bd-form-row">
-                <label class="bd-label">视频画质</label>
+                <label class="bd-label" data-i18n="page.downloads.resolution">视频画质</label>
                 <select class="bd-select" id="bdResolution">
-                  <option value="best">最高画质</option>
-                  <option value="720p">720p</option>
-                  <option value="1080p">1080p</option>
-                  <option value="1440p">1440p</option>
+                  <option value="best" data-i18n="page.downloads.resolutionBest">最高画质</option>
+                  <option value="720p" data-i18n="page.downloads.resolution720p">720p</option>
+                  <option value="1080p" data-i18n="page.downloads.resolution1080p">1080p</option>
+                  <option value="1440p" data-i18n="page.downloads.resolution1440p">1440p</option>
                 </select>
               </div>
               <div class="bd-form-row">
-                <label class="bd-label">字幕语言</label>
+                <label class="bd-label" data-i18n="page.downloads.subLang">字幕语言</label>
                 <input class="bd-input" id="bdSubLang" value="zh-Hans,en" style="width:120px">
                 <label class="bd-checkbox-label">
                   <input type="checkbox" id="bdSubEnabled" checked>
-                  <span>下载字幕</span>
+                  <span data-i18n="page.downloads.downloadSub">下载字幕</span>
                 </label>
               </div>
               <div class="bd-form-row">
-                <label class="bd-label">代理池</label>
+                <label class="bd-label" data-i18n="page.downloads.proxyPool">代理池</label>
                 <select class="bd-select" id="bdProxy">
-                  <option value="">（按系统默认路由）</option>
+                  <option value="" data-i18n="page.downloads.proxyPoolDefault">（按系统默认路由）</option>
                 </select>
               </div>
               <div class="bd-form-row">
-                <label class="bd-label">Cookie</label>
+                <label class="bd-label" data-i18n="page.downloads.cookie">Cookie</label>
                 <div class="bd-input-row">
-                  <input class="bd-input" id="bdCookie" placeholder="留空使用全局配置">
-                  <button class="btn btn--sm btn--ghost" onclick="bdBrowseCookie()">填写路径</button>
+                  <input class="bd-input" id="bdCookie" data-i18n-placeholder="page.downloads.cookiePlaceholder" placeholder="留空使用全局配置">
+                  <button class="btn btn--sm btn--ghost" onclick="bdBrowseCookie()" data-i18n="page.downloads.fillCookie">填写路径</button>
                 </div>
               </div>
-              <div class="bd-field-hint">Cookie 覆盖值必须是监控服务器本机可访问的文件路径，不支持直接读取浏览器本地文件。</div>
+              <div class="bd-field-hint" data-i18n="page.downloads.cookieHint">Cookie 覆盖值必须是监控服务器本机可访问的文件路径，不支持直接读取浏览器本地文件。</div>
             </div>
           </div>
         </div>
@@ -326,29 +327,29 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🗂</div>
-              最近任务
+              <span data-i18n="page.downloads.recentTitle">最近任务</span>
             </div>
             <div class="actions">
-              <button class="btn btn--sm btn--ghost" onclick="loadRecentBatchTasks()">↻ 刷新</button>
+              <button class="btn btn--sm btn--ghost" onclick="loadRecentBatchTasks()" data-i18n="page.downloads.recentRefresh">↻ 刷新</button>
             </div>
           </div>
           <div class="card-body">
             <div class="bd-input-row">
               <select class="bd-select" id="bdRecentTasks" style="flex:1">
-                <option value="">暂无最近任务</option>
+                <option value="" data-i18n="page.downloads.recentPlaceholder">暂无最近任务</option>
               </select>
-              <button class="btn btn--sm btn--ghost" onclick="bdOpenSelectedTask()">查看</button>
+              <button class="btn btn--sm btn--ghost" onclick="bdOpenSelectedTask()" data-i18n="page.downloads.recentView">查看</button>
             </div>
             <div class="bd-filter-row" id="bdRecentFilters">
-              <button type="button" class="bd-filter-chip active" data-filter="all" onclick="bdSetRecentFilter('all', this)">全部</button>
-              <button type="button" class="bd-filter-chip" data-filter="active" onclick="bdSetRecentFilter('active', this)">进行中</button>
-              <button type="button" class="bd-filter-chip" data-filter="finished" onclick="bdSetRecentFilter('finished', this)">已结束</button>
-              <button type="button" class="bd-filter-chip" data-filter="cancelled" onclick="bdSetRecentFilter('cancelled', this)">已取消</button>
+              <button type="button" class="bd-filter-chip active" data-filter="all" onclick="bdSetRecentFilter('all', this)" data-i18n="page.downloads.recentFilterAll">全部</button>
+              <button type="button" class="bd-filter-chip" data-filter="active" onclick="bdSetRecentFilter('active', this)" data-i18n="page.downloads.recentFilterActive">进行中</button>
+              <button type="button" class="bd-filter-chip" data-filter="finished" onclick="bdSetRecentFilter('finished', this)" data-i18n="page.downloads.recentFilterFinished">已结束</button>
+              <button type="button" class="bd-filter-chip" data-filter="cancelled" onclick="bdSetRecentFilter('cancelled', this)" data-i18n="page.downloads.recentFilterCancelled">已取消</button>
             </div>
-            <div class="bd-field-hint" id="bdRecentHint">可恢复查看运行中任务，或打开最近完成/取消的任务结果。</div>
+            <div class="bd-field-hint" id="bdRecentHint" data-i18n="page.downloads.recentHint">可恢复查看运行中任务，或打开最近完成/取消的任务结果。</div>
             <div class="bd-recent-summary" id="bdRecentSummary">全部 0 · 进行中 0 · 已结束 0 · 已取消 0</div>
             <div class="bd-recent-grid" id="bdRecentList">
-              <div class="bd-recent-empty">暂无最近任务</div>
+              <div class="bd-recent-empty" data-i18n="page.downloads.recentEmpty">暂无最近任务</div>
             </div>
           </div>
         </div>
@@ -358,10 +359,10 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📡</div>
-              下载管道
+              <span data-i18n="page.downloads.progressTitle">下载管道</span>
             </div>
             <div class="actions">
-              <button class="btn btn--sm btn--ghost" id="bdCancelBtn" onclick="bdCancel()">取消</button>
+              <button class="btn btn--sm btn--ghost" id="bdCancelBtn" onclick="bdCancel()" data-i18n="page.downloads.cancel">取消</button>
             </div>
           </div>
           <div class="card-body">
@@ -374,7 +375,7 @@
             </div>
             <div class="bd-current" id="bdCurrent"></div>
             <div class="bd-counter" id="bdCounter"></div>
-            <div class="bd-log-toggle" onclick="bdToggleLog()" id="bdLogToggle">▾ 展开详情</div>
+            <div class="bd-log-toggle" onclick="bdToggleLog()" id="bdLogToggle" data-i18n="page.downloads.expandLog">▾ 展开详情</div>
             <div class="bd-log" id="bdLog" style="display:none"><div id="bdLogText"></div></div>
           </div>
         </div>
@@ -386,11 +387,11 @@
       <section class="page" id="page-api-keys">
         <div class="page-header">
           <div>
-            <div class="page-title">API Keys</div>
-            <div class="page-desc">管理 YouTube API Keys，独立设置配额上限</div>
+            <div class="page-title" data-i18n="page.apiKeys.title">API Keys</div>
+            <div class="page-desc" data-i18n="page.apiKeys.desc">管理 YouTube API Keys，独立设置配额上限</div>
           </div>
           <div class="page-actions">
-            <button class="btn btn--primary" onclick="openAddApiKey()">+ 新增 Key</button>
+            <button class="btn btn--primary" onclick="openAddApiKey()" data-i18n="page.apiKeys.addKey">+ 新增 Key</button>
           </div>
         </div>
 
@@ -399,7 +400,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
-            <span style="font-size:12px;color:var(--text-dim)">每个 Key 可独立设置每日配额上限，账户可选择使用哪个 Key。未指定时自动使用系统默认 Key。</span>
+            <span style="font-size:12px;color:var(--text-dim)" data-i18n="page.apiKeys.hint">每个 Key 可独立设置每日配额上限，账户可选择使用哪个 Key。未指定时自动使用系统默认 Key。</span>
           </div>
           <div class="card-body" id="apiKeysList" style="display:flex;flex-direction:column;gap:10px;padding:0 0 4px"></div>
         </div>
@@ -409,8 +410,8 @@
       <section class="page" id="page-proxy-pools">
         <div class="page-header">
           <div>
-            <div class="page-title">固定代理管理</div>
-            <div class="page-desc">维护下载出口节点，防止限流</div>
+            <div class="page-title" data-i18n="page.proxyPools.title">固定代理管理</div>
+            <div class="page-desc" data-i18n="page.proxyPools.desc">维护下载出口节点，防止限流</div>
           </div>
         </div>
 
@@ -418,32 +419,32 @@
           <div class="card-header">
             <div class="card-title">
               <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">代</div>
-              固定代理节点工作台
+              <span data-i18n="account.title">固定代理节点工作台</span>
             </div>
             <div class="actions">
-              <button type="button" class="btn btn--primary" onclick="openAddProxyPool()">+ 添加节点</button>
+              <button type="button" class="btn btn--primary" onclick="openAddProxyPool()" data-i18n="page.proxyPools.addNode">+ 添加节点</button>
               <button type="button" class="btn btn--ghost" onclick="openProxyDemo()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                回看演示
+                <span data-i18n="page.proxyPools.watchDemo">回看演示</span>
               </button>
             </div>
           </div>
           <div class="card-account-search card-proxy-pool-meta">
-            <span class="pp-demo-note">
+            <span class="pp-demo-note" data-i18n="page.proxyPools.maskedNote">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
               列表中地址已掩码，仅保留主机信息
             </span>
-            <span class="card-proxy-pool-meta__hint">启用后的节点可在账户管理中绑定为下载出口。</span>
+            <span class="card-proxy-pool-meta__hint" data-i18n="page.proxyPools.metaHint">启用后的节点可在账户管理中绑定为下载出口。</span>
           </div>
           <div class="table-wrap table-wrap--accounts" id="proxyPoolTableWrap">
             <table class="accounts-table">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>名称</th>
-                  <th>代理节点</th>
-                  <th>状态</th>
-                  <th>操作</th>
+                  <th data-i18n="page.proxyPools.tableId">ID</th>
+                  <th data-i18n="page.proxyPools.tableName">名称</th>
+                  <th data-i18n="page.proxyPools.tableNode">代理节点</th>
+                  <th data-i18n="page.proxyPools.tableStatus">状态</th>
+                  <th data-i18n="page.proxyPools.tableActions">操作</th>
                 </tr>
               </thead>
               <tbody id="proxyPoolTable">
@@ -452,9 +453,9 @@
           </div>
           <div id="emptyProxyPools" class="empty-state" style="display:none">
             <div class="empty-icon" aria-hidden="true">—</div>
-            <div class="empty-title">暂无固定代理节点</div>
-            <div class="empty-desc">创建节点后，可在账户管理中配置下载网络策略并选择此出口。</div>
-            <button type="button" class="btn btn--primary" onclick="openAddProxyPool()">+ 添加第一个节点</button>
+            <div class="empty-title" data-i18n="page.proxyPools.emptyTitle">暂无固定代理节点</div>
+            <div class="empty-desc" data-i18n="page.proxyPools.emptyDesc">创建节点后，可在账户管理中配置下载网络策略并选择此出口。</div>
+            <button type="button" class="btn btn--primary" onclick="openAddProxyPool()" data-i18n="page.proxyPools.addFirst">+ 添加第一个节点</button>
           </div>
         </div>
       </section>
@@ -463,11 +464,11 @@
       <section class="page" id="page-dynamic-providers">
         <div class="page-header">
           <div>
-            <div class="page-title">动态代理提供方</div>
-            <div class="page-desc">管理列表拉取型提供方，独立于监控扫描事件</div>
+            <div class="page-title" data-i18n="page.dynamicProviders.title">动态代理提供方</div>
+            <div class="page-desc" data-i18n="page.dynamicProviders.desc">管理列表拉取型提供方，独立于监控扫描事件</div>
           </div>
           <div class="page-actions">
-            <button class="btn btn--primary" onclick="openAddDynamicProvider()">+ 添加提供方</button>
+            <button class="btn btn--primary" onclick="openAddDynamicProvider()" data-i18n="page.dynamicProviders.addProvider">+ 添加提供方</button>
           </div>
         </div>
 
@@ -477,18 +478,18 @@
             <div style="flex:1 1 280px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                 <span style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Provider Scheduler</span>
-                <span class="tag tag--warning" id="dynProviderSchedulerBadge" data-dyn-scheduler-badge>未启动</span>
+                <span class="tag tag--warning" id="dynProviderSchedulerBadge" data-dyn-scheduler-badge data-i18n="page.dynamicProviders.schedulerNotStarted">未启动</span>
               </div>
-              <div id="dynSchedulerHint" data-dyn-scheduler-hint style="font-size:13px;color:var(--text-muted);margin-bottom:6px">调度器未运行：刷新间隔不会自动生效</div>
-              <div id="dynProviderNextRun" data-dyn-scheduler-next style="font-size:11px;color:var(--text-dim)">下一次执行：—</div>
+              <div id="dynSchedulerHint" data-dyn-scheduler-hint style="font-size:13px;color:var(--text-muted);margin-bottom:6px" data-i18n="page.dynamicProviders.schedulerHint">调度器未运行：刷新间隔不会自动生效</div>
+              <div id="dynProviderNextRun" data-dyn-scheduler-next style="font-size:11px;color:var(--text-dim)" data-i18n="page.dynamicProviders.nextRun">下一次执行：—</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px;justify-content:center;flex-shrink:0">
               <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button type="button" class="btn btn--sm btn--ghost" id="btnDynProviderSchedulerToggle" data-dyn-scheduler-toggle data-scheduler-compact="true" onclick="toggleDynamicProviderScheduler()">启动调度</button>
-                <button class="btn btn--sm btn--ghost" onclick="reloadDynamicProviderJobs()">重载任务</button>
-                <button class="btn btn--sm btn--ghost" onclick="runDynamicProviderJobsOnce()">立即刷新全部</button>
+                <button type="button" class="btn btn--sm btn--ghost" id="btnDynProviderSchedulerToggle" data-dyn-scheduler-toggle data-scheduler-compact="true" onclick="toggleDynamicProviderScheduler()" data-i18n="page.dynamicProviders.startScheduler">启动调度</button>
+                <button class="btn btn--sm btn--ghost" onclick="reloadDynamicProviderJobs()" data-i18n="page.dynamicProviders.reloadJobs">重载任务</button>
+                <button class="btn btn--sm btn--ghost" onclick="runDynamicProviderJobsOnce()" data-i18n="page.dynamicProviders.refreshAll">立即刷新全部</button>
               </div>
-              <button class="btn btn--sm btn--ghost" onclick="healthCheckAllProviders()">
+              <button class="btn btn--sm btn--ghost" onclick="healthCheckAllProviders()" data-i18n="page.dynamicProviders.healthCheck">
                 全量健康检查
               </button>
             </div>
@@ -504,18 +505,18 @@
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
                 </span>
                 <span class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">时</span>
-                <span class="dyn-collapse__label">最近调度执行</span>
+                <span class="dyn-collapse__label" data-i18n="page.dynamicProviders.logTitle">最近调度执行</span>
               </span>
-              <span class="dyn-collapse__hint">展开后筛选并查看 Provider Scheduler 运行记录</span>
+              <span class="dyn-collapse__hint" data-i18n="page.dynamicProviders.logHint">展开后筛选并查看 Provider Scheduler 运行记录</span>
             </button>
             <div id="dynSchedulerLogsPanelPage" class="dyn-collapse__panel" hidden>
               <div class="dyn-collapse__toolbar">
                 <label class="dyn-collapse__filter-label" for="dynProviderLogFilterPage">日志类型</label>
                 <select id="dynProviderLogFilterPage" class="form-input dyn-collapse__filter" data-dyn-log-filter onchange="syncDynLogFilters(this); loadProviderSchedulerLogs();">
-                  <option value="all">全部日志</option>
-                  <option value="refresh">仅 refresh</option>
-                  <option value="cleanup">仅 cleanup</option>
-                  <option value="error">仅 error</option>
+                  <option value="all" data-i18n="page.dynamicProviders.logTypeAll">全部日志</option>
+                  <option value="refresh" data-i18n="page.dynamicProviders.logTypeRefresh">仅 refresh</option>
+                  <option value="cleanup" data-i18n="page.dynamicProviders.logTypeCleanup">仅 cleanup</option>
+                  <option value="error" data-i18n="page.dynamicProviders.logTypeError">仅 error</option>
                 </select>
               </div>
               <div data-dyn-scheduler-logs class="dyn-scheduler-card-scroll dyn-scheduler-logs-shell" style="max-height:240px"></div>
@@ -529,14 +530,14 @@
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
                 </span>
                 <span class="card-title-icon" style="background:var(--surface2);color:var(--text-muted)" aria-hidden="true">注</span>
-                <span class="dyn-collapse__label">调度说明</span>
+                <span class="dyn-collapse__label" data-i18n="page.dynamicProviders.helpTitle">调度说明</span>
               </span>
-              <span class="dyn-collapse__hint">调度器行为与任务注册规则</span>
+              <span class="dyn-collapse__hint" data-i18n="page.dynamicProviders.helpHint">调度器行为与任务注册规则</span>
             </button>
             <div id="dynSchedulerHelpPanelPage" class="dyn-collapse__panel" hidden>
-              <div class="dyn-scheduler-help-body dyn-scheduler-help-body--light">
+              <div class="dyn-scheduler-help-body dyn-scheduler-help-body--light" data-i18n-page-dyn-help>
                 <p>进程内只有 <strong>一个</strong> Provider Scheduler；各提供方以「定时任务」形式挂在上面。</p>
-                <p>仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）&gt; 0</strong> 的提供方会注册定时拉列表。</p>
+                <p>仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）> 0</strong> 的提供方会注册定时拉列表。</p>
                 <p><strong>重载动态代理任务</strong> 只重建任务，不会立即调用外部 API。</p>
                 <p><strong>立即刷新全部列表 API</strong> 会立刻执行一次批量 refresh。</p>
               </div>
@@ -547,39 +548,39 @@
         <!-- 提供方表格 -->
         <div class="card">
           <div class="card-header">
-            <div class="card-title">提供方列表</div>
+            <div class="card-title" data-i18n="page.dynamicProviders.listTitle">提供方列表</div>
           </div>
           <div class="dyn-provider-list-toolbar card-account-search">
-            <input type="search" id="dynProviderSearchPage" class="form-input dyn-provider-search-input" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
+            <input type="search" id="dynProviderSearchPage" class="form-input dyn-provider-search-input" data-i18n-placeholder="page.dynamicProviders.searchPlaceholder" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
             <span id="dynProviderListSummaryPage" class="dyn-provider-list-summary" aria-live="polite"></span>
           </div>
           <div class="table-wrap">
             <table class="dyn-table" id="dynProviderTable">
               <thead>
                 <tr>
-                  <th style="width:36px">ID</th>
-                  <th>名称</th>
-                  <th>计费</th>
-                  <th>适配器</th>
-                  <th>健康状态</th>
-                  <th>优先级</th>
-                  <th>功能</th>
-                  <th style="width:160px">操作</th>
+                  <th style="width:36px" data-i18n="page.dynamicProviders.tableId">ID</th>
+                  <th data-i18n="page.dynamicProviders.tableName">名称</th>
+                  <th data-i18n="page.dynamicProviders.tableBilling">计费</th>
+                  <th data-i18n="page.dynamicProviders.tableAdapter">适配器</th>
+                  <th data-i18n="page.dynamicProviders.tableHealth">健康状态</th>
+                  <th data-i18n="page.dynamicProviders.tablePriority">优先级</th>
+                  <th data-i18n="page.dynamicProviders.tableFeatures">功能</th>
+                  <th style="width:160px" data-i18n="page.dynamicProviders.tableActions">操作</th>
                 </tr>
               </thead>
               <tbody id="dynProviderTableBody"></tbody>
             </table>
           </div>
           <div id="dynProviderPaginationPage" class="dyn-provider-pagination" style="display:none">
-            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderPrevPage" onclick="dynProviderGoPage('page', -1)">‹ 上一页</button>
+            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderPrevPage" onclick="dynProviderGoPage('page', -1)" data-i18n="page.dynamicProviders.prevPage">‹ 上一页</button>
             <span id="dynProviderPageInfoPage" class="dyn-provider-page-info"></span>
-            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderNextPage" onclick="dynProviderGoPage('page', 1)">下一页 ›</button>
+            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderNextPage" onclick="dynProviderGoPage('page', 1)" data-i18n="page.dynamicProviders.nextPage">下一页 ›</button>
           </div>
           <div id="dynEmptyState" class="dyn-empty" style="display:none;padding:40px;text-align:center">
-            <div class="dyn-empty-title">还没有配置动态代理提供方</div>
-            <div class="dyn-empty-desc">添加一个提供方后，它将参与系统动态代理路由决策。</div>
+            <div class="dyn-empty-title" data-i18n="page.dynamicProviders.emptyTitle">还没有配置动态代理提供方</div>
+            <div class="dyn-empty-desc" data-i18n="page.dynamicProviders.emptyDesc">添加一个提供方后，它将参与系统动态代理路由决策。</div>
             <div style="margin-top:12px">
-              <button class="btn btn--primary btn--sm" onclick="openAddDynamicProvider()">+ 添加第一个提供方</button>
+              <button class="btn btn--primary btn--sm" onclick="openAddDynamicProvider()" data-i18n="page.dynamicProviders.addFirst">+ 添加第一个提供方</button>
             </div>
           </div>
         </div>
@@ -589,8 +590,8 @@
       <section class="page" id="page-clip-history">
         <div class="page-header">
           <div>
-            <div class="page-title">切片历史</div>
-            <div class="page-desc">查看历史切片任务，支持筛选和分页</div>
+            <div class="page-title" data-i18n="page.clipHistory.title">切片历史</div>
+            <div class="page-desc" data-i18n="page.clipHistory.desc">查看历史切片任务，支持筛选和分页</div>
           </div>
           <div class="page-actions">
             <span id="chTotal" style="font-size:12px;color:var(--text-muted)"></span>
@@ -601,16 +602,16 @@
         <div class="card" style="margin-bottom:16px">
           <div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <select class="form-input" id="chAccountFilter" style="width:160px" onchange="chLoad()">
-              <option value="">全部账户</option>
+              <option value="" data-i18n="page.clipHistory.filterAccount">全部账户</option>
             </select>
             <select class="form-input" id="chStatusFilter" style="width:120px" onchange="chLoad()">
-              <option value="">全部状态</option>
-              <option value="pending">等待中</option>
-              <option value="running">进行中</option>
-              <option value="done">已完成</option>
-              <option value="error">失败</option>
+              <option value="" data-i18n="page.clipHistory.filterStatus">全部状态</option>
+              <option value="pending" data-i18n="page.clipHistory.statusPending">等待中</option>
+              <option value="running" data-i18n="page.clipHistory.statusRunning">进行中</option>
+              <option value="done" data-i18n="page.clipHistory.statusDone">已完成</option>
+              <option value="error" data-i18n="page.clipHistory.statusError">失败</option>
             </select>
-            <button class="btn btn--sm btn--ghost" onclick="chLoad()">刷新</button>
+            <button class="btn btn--sm btn--ghost" onclick="chLoad()" data-i18n="page.clipHistory.refresh">刷新</button>
           </div>
         </div>
 
@@ -620,29 +621,29 @@
             <table class="vd-table" style="width:100%">
               <thead>
                 <tr>
-                  <th style="width:40px">ID</th>
-                  <th style="width:120px">账户</th>
-                  <th>视频标题</th>
-                  <th style="width:70px">状态</th>
-                  <th style="width:50px">切片</th>
-                  <th style="width:50px">合集</th>
-                  <th style="width:140px">创建时间</th>
-                  <th style="width:50px">操作</th>
+                  <th style="width:40px" data-i18n="page.clipHistory.tableId">ID</th>
+                  <th style="width:120px" data-i18n="page.clipHistory.tableAccount">账户</th>
+                  <th data-i18n="page.clipHistory.tableTitle">视频标题</th>
+                  <th style="width:70px" data-i18n="page.clipHistory.tableStatus">状态</th>
+                  <th style="width:50px" data-i18n="page.clipHistory.tableClips">切片</th>
+                  <th style="width:50px" data-i18n="page.clipHistory.tableCollection">合集</th>
+                  <th style="width:140px" data-i18n="page.clipHistory.tableCreated">创建时间</th>
+                  <th style="width:50px" data-i18n="page.clipHistory.tableActions">操作</th>
                 </tr>
               </thead>
               <tbody id="chTbody"></tbody>
             </table>
-            <div id="chEmpty" style="display:none;padding:40px;text-align:center;color:var(--text-muted)">
+            <div id="chEmpty" style="display:none;padding:40px;text-align:center;color:var(--text-muted)" data-i18n="page.clipHistory.noTasks">
               暂无切片任务
             </div>
-            <div id="chLoading" style="display:none;padding:40px;text-align:center;color:var(--text-muted)">
+            <div id="chLoading" style="display:none;padding:40px;text-align:center;color:var(--text-muted)" data-i18n="page.clipHistory.loading">
               加载中...
             </div>
           </div>
           <div id="chPagination" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:12px">
-            <button class="btn btn--sm btn--ghost" id="chPrevBtn" onclick="chGoPage(-1)">‹ 上一页</button>
+            <button class="btn btn--sm btn--ghost" id="chPrevBtn" onclick="chGoPage(-1)" data-i18n="page.clipHistory.prevPage">‹ 上一页</button>
             <span id="chPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
-            <button class="btn btn--sm btn--ghost" id="chNextBtn" onclick="chGoPage(1)">下一页 ›</button>
+            <button class="btn btn--sm btn--ghost" id="chNextBtn" onclick="chGoPage(1)" data-i18n="page.clipHistory.nextPage">下一页 ›</button>
           </div>
         </div>
       </section>
