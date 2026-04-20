@@ -29,6 +29,64 @@ if TYPE_CHECKING:
 
 _log = logging_config.get_logger("monitor.scheduler")
 
+# ── 下载退避状态（线程安全）────────────────────────────────────────────
+import random as _random
+
+_proxy_cooldown_until: dict[str, float] = {}   # proxy_url → 退避截止时间（monotonic）
+_proxy_retry_count: dict[str, int] = {}        # proxy_url → 当前重试次数
+_proxy_lock = threading.Lock()                  # 保护 proxy 退避字典
+
+_direct_cooldown_until: float | None = None    # 全局直连退避截止时间
+_direct_retry_count: int = 0
+_direct_lock = threading.Lock()                # 保护直连退避字典
+
+
+def _get_backoff_seconds(retry_count: int) -> float:
+    """退避时间 = min(60 * retry_count, 180) + jitter(0~10)"""
+    return min(60 * retry_count, 180) + _random.uniform(0, 10)
+
+
+def _wait_for_proxy_cooldown(proxy: str) -> bool:
+    """等待 proxy 退避结束。返回 True 表示已退出等待（退避完成）。"""
+    with _proxy_lock:
+        deadline = _proxy_cooldown_until.get(proxy)
+    if deadline is None:
+        return True
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return True
+    time.sleep(remaining)
+    return True
+
+
+def _set_proxy_cooldown(proxy: str, retry_count: int) -> None:
+    """设置 proxy 退避状态（线程安全）"""
+    with _proxy_lock:
+        _proxy_cooldown_until[proxy] = time.monotonic() + _get_backoff_seconds(retry_count)
+        _proxy_retry_count[proxy] = retry_count
+
+
+def _wait_for_direct_cooldown() -> bool:
+    """等待全局直连退避结束。"""
+    global _direct_cooldown_until
+    with _direct_lock:
+        deadline = _direct_cooldown_until
+    if deadline is None:
+        return True
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return True
+    time.sleep(remaining)
+    return True
+
+
+def _set_direct_cooldown(retry_count: int) -> None:
+    """设置全局直连退避状态（线程安全）"""
+    global _direct_cooldown_until, _direct_retry_count
+    with _direct_lock:
+        _direct_cooldown_until = time.monotonic() + _get_backoff_seconds(retry_count)
+        _direct_retry_count = retry_count
+
 # 平台级全局 Webhook URL
 _GLOBAL_WEBHOOKS: dict[str, str | None] = {}
 _GLOBAL_WEBHOOKS_LOADED = False
@@ -453,6 +511,31 @@ _auto_download_on_scan: bool = False
 # 调度器关闭取消标志（由 stop() 设置，运行中的任务应周期性检查并提前退出）
 _scheduler_cancelled: bool = False
 
+# ── per-account 下载池（替代全局 _auto_dl_pool）─────────────────────────
+_account_pools: dict[int, ThreadPoolExecutor] = {}   # account_id → 独立池
+_account_pools_lock = threading.Lock()                # 保护账户池创建/销毁
+_POOL_MAX_WORKERS = 2  # 每账户最大并发下载数
+
+
+def _ensure_account_pool(account_id: int) -> ThreadPoolExecutor:
+    """获取或创建指定账户的独立下载池（线程安全）"""
+    with _account_pools_lock:
+        if account_id not in _account_pools:
+            _account_pools[account_id] = ThreadPoolExecutor(max_workers=_POOL_MAX_WORKERS)
+        return _account_pools[account_id]
+
+
+def _shutdown_account_pool(account_id: int, wait: bool = False) -> None:
+    """关闭指定账户的下载池"""
+    with _account_pools_lock:
+        pool = _account_pools.pop(account_id, None)
+    if pool is None:
+        return
+    try:
+        pool.shutdown(wait=wait, cancel_futures=True)
+    except TypeError:
+        pool.shutdown(wait=wait)
+
 
 def _ensure_auto_download_pool() -> ThreadPoolExecutor:
     global _auto_dl_pool
@@ -532,20 +615,209 @@ def join_auto_download_workers(timeout_sec: float | None = 30.0) -> None:
     _log.info("join_auto_download_workers: 完成")
 
 
-def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -> None:
-    """
-    后台线程池执行：并发下载新视频（max_workers=2，每视频 2 分片）
-    避免触发 YouTube 429 限流。
+def _submit_download_batch(
+    batch_urls, batch_records, batch_ids, output_path, proxy, cookies_file,
+    extra_ydl_opts, cfg, pool, account_id,
+):
+    """提交一个下载手次到线程池"""
+    def _dl_batch():
+        try:
+            _db.update_videos_download_status(batch_ids, "downloading")
+            results = batch_download(
+                batch_urls,
+                output_path,
+                "best",
+                proxy=proxy,
+                cookies_file=cookies_file,
+                concurrent_fragments=2,
+                no_subs=not cfg.get("auto_clip_enabled", False),
+                extra_ydl_opts=extra_ydl_opts,
+            )
 
-    字幕：auto_clip后载字幕（SRT），其余情况跳过以加快下载。
+            now_str = _db.now_iso()
+            for idx2, r in enumerate(results):
+                vid = batch_ids[idx2] if idx2 < len(batch_ids) else None
+                if not vid:
+                    continue
+                if r.get("状态") == "成功":
+                    file_path = r.get("video_path") or output_path
+                    _db.update_videos_download_status(
+                        [vid], "downloaded",
+                        download_at=now_str,
+                        download_path=file_path,
+                        retry_count=0,
+                    )
+                    success_records = _db.get_videos_by_ids([vid])
+                    _maybe_trigger_auto_clip(success_records, cfg)
+                elif r.get("is_rate_limited"):
+                    _handle_rate_limited(
+                        vid, batch_urls[idx2], batch_records[idx2],
+                        proxy, output_path, cookies_file, extra_ydl_opts, cfg,
+                    )
+                else:
+                    _db.update_videos_download_status(
+                        [vid], "failed",
+                        download_error=r.get("信息", ""),
+                        retry_count=0,
+                        failed_reason="batch_download_error",
+                        failed_at=now_str,
+                    )
+        except Exception as exc:
+            _log.error("手次下载异常", exc_info=True)
+            _db.update_videos_download_status(
+                batch_ids, "failed",
+                download_error=f"自动下载异常: {type(exc).__name__}",
+                retry_count=0,
+                failed_reason="batch_download_exception",
+                failed_at=_db.now_iso(),
+            )
 
-    Args:
-        video_records: 要下载的视频记录列表
-        proxy: 代理 URL（如 http://user:pass@host:port），无代理时传 None
-    """
-    if not video_records:
+    if pool is not None:
+        pool.submit(_dl_batch)
+    else:
+        threading.Thread(target=_dl_batch, daemon=True).start()
+
+
+def _handle_rate_limited(
+    vid: int, url: str, record: dict,
+    proxy: str | None, output_path: str,
+    cookies_file, extra_ydl_opts, cfg,
+    retry_count: int = 0,
+):
+    """处理单个视频的 429 退遇重试逻辑。最多 3 次后切直连。"""
+    is_proxy = proxy is not None
+    MAX_RETRIES = 3
+
+    if is_proxy:
+        _wait_for_proxy_cooldown(proxy)
+        retry_count += 1
+        _log.warning(f"代理退遇结束，重试视频: {url} (retry={retry_count})")
+        _db.update_videos_download_status([vid], retry_count=retry_count)
+        try:
+            results = batch_download(
+                [url], output_path, "best",
+                proxy=proxy,
+                cookies_file=cookies_file,
+                concurrent_fragments=2,
+                extra_ydl_opts=extra_ydl_opts,
+            )
+            r = results[0] if results else {}
+            if r.get("状态") == "成功":
+                _db.update_videos_download_status(
+                    [vid], "downloaded",
+                    download_path=r.get("video_path", ""),
+                    retry_count=0,
+                )
+                return
+            if r.get("is_rate_limited"):
+                if retry_count >= MAX_RETRIES:
+                    _log.warning(f"代理退遇重试 {retry_count} 次后仍 429，切换直连: {url}")
+                    _handle_direct_fallback(
+                        vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+                        initial_retry_count=retry_count,
+                    )
+                else:
+                    _set_proxy_cooldown(proxy, retry_count)
+                    _wait_for_proxy_cooldown(proxy)
+                    _handle_rate_limited(
+                        vid, url, record, proxy, output_path,
+                        cookies_file, extra_ydl_opts, cfg,
+                        retry_count=retry_count,
+                    )
+            else:
+                _db.update_videos_download_status(
+                    [vid], "failed",
+                    download_error=r.get("信息"),
+                    retry_count=0,
+                    failed_reason="proxy_download_error",
+                    failed_at=_db.now_iso(),
+                )
+        except Exception as exc:
+            _db.update_videos_download_status(
+                [vid], "failed",
+                download_error=f"退遇重试异常: {exc}",
+                retry_count=0,
+                failed_reason="backoff_exception",
+                failed_at=_db.now_iso(),
+            )
+    else:
+        _handle_direct_fallback(
+            vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+            initial_retry_count=retry_count,
+        )
+
+
+def _handle_direct_fallback(
+    vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+    initial_retry_count: int = 0,
+):
+    """直连 429 退遇重试（狡立于代理退遇）"""
+    retry_count = initial_retry_count
+    MAX_RETRIES = 3
+
+    _wait_for_direct_cooldown()
+    retry_count += 1
+    _db.update_videos_download_status([vid], retry_count=retry_count)
+
+    if retry_count > MAX_RETRIES:
+        _db.update_videos_download_status(
+            [vid], "failed",
+            download_error=f"429 rate limit after {MAX_RETRIES} retries",
+            retry_count=0,
+            failed_reason="direct_rate_limit_exhausted",
+            failed_at=_db.now_iso(),
+        )
         return
 
+    _set_direct_cooldown(retry_count)
+    _log.warning(f"直连退遇 {retry_count}/{MAX_RETRIES} 次: {url}")
+
+    try:
+        results = batch_download(
+            [url], output_path, "best",
+            proxy=None,
+            cookies_file=cookies_file,
+            concurrent_fragments=2,
+            extra_ydl_opts=extra_ydl_opts,
+        )
+        r = results[0] if results else {}
+        if r.get("状态") == "成功":
+            _db.update_videos_download_status(
+                [vid], "downloaded",
+                download_path=r.get("video_path", ""),
+                retry_count=0,
+            )
+        elif r.get("is_rate_limited"):
+            _handle_direct_fallback(
+                vid, url, record, output_path, cookies_file, extra_ydl_opts, cfg,
+                initial_retry_count=retry_count,
+            )
+        else:
+            _db.update_videos_download_status(
+                [vid], "failed",
+                download_error=r.get("信息"),
+                retry_count=0,
+                failed_reason="direct_download_error",
+                failed_at=_db.now_iso(),
+            )
+    except Exception as exc:
+        _db.update_videos_download_status(
+            [vid], "failed",
+            download_error=f"直连退遇重试异常: {exc}",
+            retry_count=0,
+            failed_reason="direct_backoff_exception",
+            failed_at=_db.now_iso(),
+        )
+
+
+def _auto_download_videos(
+    video_records: list[dict],
+    proxy: str | None = None,
+    account_id: int | None = None,
+) -> None:
+    """per-account 子池执行下载支持 429 指数退遇重试"""
+    if not video_records:
+        return
     urls = [r["url"] for r in video_records if r.get("url")]
     if not urls:
         return
@@ -562,6 +834,8 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
     extra_ydl_opts = build_aria2_opts() if enable_aria2 else None
 
     BATCH_SIZE = 2
+    pool = _ensure_account_pool(account_id) if account_id else _ensure_auto_download_pool()
+
     for i in range(0, len(urls), BATCH_SIZE):
         chunk = urls[i:i + BATCH_SIZE]
         chunk_records = video_records[i:i + BATCH_SIZE]
@@ -569,72 +843,18 @@ def _auto_download_videos(video_records: list[dict], proxy: str | None = None) -
 
         _log.info(
             f"自动下载批次 {i // BATCH_SIZE + 1}: "
-            f"{len(chunk)} 个视频 (第 {i + 1}~{i + len(chunk)} 个，共 {len(urls)} 个)"
-            f"{' [aria2]' if enable_aria2 else ''}"
-            f"{' [proxy]' if proxy else ''}"
+            f"{len(chunk)} 个视频 "
+            f"{'[aria2]' if enable_aria2 else ''}"
+            f"{'[proxy]' if proxy else '[direct]'}"
         )
 
-        def _dl_batch(batch_urls, batch_ids):
-            try:
-                _db.update_videos_download_status(batch_ids, "downloading")
-                results = batch_download(
-                    batch_urls,
-                    output_path,
-                    "best",
-                    proxy=proxy,
-                    cookies_file=cookies_file,
-                    concurrent_fragments=2,
-                    no_subs=not cfg.get("auto_clip_enabled", False),  # auto-clip 时连带下载字幕
-                    extra_ydl_opts=extra_ydl_opts,
-                )
-
-                now_str = _db.now_iso()
-                success_ids: list[int] = []
-                failed_ids: list[int] = []
-                for idx, r in enumerate(results):
-                    vid = batch_ids[idx] if idx < len(batch_ids) else None
-                    if not vid:
-                        continue
-                    if r.get("状态") == "成功":
-                        file_path = r.get("video_path") or output_path
-                        _db.update_videos_download_status(
-                            [vid], "downloaded",
-                            download_at=now_str,
-                            download_path=file_path,
-                        )
-                        success_ids.append(vid)
-                    else:
-                        _db.update_videos_download_status(
-                            [vid], "failed",
-                            download_error="auto download failed",
-                        )
-                        failed_ids.append(vid)
-
-                if success_ids:
-                    success_records = _db.get_videos_by_ids(success_ids)
-                    _maybe_trigger_auto_clip(success_records, cfg)
-
-                _log.info(
-                    f"批次下载完成: 成功={len(success_ids)} 失败={len(failed_ids)}"
-                )
-            except Exception as exc:
-                _log.error("自动下载批次异常", exc_info=True)
-                _db.update_videos_download_status(
-                    batch_ids, "failed",
-                    download_error=f"自动下载失败: {type(exc).__name__}",
-                )
-
-        _ensure_auto_download_pool().submit(_dl_batch, chunk, chunk_ids)
+        _submit_download_batch(
+            chunk, chunk_records, chunk_ids, output_path, proxy,
+            cookies_file, extra_ydl_opts, cfg, pool, account_id,
+        )
 
     _log.info(f"自动下载任务已全部提交: {len(urls)} 个视频")
 
-
-def trigger_scan(account_id: int, auto_download: bool = False) -> None:
-    """
-    公开方法：触发指定账户的手动扫描。
-    替代直接调用 _scan_account()，提供稳定的公开接口。
-    """
-    _scan_account(account_id, auto_download=auto_download)
 
 
 def _scan_account(account_id: int, auto_download: bool = False, from_scheduler: bool = False) -> None:
@@ -821,14 +1041,14 @@ def _scan_account(account_id: int, auto_download: bool = False, from_scheduler: 
         if effective_auto_dl and inserted > 0:
             with _db.get_connection() as conn:
                 rows = conn.execute(
-                    "SELECT id, url FROM monitor_videos WHERE event_id = ?",
+                    "SELECT id, url, account_id FROM monitor_videos WHERE event_id = ?",
                     (event_id,),
                 ).fetchall()
             new_video_records = [dict(r) for r in rows]
 
             threading.Thread(
                 target=_auto_download_videos,
-                args=(new_video_records, proxy),
+                args=(new_video_records, proxy, account["id"]),
                 daemon=True,
                 name=f"auto-dl-{event_id}",
             ).start()
