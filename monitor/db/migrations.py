@@ -404,18 +404,39 @@ def run_all_migrations(conn):
 
     # v15: clip_tasks 增强字段（封面图/字幕/长宽比）
     if "v15_clip_tasks_enhancements" not in _get_applied_versions(conn):
-        cur = conn.execute("PRAGMA table_info(clip_tasks)")
-        cols = {row[1] for row in cur.fetchall()}
-        for col, ddl in [
-            ("thumbnail_path", "TEXT DEFAULT NULL"),
-            ("subtitles_path", "TEXT DEFAULT NULL"),
-            ("aspect_ratio", "TEXT DEFAULT NULL"),
-        ]:
-            if col not in cols:
-                conn.execute(f"ALTER TABLE clip_tasks ADD COLUMN {col} {ddl}")
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "clip_tasks" in tables:
+            cur = conn.execute("PRAGMA table_info(clip_tasks)")
+            cols = {row[1] for row in cur.fetchall()}
+            for col, ddl in [
+                ("thumbnail_path", "TEXT DEFAULT NULL"),
+                ("subtitles_path", "TEXT DEFAULT NULL"),
+                ("aspect_ratio", "TEXT DEFAULT NULL"),
+            ]:
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE clip_tasks ADD COLUMN {col} {ddl}")
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v15_clip_tasks_enhancements", today),
+        )
+
+    # v16: monitor_videos 失败重试字段
+    if "v16_failed_retry_fields" not in _get_applied_versions(conn):
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "monitor_videos" in tables:
+            cur = conn.execute("PRAGMA table_info(monitor_videos)")
+            cols = {row[1] for row in cur.fetchall()}
+            for col, ddl in [
+                ("failed_reason", "TEXT"),
+                ("failed_at", "TEXT"),
+                ("failed_event_id", "INTEGER"),
+                ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+            ]:
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE monitor_videos ADD COLUMN {col} {ddl}")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v16_failed_retry_fields", today),
         )
 
 

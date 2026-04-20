@@ -175,4 +175,10 @@ def test_init_db_upgrades_legacy_database_columns_and_tables(db_module):
         "v10_provider_scheduler_runs",
         "v11_web_batch_tasks",
         "v12_monitor_accounts_dingtalk_sign_secret",
+        "v15_clip_tasks_enhancements",
+        "v16_failed_retry_fields",
     } <= applied
+
+    # v16: verify monitor_videos has retry fields
+    video_columns = _table_columns(db_module, "monitor_videos")
+    assert {"failed_reason", "failed_at", "failed_event_id", "retry_count"} <= video_columns

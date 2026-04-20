@@ -498,7 +498,26 @@ def _migrate_monitor_accounts(conn) -> None:
         )
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            ("v15_clip_tasks", today),
+            ("v15_clip_tasks_enhancements", today),
+        )
+
+    # v16: monitor_videos 失败重试字段
+    if "v16_failed_retry_fields" not in applied:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "monitor_videos" in tables:
+            cur = conn.execute("PRAGMA table_info(monitor_videos)")
+            cols = {row[1] for row in cur.fetchall()}
+            for col, ddl in [
+                ("failed_reason", "TEXT"),
+                ("failed_at", "TEXT"),
+                ("failed_event_id", "INTEGER"),
+                ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+            ]:
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE monitor_videos ADD COLUMN {col} {ddl}")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v16_failed_retry_fields", today),
         )
 
 
@@ -1857,26 +1876,43 @@ def get_account_videos(
 
 def update_videos_download_status(
     video_ids: list[int],
-    status: str,
+    status: str | None = None,
     download_at: str | None = None,
     download_path: str | None = None,
     download_error: str | None = None,
+    retry_count: int | None = None,
+    failed_reason: str | None = None,
+    failed_at: str | None = None,
 ) -> int:
-    """批量更新视频下载状态"""
+    """批量更新视频下载状态及重试字段"""
     if not video_ids:
         return 0
-    placeholders = ",".join("?" * len(video_ids))
-    fields = ["download_status = ?"]
-    values: list = [status]
+    fields = []
+    values: list = []
+    if status:
+        fields.append("download_status = ?")
+        values.append(status)
     if download_at:
-        fields.append("download_at = ?")
+        fields.append("downloaded_at = ?")
         values.append(download_at)
     if download_path:
-        fields.append("download_path = ?")
+        fields.append("downloaded_path = ?")
         values.append(download_path)
     if download_error:
         fields.append("download_error = ?")
         values.append(download_error)
+    if retry_count is not None:
+        fields.append("retry_count = ?")
+        values.append(retry_count)
+    if failed_reason is not None:
+        fields.append("failed_reason = ?")
+        values.append(failed_reason)
+    if failed_at is not None:
+        fields.append("failed_at = ?")
+        values.append(failed_at)
+    if not fields:
+        return 0
+    placeholders = ",".join("?" * len(video_ids))
     with get_connection() as conn:
         cur = conn.execute(
             f"UPDATE monitor_videos SET {', '.join(fields)} WHERE id IN ({placeholders})",
@@ -1892,14 +1928,52 @@ def get_videos_by_ids(video_ids: list[int]) -> list[dict]:
     placeholders = ",".join("?" * len(video_ids))
     with get_connection() as conn:
         rows = conn.execute(
-            f"""SELECT id, video_id, title, url, download_status
+            f"""SELECT id, video_id, title, url, download_status, account_id,
+                       retry_count, failed_reason, failed_at
                 FROM monitor_videos WHERE id IN ({placeholders})""",
             video_ids,
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-# ── 调度状态（存 DB，不用内存变量，避免进程重启丢失）─────
+def reset_videos_for_retry(video_ids: list[int], account_id: int) -> None:
+    """
+    Reset failed videos to pending for retry.
+    Uses parameterized queries to prevent SQL injection.
+    """
+    if not video_ids:
+        return
+    placeholders = ",".join("?" * len(video_ids))
+    with get_connection() as conn:
+        conn.execute(
+            f"""UPDATE monitor_videos
+               SET download_status = 'pending',
+                   retry_count = 0,
+                   failed_reason = NULL,
+                   failed_at = NULL
+               WHERE id IN ({placeholders})
+               AND download_status = 'failed'""",
+            video_ids,
+        )
+
+
+def mark_stale_running_videos_interrupted() -> None:
+    """
+    Mark running videos as failed on process restart.
+    Prevents zombie tasks where download_status='running' never ends.
+    """
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE monitor_videos
+               SET download_status = 'failed',
+                   failed_reason = '服务重启导致任务中断',
+                   failed_at = ?,
+                   retry_count = 0
+               WHERE download_status = 'running'""",
+            (now,),
+        )
+
 
 def get_scheduler_state() -> dict:
     """返回调度器的运行状态"""

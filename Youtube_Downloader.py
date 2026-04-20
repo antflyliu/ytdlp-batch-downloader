@@ -480,7 +480,8 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                         'URL': url,
                         '状态': '成功',
                         'video_path': video_path,
-                        '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}"
+                        '信息': f"下载成功 | 代理: {last_proxy_label} | 字幕: {sub_status}" if not no_subs else f"下载成功 | 代理: {last_proxy_label}",
+                        'is_rate_limited': False,
                     })
                     _log.info(f"下载成功: [{i+1}/{total}] {url} | {video_title[:40]} | 代理={last_proxy_label}")
                     finished = True
@@ -493,10 +494,12 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                 except (yt_dlp.utils.DownloadError, Exception) as e:
                     error_msg = str(e)
                     if mode == "direct":
+                        is_429 = "429" in error_msg.lower() or "rate limit" in error_msg.lower()
                         results.append({
                             'URL': url,
                             '状态': '失败',
-                            '信息': f"{error_msg} | 代理: 直连"
+                            '信息': f"{error_msg} | 代理: 直连",
+                            'is_rate_limited': is_429,
                         })
                         _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理=直连 | {error_msg[:100]}")
                         finished = True
@@ -511,10 +514,12 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                         print(f" [{i+1}/{total}] 代理 {current_proxy} 失败，切换下一个...")
                         continue
 
+                    is_429 = "429" in error_msg.lower() or "rate limit" in error_msg.lower()
                     results.append({
                         'URL': url,
                         '状态': '失败',
-                        '信息': f"{error_msg} | 代理: {current_proxy or '直连'}"
+                        '信息': f"{error_msg} | 代理: {current_proxy or '直连'}",
+                        'is_rate_limited': is_429,
                     })
                     _log.error(f"下载失败: [{i+1}/{total}] {url} | 代理={current_proxy or '直连'} | {error_msg[:100]}")
                     finished = True
@@ -525,6 +530,7 @@ def batch_download(urls, output_path, resolution, proxy=None, progress_callback=
                     'URL': url,
                     '状态': '失败',
                     '信息': "无可用代理配置",
+                    'is_rate_limited': False,
                 })
 
             completed += 1
