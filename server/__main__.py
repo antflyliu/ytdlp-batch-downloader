@@ -2541,6 +2541,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_proxy_system_proxy(self, body):
         """POST /api/proxy/system-proxy — 设置/取消系统代理。"""
+        import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
         # 未运行时自动启动（"开启系统代理"需要代理先启动）
         if not mgr.is_running:
@@ -2550,29 +2552,29 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": f"启动代理失败: {e}"}, 500)
                 return
         action = (body or {}).get("action", "") if body else ""
+        subpath = "proxy-open" if action == "open" else "proxy-unset" if action == "unset" else ""
+        if not subpath:
+            self._send_json({"error": "invalid action"}, 400)
+            return
         try:
-            if action == "open":
-                r = requests.post(f"{mgr.api_base}/api/proxy-open", timeout=10)
-            elif action == "unset":
-                r = requests.post(f"{mgr.api_base}/api/proxy-unset", timeout=10)
-            else:
-                self._send_json({"error": "invalid action"}, 400)
-                return
-            r.raise_for_status()
-            self._send_json(r.json())
+            url = f"{mgr.api_base}/api/{subpath}"
+            with urllib.request.urlopen(url, timeout=10) as r:
+                self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
     def _api_proxy_cert_install(self):
         """POST /api/proxy/cert/install — 安装 CA 证书。"""
+        import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
         if not mgr.is_running:
             self._send_json({"error": "proxy not running"}, 503)
             return
         try:
-            r = requests.post(f"{mgr.api_base}/api/install", timeout=30)
-            r.raise_for_status()
-            self._send_json(r.json())
+            url = f"{mgr.api_base}/api/install"
+            with urllib.request.urlopen(url, timeout=30) as r:
+                self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
