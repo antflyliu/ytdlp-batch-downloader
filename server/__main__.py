@@ -2542,9 +2542,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_proxy_system_proxy(self, body):
         """POST /api/proxy/system-proxy — 设置/取消系统代理。"""
         mgr = get_proxy_manager()
+        # 未运行时自动启动（"开启系统代理"需要代理先启动）
         if not mgr.is_running:
-            self._send_json({"error": "proxy not running"}, 503)
-            return
+            try:
+                mgr.start()
+            except Exception as e:
+                self._send_json({"error": f"启动代理失败: {e}"}, 500)
+                return
         action = (body or {}).get("action", "") if body else ""
         try:
             if action == "open":
