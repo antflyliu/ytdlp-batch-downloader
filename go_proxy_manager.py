@@ -198,13 +198,7 @@ class GoProxyManager:
         except RuntimeError as e:
             _log.error("Restart failed: %s", e)
 
-    # ── REST API 封装 ────────────────────────────────────────
-
-    def get_resources(self) -> list[dict]:
-        """获取已嗅探到的资源列表。"""
-        r = requests.get(f"{self.api_base}/api/resources", timeout=5)
-        r.raise_for_status()
-        return r.json().get("resources", [])
+        # ── REST API 封装 ────────────────────────────────────────
 
     def get_config(self) -> dict:
         """获取 Go 侧配置。"""
