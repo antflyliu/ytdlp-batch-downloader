@@ -33,11 +33,41 @@ import logging_config
 import monitor.db as _db
 import monitor.scheduler as _scheduler
 
+from go_proxy_manager import get_proxy_manager
+
 _log = logging_config.get_logger("monitor_ui")
 
 # ── 数据库初始化 ──────────────────────────────────────────────────────────────
 _db.init_db()
 _db.ensure_app_state_table()
+
+
+def _start_go_proxy():
+    """启动 Go MitM 代理子进程（后台）。"""
+    try:
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            mgr.start()
+            _log.info("Go MitM proxy started")
+    except RuntimeError as e:
+        _log.warning("Go proxy not available: %s", e)
+    except Exception as e:
+        _log.warning("Failed to start Go proxy: %s", e)
+
+
+def _stop_go_proxy():
+    """停止 Go 代理子进程。"""
+    try:
+        mgr = get_proxy_manager()
+        if mgr.is_running:
+            mgr.stop()
+            _log.info("Go proxy stopped")
+    except Exception as e:
+        _log.warning("Error stopping Go proxy: %s", e)
+
+
+import atexit
+atexit.register(_stop_go_proxy)
 
 # ── 颜色主题 ────────────────────────────────────────────────────────────────
 
@@ -1200,6 +1230,8 @@ def run_standalone(force_restart: bool = False, port: int = 5000):
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
         time.sleep(0.8)
+        # 启动 Go MitM 代理（后台线程，不阻塞）
+        threading.Thread(target=_start_go_proxy, daemon=True).start()
     else:
         print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
         print("   如需加载最新代码，请执行: python monitor_ui.py --force-restart")
@@ -1328,6 +1360,9 @@ def run_standalone_webview(force_restart: bool = False,
         _log.info(f"HTTP 服务已启动: http://127.0.0.1:{port}")
     else:
         _log.info(f"HTTP 服务已在运行: http://127.0.0.1:{port}")
+
+    # 启动 Go MitM 代理（后台线程，不阻塞）
+    threading.Thread(target=_start_go_proxy, daemon=True).start()
 
     # 4. 清理函数（供窗口关闭回调使用）
     def _cleanup():
