@@ -32,6 +32,7 @@ import monitor.scheduler as _scheduler
 import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
+from go_proxy_manager import get_proxy_manager
 import logging_config
 from utils.paths import get_static_dir as _get_static_dir
 from Youtube_Downloader import BatchDownloadCancelled, batch_download, build_aria2_opts
@@ -681,6 +682,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/batch/tasks/"):
             task_id = path.split("/")[-1]
             self._api_batch_task_status(task_id)
+        # ── Go 代理转发路由 (GET) ────────────────────────────────
+        elif path == "/api/proxy/status":
+            self._api_proxy_status()
+        elif path == "/api/proxy/config":
+            self._api_proxy_config_get()
         else:
             super().do_GET()
 
@@ -796,6 +802,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_clip_create(body)
         elif path == "/api/videos/retry":
             self._api_videos_retry(body)
+        # ── Go 代理转发路由 (POST) ────────────────────────────────
+        elif path == "/api/proxy/enable":
+            self._api_proxy_enable()
+        elif path == "/api/proxy/disable":
+            self._api_proxy_disable()
+        elif path == "/api/proxy/config":
+            self._api_proxy_config_update(body)
+        elif path == "/api/proxy/download":
+            self._api_proxy_download(body)
+        elif path == "/api/proxy/system-proxy":
+            self._api_proxy_system_proxy(body)
+        elif path == "/api/proxy/cert/install":
+            self._api_proxy_cert_install()
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -2453,6 +2472,105 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "task_id": new_task_id,
             "queued": len(urls),
         })
+
+    # ── Go 代理 API 转发 ────────────────────────────────────────
+
+    def _api_proxy_enable(self):
+        """POST /api/proxy/enable — 启动 Go 子进程。"""
+        mgr = get_proxy_manager()
+        if mgr.is_running:
+            self._send_json({"ok": True, "message": "already running"})
+            return
+        try:
+            mgr.start()
+            self._send_json({"ok": True})
+        except RuntimeError as e:
+            self._send_json({"ok": False, "error": str(e)}, 500)
+
+    def _api_proxy_disable(self):
+        """POST /api/proxy/disable — 停止 Go 子进程。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"ok": True, "message": "not running"})
+            return
+        mgr.stop()
+        self._send_json({"ok": True})
+
+    def _api_proxy_status(self):
+        """GET /api/proxy/status — 获取代理运行状态。"""
+        mgr = get_proxy_manager()
+        self._send_json({
+            "running": mgr.is_running,
+            "port": mgr.proxy_port,
+        })
+
+    def _api_proxy_config_get(self):
+        """GET /api/proxy/config — 获取 Go 侧配置。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        try:
+            self._send_json(mgr.get_config())
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_proxy_config_update(self, body):
+        """POST /api/proxy/config — 更新 Go 侧配置。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        try:
+            self._send_json(mgr.update_config(body or {}))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_proxy_download(self, body):
+        """POST /api/proxy/download — 触发下载任务。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        try:
+            url = body.get("url", "") if body else ""
+            output_path = body.get("output_path", "") if body else ""
+            self._send_json(mgr.trigger_download(url, output_path))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_proxy_system_proxy(self, body):
+        """POST /api/proxy/system-proxy — 设置/取消系统代理。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        action = (body or {}).get("action", "") if body else ""
+        try:
+            if action == "open":
+                r = requests.post(f"{mgr.api_base}/api/proxy-open", timeout=10)
+            elif action == "unset":
+                r = requests.post(f"{mgr.api_base}/api/proxy-unset", timeout=10)
+            else:
+                self._send_json({"error": "invalid action"}, 400)
+                return
+            r.raise_for_status()
+            self._send_json(r.json())
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_proxy_cert_install(self):
+        """POST /api/proxy/cert/install — 安装 CA 证书。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        try:
+            r = requests.post(f"{mgr.api_base}/api/install", timeout=30)
+            r.raise_for_status()
+            self._send_json(r.json())
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────
 
