@@ -1,8 +1,8 @@
 """
-test_go_proxy_integration.py — Go 代理子进程集成测试。
+test_go_proxy_integration.py -- Go 代理子进程集成测试
 
-需先编译 Go 可执行文件：
-    cd D:\WORKSPACE\video-download-space\res-downloader
+需要先编译 Go 可执行文件：
+    cd D:\\WORKSPACE\\video-download-space\\res-downloader
     go build -ldflags="-s -w" -o res-downloader.exe .
 """
 import os
@@ -28,12 +28,13 @@ def test_find_executable():
 
 
 def test_proxy_manager_singleton():
-    """验证全局单例。"""
+    """验证全局单例（只应有一个 Go 子进程）。"""
     m1 = get_proxy_manager()
     m2 = get_proxy_manager()
     assert m1 is m2, "get_proxy_manager() 应返回同一实例"
+    # 单例设计：只应有一个 Go 子进程，proxy_port 仅首次生效
     m3 = get_proxy_manager(proxy_port=8900)
-    assert m3 is not m1, "不同端口应返回不同实例"
+    assert m3 is m1, "单例不应因 port 参数改变而创建新实例"
 
 
 def test_start_stop():
