@@ -1188,5 +1188,27 @@
     "schedulerStopped": "调度器已停止",
     "btnStopMonitor": "■ 停止监控",
     "btnStartMonitor": "▶ 启动监控"
+  },
+  "PROXY_SNIFFER": {
+    "TITLE": "代理嗅探",
+    "DESC": "mitmproxy 子进程管理 — 捕获并导出 HTTPS 流量",
+    "STATUS_SECTION": "运行状态",
+    "STATUS": "状态",
+    "PORT": "监听端口",
+    "REFRESH": "刷新状态",
+    "ENABLE": "启用代理",
+    "DISABLE": "禁用代理",
+    "CERT_SECTION": "CA 证书",
+    "CERT_HINT": "首次使用需安装 CA 证书才能捕获 HTTPS 流量。安装后请重启浏览器使证书生效。",
+    "INSTALL_CERT": "安装证书",
+    "SYSTEM_PROXY_SECTION": "系统 HTTP 代理",
+    "SYSTEM_PROXY_HINT": "将本机 HTTP/HTTPS 流量路由到本地代理端口（适用于浏览器抓包）。",
+    "SYSTEM_PROXY_ON": "开启系统代理",
+    "SYSTEM_PROXY_OFF": "关闭系统代理",
+    "statusRunning": "运行中",
+    "statusStopped": "已停止",
+    "certInstallSuccess": "证书安装成功，请重启浏览器生效",
+    "systemProxyOnSuccess": "系统 HTTP 代理已开启",
+    "systemProxyOffSuccess": "系统 HTTP 代理已关闭"
   }
 }

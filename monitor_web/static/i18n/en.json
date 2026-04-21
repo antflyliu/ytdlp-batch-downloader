@@ -1165,5 +1165,27 @@
     "notes": "Notes",
     "notesPlaceholder": "Optional service notes",
     "saveProvider": "Save provider"
+  },
+  "PROXY_SNIFFER": {
+    "TITLE": "Proxy Sniffer",
+    "DESC": "mitmproxy subprocess management — capture and export HTTPS traffic",
+    "STATUS_SECTION": "Runtime Status",
+    "STATUS": "Status",
+    "PORT": "Listen Port",
+    "REFRESH": "Refresh",
+    "ENABLE": "Enable Proxy",
+    "DISABLE": "Disable Proxy",
+    "CERT_SECTION": "CA Certificate",
+    "CERT_HINT": "CA certificate must be installed to capture HTTPS traffic. Restart the browser after installation for changes to take effect.",
+    "INSTALL_CERT": "Install Certificate",
+    "SYSTEM_PROXY_SECTION": "System HTTP Proxy",
+    "SYSTEM_PROXY_HINT": "Route local HTTP/HTTPS traffic to the proxy port (for browser traffic capture).",
+    "SYSTEM_PROXY_ON": "Enable System Proxy",
+    "SYSTEM_PROXY_OFF": "Disable System Proxy",
+    "statusRunning": "Running",
+    "statusStopped": "Stopped",
+    "certInstallSuccess": "Certificate installed. Please restart your browser for changes to take effect.",
+    "systemProxyOnSuccess": "System HTTP proxy enabled.",
+    "systemProxyOffSuccess": "System HTTP proxy disabled."
   }
 }

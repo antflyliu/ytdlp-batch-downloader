@@ -1,0 +1,137 @@
+<div class="page-header">
+  <div>
+    <a class="settings-back-link" href="#/settings" data-i18n="settings.backToSettings">← 返回配置概览</a>
+    <div class="page-title" data-i18n="PROXY_SNIFFER.TITLE">代理嗅探</div>
+    <div class="page-desc" data-i18n="PROXY_SNIFFER.DESC">mitmproxy 子进程管理 — 捕获并导出 HTTPS 流量</div>
+  </div>
+</div>
+
+<div class="settings-page-grid settings-page-grid--single">
+  <div class="settings-col">
+    <!-- Status Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🔍</div>
+          <span data-i18n="PROXY_SNIFFER.STATUS_SECTION">运行状态</span>
+        </div>
+        <button type="button" class="btn btn--sm btn--ghost" id="btn-proxy-refresh" data-i18n="PROXY_SNIFFER.REFRESH">刷新状态</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <span class="setting-label" data-i18n="PROXY_SNIFFER.STATUS">状态</span>
+          <span id="proxy-status-text" class="badge badge--secondary">--</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label" data-i18n="PROXY_SNIFFER.PORT">监听端口</span>
+          <span id="proxy-port-text" style="font-family:var(--font-mono)">8899</span>
+        </div>
+        <div class="setting-row" style="margin-top:12px">
+          <button type="button" class="btn btn--primary" id="btn-proxy-enable" data-i18n="PROXY_SNIFFER.ENABLE">启用代理</button>
+          <button type="button" class="btn btn--secondary" id="btn-proxy-disable" data-i18n="PROXY_SNIFFER.DISABLE">禁用代理</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Certificate Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--warning-dim,rgba(255,165,0,0.15));color:var(--warning,#e6a023)">🔐</div>
+          <span data-i18n="PROXY_SNIFFER.CERT_SECTION">CA 证书</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px" data-i18n="PROXY_SNIFFER.CERT_HINT">
+          首次使用需安装 CA 证书才能捕获 HTTPS 流量。安装后请重启浏览器使证书生效。
+        </p>
+        <button type="button" class="btn btn--sm" style="background:var(--warning-dim,rgba(255,165,0,0.15));color:var(--warning,#e6a023);border:1px solid var(--warning,#e6a023)" id="btn-cert-install" data-i18n="PROXY_SNIFFER.INSTALL_CERT">
+          安装证书
+        </button>
+      </div>
+    </div>
+
+    <!-- System Proxy Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">⚙</div>
+          <span data-i18n="PROXY_SNIFFER.SYSTEM_PROXY_SECTION">系统 HTTP 代理</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px" data-i18n="PROXY_SNIFFER.SYSTEM_PROXY_HINT">
+          将本机 HTTP/HTTPS 流量路由到本地代理端口（适用于浏览器抓包）。
+        </p>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn--sm" id="btn-proxy-system-on" data-i18n="PROXY_SNIFFER.SYSTEM_PROXY_ON">开启系统代理</button>
+          <button type="button" class="btn btn--sm btn--ghost" id="btn-proxy-system-off" data-i18n="PROXY_SNIFFER.SYSTEM_PROXY_OFF">关闭系统代理</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { getStatus, enable, disable, refreshStatus, installCert, setSystemProxy } from '/static/js/modules/proxySniffer.js';
+
+// Initial load
+refreshStatus();
+
+// Refresh button
+document.getElementById('btn-proxy-refresh')?.addEventListener('click', () => {
+  refreshStatus();
+});
+
+// Enable button
+document.getElementById('btn-proxy-enable')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-proxy-enable');
+  btn.disabled = true;
+  try {
+    const r = await enable();
+    if (r.error) { alert(r.error); return; }
+    await refreshStatus();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Disable button
+document.getElementById('btn-proxy-disable')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-proxy-disable');
+  btn.disabled = true;
+  try {
+    const r = await disable();
+    if (r.error) { alert(r.error); return; }
+    await refreshStatus();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Install cert button
+document.getElementById('btn-cert-install')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-cert-install');
+  btn.disabled = true;
+  try {
+    const r = await installCert();
+    if (r.error) { alert(r.error); return; }
+    alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.certInstallSuccess') : '证书安装成功，请重启浏览器生效');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// System proxy on/off
+document.getElementById('btn-proxy-system-on')?.addEventListener('click', async () => {
+  const r = await setSystemProxy('open');
+  if (r.error) { alert(r.error); return; }
+  alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.systemProxyOnSuccess') : '系统代理已开启');
+});
+
+document.getElementById('btn-proxy-system-off')?.addEventListener('click', async () => {
+  const r = await setSystemProxy('unset');
+  if (r.error) { alert(r.error); return; }
+  alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.systemProxyOffSuccess') : '系统代理已关闭');
+});
+</script>
