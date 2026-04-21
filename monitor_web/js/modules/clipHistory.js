@@ -23,7 +23,7 @@ async function _loadAccountOptions() {
   if (!select) return;
   // Preserve current selection
   const current = select.value;
-  select.innerHTML = '<option value="">全部账户</option>' +
+  select.innerHTML = '<option value="">' + I18n.t('page.clipHistory.filterAccount') + '</option>' +
     accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
   select.value = current;
 }
@@ -52,7 +52,7 @@ function chLoad() {
   api('GET', '/clips?' + params.toString()).then(data => {
     if (loading) loading.style.display = 'none';
     if (!data || !Array.isArray(data.tasks)) {
-      toast('加载失败', 'err');
+      toast(I18n.t('clip.loadFailed'), 'err');
       return;
     }
     _chTotal = data.total || 0;
@@ -73,10 +73,10 @@ function chLoad() {
         : t.status === 'running' ? 'tag-accent'
         : t.status === 'error' ? 'tag-error'
         : 'tag-muted';
-      const statusLabel = t.status === 'done' ? '完成'
-        : t.status === 'running' ? '进行中'
-        : t.status === 'error' ? '失败'
-        : '等待';
+      const statusLabel = t.status === 'done' ? I18n.t('page.clipHistory.statusDone')
+        : t.status === 'running' ? I18n.t('page.clipHistory.statusRunning')
+        : t.status === 'error' ? I18n.t('page.clipHistory.statusError')
+        : I18n.t('page.clipHistory.statusPending');
       return `<tr>
         <td class="td-mono">${t.id}</td>
         <td class="td-name td-clip-account" title="${esc(t.account_name)}">${esc(t.account_name)}</td>
@@ -87,7 +87,7 @@ function chLoad() {
         <td class="td-mono" style="font-size:11px">${fmtTime(t.created_at)}</td>
         <td>
           <div class="actions">
-            <button type="button" class="btn-sm" onclick="window.chViewTask(${t.id})" title="查看">详情</button>
+            <button type="button" class="btn-sm" onclick="window.chViewTask(${t.id})" title="${I18n.t('common.view')}">${I18n.t('clip.btnDetail')}</button>
           </div>
         </td>
       </tr>`;
@@ -95,11 +95,11 @@ function chLoad() {
     _updatePagination(data.total || 0);
 
     const totalEl = document.getElementById('chTotal');
-    if (totalEl) totalEl.textContent = `共 ${data.total} 条`;
+    if (totalEl) totalEl.textContent = I18n.t('batch.total').replace('{n}', data.total);
   }).catch(() => {
     if (loading) loading.style.display = 'none';
     if (tableWrap) tableWrap.style.display = 'block';
-    toast('加载失败', 'err');
+    toast(I18n.t('clip.loadFailed'), 'err');
   });
 }
 
@@ -108,7 +108,7 @@ function _updatePagination(total) {
   const pageInfo = document.getElementById('chPageInfo');
   const prevBtn = document.getElementById('chPrevBtn');
   const nextBtn = document.getElementById('chNextBtn');
-  if (pageInfo) pageInfo.textContent = `第 ${_chPage} / ${totalPages || 1} 页`;
+  if (pageInfo) pageInfo.textContent = I18n.t('video.pageInfo').replace('{p}', _chPage).replace('{t}', totalPages || 1);
   if (prevBtn) prevBtn.disabled = _chPage <= 1;
   if (nextBtn) nextBtn.disabled = _chPage >= totalPages;
 }
@@ -129,23 +129,23 @@ async function chTriggerClip(monitorVideoId, btnEl) {
   try {
     const resp = await api('POST', '/clips', { video_id: monitorVideoId });
     if (resp && resp.ok) {
-      toast(`切片任务 #${resp.task_id} 已创建`, 'ok');
+      toast(I18n.t('clip.taskCreated').replace('{id}', resp.task_id), 'ok');
       window.location.hash = '/clip-history';
       openClipHistory();
     } else {
-      toast((resp && resp.error) ? String(resp.error) : '创建失败', 'err');
+      toast((resp && resp.error) ? String(resp.error) : I18n.t('clip.createFailed'), 'err');
       btnEl.disabled = false;
       btnEl.textContent = '✂';
     }
   } catch (e) {
-    toast('请求失败: ' + String(e), 'err');
+    toast(I18n.t('clip.requestFailed').replace('{e}', String(e)), 'err');
     btnEl.disabled = false;
     btnEl.textContent = '✂';
   }
 }
 
 const STATUS_LABELS = {
-  done: '已完成', running: '进行中', error: '失败', pending: '等待中'
+  done: I18n.t('clip.clipDone'), running: I18n.t('clip.clipRunning'), error: I18n.t('clip.clipError'), pending: I18n.t('clip.clipPending')
 };
 
 function _fmtDur(seconds) {
@@ -157,24 +157,30 @@ function _fmtDur(seconds) {
 
 async function chViewTask(taskId) {
   if (!document.getElementById('modalClipDetail')) {
-    toast('页面加载中，请稍后重试', 'warning');
+    toast(I18n.t('clip.pageLoading'), 'warning');
     return;
   }
   const task = await api('GET', '/clips/' + taskId);
   if (!task || task.error) {
-    toast('加载任务详情失败', 'err');
+    toast(I18n.t('clip.loadTaskFailed'), 'err');
     return;
   }
 
-  // Header
-  document.getElementById('ccdTaskId').textContent = task.id;
-  document.getElementById('ccdVideoTitle').textContent = task.video_title || '未知视频';
+  // Header（#ccdTaskId 须在独立节点上，勿放在仅含 data-i18n 的父级内，否则 I18n.apply 会清空子节点）
+  const ccdTaskIdEl = document.getElementById('ccdTaskId');
+  const ccdVideoTitleEl = document.getElementById('ccdVideoTitle');
+  if (!ccdTaskIdEl || !ccdVideoTitleEl) {
+    toast(I18n.t('clip.loadTaskFailed'), 'err');
+    return;
+  }
+  ccdTaskIdEl.textContent = task.id;
+  ccdVideoTitleEl.textContent = task.video_title || I18n.t('clip.unknownVideo');
 
   const statusEl = document.getElementById('ccdStatus');
   statusEl.textContent = STATUS_LABELS[task.status] || task.status;
   statusEl.className = 'ccd-badge ' + (task.status || 'pending');
 
-  document.getElementById('ccdClipCount').textContent = (task.clip_count ?? 0) + ' 个切片';
+  document.getElementById('ccdClipCount').textContent = I18n.t('clip.clipCount').replace('{n}', task.clip_count ?? 0);
   document.getElementById('ccdCreatedAt').textContent = fmtTime(task.created_at);
 
   // Clips
@@ -192,7 +198,7 @@ async function chViewTask(taskId) {
       const score = clip.final_score || 0;
       const scoreClass = score >= 8 ? 'high' : score >= 6 ? 'medium' : 'low';
       const dur = _fmtDur((clip.end_time || 0) - (clip.start_time || 0));
-      const title = esc(clip.generated_title || clip.title || '切片 #' + clip.id);
+      const title = esc(clip.generated_title || clip.title || I18n.t('clip.btnClip') + ' #' + clip.id);
       const path = clip.clip_path || '';
       _clipPaths[clip.id] = path;  // store raw path in JS object
       return '<div class="ccd-item ccd-clip-item">' +
@@ -201,11 +207,11 @@ async function chViewTask(taskId) {
           '<div class="ccd-item-sub">' +
             '<span class="ccd-duration">' + dur + '</span>' +
             '<span class="ccd-dot"></span>' +
-            '<span class="ccd-score-label">评分 ' + score.toFixed(1) + '</span>' +
+            '<span class="ccd-score-label">' + I18n.t('clip.scoreLabel').replace('{s}', score.toFixed(1)) + '</span>' +
           '</div>' +
         '</div>' +
         '<span class="ccd-score-badge ' + scoreClass + '">' + score.toFixed(1) + '</span>' +
-        '<button class="ccd-play-btn" title="播放" onclick="ccdPlay(\'' + clip.id + '\')">' +
+        '<button class="ccd-play-btn" title="' + I18n.t('clip.clipPlay') + '" onclick="ccdPlay(\'' + clip.id + '\')">' +
           '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>' +
         '</button>' +
       '</div>';
@@ -224,7 +230,7 @@ async function chViewTask(taskId) {
   } else {
     collectionsEmpty.style.display = 'none';
     collectionsList.innerHTML = collections.map(function(col) {
-      const title = esc(col.title || '合集 #' + col.id);
+      const title = esc(col.title || I18n.t('batch.btnReopen') + ' #' + col.id);
       const desc = esc(col.description || '');
       const path = col.collection_path || '';
       return '<div class="ccd-item ccd-collection-item">' +
@@ -232,7 +238,7 @@ async function chViewTask(taskId) {
           '<div class="ccd-item-title" title="' + title + '">' + title + '</div>' +
           (desc ? '<div class="ccd-item-desc" title="' + desc + '">' + desc + '</div>' : '') +
         '</div>' +
-        '<button class="ccd-play-btn" title="播放合集" onclick="ccdPlay(\'' + encodeURIComponent(path) + '\')">' +
+        '<button class="ccd-play-btn" title="' + I18n.t('clip.clipPlay') + '" onclick="ccdPlay(\'' + encodeURIComponent(path) + '\')">' +
           '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>' +
         '</button>' +
       '</div>';
@@ -243,7 +249,7 @@ async function chViewTask(taskId) {
 }
 
 window.ccdPlay = function(clipIdOrPath) {
-  if (!clipIdOrPath) { toast('文件路径无效', 'err'); return; }
+  if (!clipIdOrPath) { toast(I18n.t('clip.loadTaskFailed'), 'err'); return; }
   var path;
   if (_clipPaths[clipIdOrPath] !== undefined) {
     // clips: 通过 clip ID 查表（避免 data-path 属性编码问题）
@@ -252,7 +258,7 @@ window.ccdPlay = function(clipIdOrPath) {
     // collections: 传入的是 encodeURIComponent 编码后的路径
     path = decodeURIComponent(clipIdOrPath);
   }
-  if (!path) { toast('文件路径无效', 'err'); return; }
+  if (!path) { toast(I18n.t('clip.loadTaskFailed'), 'err'); return; }
   // 构造相对路径：从 videos/ 开始
   var rel = path;
   var idx = rel.toLowerCase().indexOf('videos');
@@ -265,7 +271,7 @@ window.ccdPlay = function(clipIdOrPath) {
   var player = document.getElementById('ccdPlayer');
   var video  = document.getElementById('ccdVideoEl');
   var body   = document.getElementById('ccdBody');
-  if (!player || !video) { toast('播放器未初始化', 'err'); return; }
+  if (!player || !video) { toast(I18n.t('clip.loadTaskFailed'), 'err'); return; }
 
   video.src = '/api/video-stream?path=' + encodeURIComponent(rel);
   video.load();

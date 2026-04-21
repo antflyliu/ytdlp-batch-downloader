@@ -6,6 +6,15 @@ import { esc } from '../utils/format.js';
 import { fmtDuration } from '../utils/format.js';
 import { toast, openModal, closeModal } from './ui.js';
 import { _vdAccId, _vdPage, _vdSel, _gConfig, setVdAccId, setVdPage, setVdSelClear } from './state.js';
+import { I18n } from '../../static/js/i18n.js';
+
+/** 重置视频详情表格滚动位置，避免横向滚动停留在末端导致首列只剩一条边线。 */
+function resetVdTableScroll() {
+  const wrap = document.querySelector('#modalVideoDetail .mvd-table-scroll');
+  if (!wrap) return;
+  wrap.scrollLeft = 0;
+  wrap.scrollTop = 0;
+}
 
 // Click delegation for external links in video table
 // Uses event delegation on document so it works even if vdTbody is lazy-loaded
@@ -20,7 +29,7 @@ document.addEventListener('click', (e) => {
 export function openVideoDetail(accId) {
   // Guard: modalVideoDetail is loaded via loadPartials() — if not yet in DOM, skip
   if (!document.getElementById('modalVideoDetail')) {
-    toast('页面加载中，请稍后重试', 'warning');
+    toast(I18n.t('common.pageLoading'), 'warning');
     return;
   }
   setVdAccId(accId);
@@ -33,6 +42,7 @@ export function openVideoDetail(accId) {
   window._vdEscHandlerRef = (e) => { if (e.key === 'Escape') closeModal('modalVideoDetail'); };
   document.addEventListener('keydown', window._vdEscHandlerRef);
   openModal('modalVideoDetail');
+  resetVdTableScroll();
   vdLoad();
 }
 
@@ -65,24 +75,26 @@ export async function vdLoad() {
   const tbody = document.getElementById('vdTbody');
   if (!tbody) return;
   if (!res || res.error || !Array.isArray(res.videos)) {
-    const msg = (res && res.error) ? String(res.error) : '加载失败';
+    const msg = (res && res.error) ? String(res.error) : I18n.t('video.loadFailed');
     if (res && res._httpStatus === 429) {
-      toast('请求过于频繁，请稍后再试或点击「搜索」重试', 'warning');
+      toast(I18n.t('video.rateLimitHint'), 'warning');
     } else {
       toast(msg, 'err');
     }
     const _s = (id) => { const e = document.getElementById(id); if (e) e.textContent = arguments[1]; };
-    _s('vdTotal', '共 — 条'); _s('vdPageInfo', '— / — 页');
+    _s('vdTotal', I18n.t('video.totalVideos').replace('{n}', '—')); _s('vdPageInfo', I18n.t('video.pageInfo'));
     const _d = (id, v) => { const e = document.getElementById(id); if (e) e.disabled = v; };
     _d('vdPrevBtn', true); _d('vdNextBtn', true);
     tbody.innerHTML =
       '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px;line-height:1.6">' +
-      esc(msg) + '<br><span style="font-size:12px;opacity:.85">若为限流，等待约 1 分钟后点击「搜索」刷新。</span></td></tr>';
+      esc(msg) + '<br><span style="font-size:12px;opacity:.85">' + I18n.t('video.rateLimitHint') + '</span></td></tr>';
+    _updateVdSelCount();
+    resetVdTableScroll();
     return;
   }
   const _s2 = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   const _d2 = (id, v) => { const e = document.getElementById(id); if (e) e.disabled = v; };
-  _s2('vdTotal', '共 ' + res.total + ' 条'); _s2('vdPageInfo', res.page + ' / ' + res.pages + ' 页');
+  _s2('vdTotal', I18n.t('video.totalVideos').replace('{n}', res.total)); _s2('vdPageInfo', I18n.t('video.pageInfo').replace('{p}', res.page).replace('{t}', res.pages));
   _d2('vdPrevBtn', res.page <= 1); _d2('vdNextBtn', res.page >= res.pages);
 
   // 状态筛选模式下隐藏分页（因为 get_account_videos_filtered 不支持分页）
@@ -101,18 +113,20 @@ export async function vdLoad() {
     }
   }
   if (!res.videos || res.videos.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">暂无数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">' + I18n.t('video.noData') + '</td></tr>';
+    _updateVdSelCount();
+    resetVdTableScroll();
     return;
   }
   tbody.innerHTML = res.videos.map(v => {
     const sel = _vdSel.has(v.id) ? 'checked' : '';
     const dlTag = v.download_status === 'downloaded'
-      ? '<span class="tag tag-downloaded">已下载</span>'
+      ? '<span class="tag tag-downloaded">' + I18n.t('video.tagDownloaded') + '</span>'
       : v.download_status === 'downloading'
-      ? '<span class="tag tag-downloading">下载中</span>'
+      ? '<span class="tag tag-downloading">' + I18n.t('video.tagDownloading') + '</span>'
       : v.download_status === 'failed'
-      ? '<span class="tag tag-download-failed">失败</span>'
-      : '<span class="tag tag-download-pending">待下载</span>';
+      ? '<span class="tag tag-download-failed">' + I18n.t('video.tagFailed') + '</span>'
+      : '<span class="tag tag-download-pending">' + I18n.t('video.tagPending') + '</span>';
     const pubDate = v.published_at ? v.published_at.slice(0, 10) : '—';
     const duration = v.duration_sec ? fmtDuration(v.duration_sec) : '—';
     const views = v.view_count ? Number(v.view_count).toLocaleString() : '—';
@@ -134,7 +148,7 @@ export async function vdLoad() {
       '<td>' + dlTag + '</td>' +
       '<td><button type="button" class="btn-sm vd-open-url" data-open-url="' + (url.startsWith('http') ? url : '#') + '">▶</button>' +
 (v.download_status === 'downloaded'
- ? ' <button type="button" class="btn-sm" style="color:var(--accent)" onclick="chTriggerClip(' + v.id + ',this)" title="AI切片">✂</button>'
+ ? ' <button type="button" class="btn-sm" style="color:var(--accent)" onclick="chTriggerClip(' + v.id + ',this)" title="' + I18n.t('video.clipTrigger') + '">✂</button>'
  : '') +
 '</td>' +
     '</tr>';
@@ -143,6 +157,7 @@ export async function vdLoad() {
   const ca = document.getElementById('vdCheckAll');
   if (ca) ca.checked = allChecked;
   _updateVdSelCount();
+  resetVdTableScroll();
 }
 
 export function vdSearch() { setVdPage(1); vdLoad(); }
@@ -169,17 +184,17 @@ export async function vdRetryFailed() {
   if (!retryBtn) return;
   const count = parseInt(document.getElementById('vdRetryCount').textContent || '0', 10);
   if (count === 0) return;
-  if (!confirm('确定要重试 ' + count + ' 个失败视频吗？')) return;
+  if (!confirm(I18n.t('video.retryConfirm').replace('{n}', count))) return;
   retryBtn.disabled = true;
-  retryBtn.innerHTML = '<span class="spinner"></span> 重试中...';
+  retryBtn.innerHTML = '<span class="spinner"></span> ' + I18n.t('video.retryInProgress') + '...';
   try {
     // 收集当前表格行 ID（当前页），兼容少量失败场景
     const rows = document.querySelectorAll('#vdTbody tr[data-id]');
     const videoIds = [...rows].map(r => parseInt(r.dataset.id)).filter(id => !isNaN(id));
     if (videoIds.length === 0) {
-      toast('没有可重试的视频', 'warning');
+      toast(I18n.t('video.noRetryable'), 'warning');
       retryBtn.disabled = false;
-      retryBtn.innerHTML = '重试失败 (<span id="vdRetryCount">0</span>)';
+      retryBtn.innerHTML = I18n.t('video.retryDone').replace('{n}', 0);
       return;
     }
     const r = await api('POST', '/api/videos/retry', {
@@ -187,18 +202,18 @@ export async function vdRetryFailed() {
       account_id: _vdAccId,
     });
     if (r.ok) {
-      toast(r.retried + ' 个视频已重试', 'ok');
+      toast(I18n.t('video.retryDone').replace('{n}', r.retried), 'ok');
       setVdPage(1);
       setVdSelClear();
       vdLoad();
     } else {
-      toast('重试失败: ' + (r.error || ''), 'err');
+      toast(I18n.t('video.retryFailed').replace('{e}', r.error || ''), 'err');
     }
   } catch (e) {
-    toast('重试请求失败: ' + (e.message || ''), 'err');
+    toast(I18n.t('video.retryRequestFailed').replace('{e}', e.message || ''), 'err');
   }
   retryBtn.disabled = false;
-  retryBtn.innerHTML = '重试失败 (<span id="vdRetryCount">' + count + '</span>)';
+  retryBtn.innerHTML = I18n.t('video.retryCount').replace('{n}', count);
 }
 
 export function vdToggle(id, checked) {
@@ -236,18 +251,28 @@ export function vdToggleAll(el) {
   _updateVdSelCount();
 }
 
+/**
+ * 批量下载按钮文案：必须用 JS 替换 {n}；不可对整颗按钮使用 data-i18n（否则会破坏子节点且无法插值）。
+ */
 function _updateVdSelCount() {
-  const n = document.getElementById('vdSelCount');
+  const label = document.getElementById('vdBatchBtnLabel');
   const b = document.getElementById('vdBatchBtn');
-  if (n) n.textContent = _vdSel.size;
+  if (label) {
+    label.textContent = I18n.t('video.btnDownloadSelected').replace('{n}', String(_vdSel.size));
+  }
   if (b) b.disabled = _vdSel.size === 0;
+}
+
+/** 语言切换后若视频详情弹层已打开，刷新批量按钮文案 */
+export function refreshVdBatchButtonLabel() {
+  _updateVdSelCount();
 }
 
 export function _updateVdSubLabelText() {
   const toggle = document.getElementById('vdSubToggle');
   const label = document.getElementById('vdSubLabel');
   if (!toggle || !label) return;
-  label.textContent = toggle.checked ? '字幕:是' : '字幕:否';
+  label.textContent = toggle.checked ? I18n.t('video.subtitleOn') : I18n.t('video.subtitleOff');
 }
 
 export function _getVdSubPayload() {
@@ -259,34 +284,37 @@ export function _getVdSubPayload() {
 export async function vdBatchDownload() {
   if (_vdSel.size === 0) return;
   const btn = document.getElementById('vdBatchBtn');
+  const lbl = document.getElementById('vdBatchBtnLabel');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span><span>提交中...</span>';
+  if (lbl) {
+    lbl.innerHTML = '<span class="spinner"></span> <span>' + I18n.t('video.submitting') + '...</span>';
+  }
 
   const payload = Object.assign({ video_ids: Array.from(_vdSel) }, _getVdSubPayload());
   const r = await api('POST', '/accounts/' + _vdAccId + '/videos/batch-download', payload);
   if (!r.ok) {
-    toast('下载失败: ' + (r.error || ''), 'err');
+    toast(I18n.t('video.downloadFailed').replace('{e}', r.error || ''), 'err');
     btn.disabled = false;
-    btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+    _updateVdSelCount();
     return;
   }
 
-  toast(r.queued + ' 个视频已开始下载', 'ok');
+  toast(I18n.t('video.videosQueued').replace('{n}', r.queued), 'ok');
 
   const routing = r.routing;
   if (routing) {
     const sourceLabels = {
-      'account_static': '账户固定代理',
-      'system_paid': '系统付费动态代理',
-      'system_free': '系统免费动态代理',
-      'direct': '直连',
-      'failed': '路由失败',
+      'account_static': I18n.t('video.routingAccountStatic'),
+      'system_paid': I18n.t('video.routingSystemPaid'),
+      'system_free': I18n.t('video.routingSystemFree'),
+      'direct': I18n.t('video.routingDirect'),
+      'failed': I18n.t('video.routingFailed'),
     };
-    const source = sourceLabels[routing.source] || routing.source || '未知';
-    let routingMsg = '本次线路: ' + source;
+    const source = sourceLabels[routing.source] || routing.source || I18n.t('video.routingUnknown');
+    let routingMsg = I18n.t('video.routingCurrent').replace('{s}', source);
     if (routing.provider) routingMsg += ' | ' + routing.provider;
     if (routing.warnings && routing.warnings.length > 0) {
-      routingMsg += ' | 注意：' + routing.warnings.join(', ');
+      routingMsg += ' | ' + I18n.t('video.routingWarning') + ' ' + routing.warnings.join(', ');
     }
     setTimeout(() => {
       toast(routingMsg, routing.source === 'direct' || routing.source === 'failed' ? 'warning' : 'info');
@@ -294,7 +322,7 @@ export async function vdBatchDownload() {
   }
 
   _vdShowDlBar(r.task_id, r.queued);
-  btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
+  _updateVdSelCount();
   btn.disabled = true;
   await vdLoad();
 }
@@ -302,7 +330,7 @@ export async function vdBatchDownload() {
 function _vdShowDlBar(taskId, total) {
   const bar = document.getElementById('vdDlBar');
   bar.classList.add('show');
-  document.getElementById('vdDlLabel').textContent = '正在下载 0/' + total + ' ...';
+  document.getElementById('vdDlLabel').textContent = I18n.t('video.downloadingN').replace('{n}', '0/' + total + ' ...');
   document.getElementById('vdDlPercent').textContent = '0%';
   document.getElementById('vdDlFill').style.width = '0%';
   document.getElementById('vdDlStatus').textContent = '';
@@ -318,22 +346,22 @@ async function _vdPollDlTask(taskId, total) {
     const t = await api('GET', '/download-tasks/' + taskId);
     if (t.error) {
       if (t._httpStatus === 429) return;
-      _vdDlDone('查询失败: ' + t.error);
+      _vdDlDone(I18n.t('video.queryFailed').replace('{e}', t.error));
       return;
     }
     const pct = total > 0 ? Math.round((t.completed / total) * 100) : 0;
+    const statusLabel = t.status === 'done' ? I18n.t('video.downlCompleteStatus') : t.status === 'error' ? I18n.t('video.downloadErrorStatus') : I18n.t('video.downloadingStatus');
     document.getElementById('vdDlLabel').textContent =
-      (t.status === 'done' ? '下载完成' : t.status === 'error' ? '下载出错' : '正在下载') +
-      ' ' + t.completed + '/' + total;
+      statusLabel + ' ' + t.completed + '/' + total;
     document.getElementById('vdDlPercent').textContent = pct + '%';
     document.getElementById('vdDlFill').style.width = pct + '%';
     document.getElementById('vdDlStatus').textContent = t.current_video || '';
     if (t.status === 'done') {
-      _vdDlDone('下载完成: 成功 ' + t.success + ', 失败 ' + t.failed);
-      toast('下载完成: 成功 ' + t.success + ' 个, 失败 ' + t.failed + ' 个', t.failed > 0 ? 'err' : 'ok');
+      _vdDlDone(I18n.t('video.batchDone').replace('{s}', t.success).replace('{f}', t.failed));
+      toast(I18n.t('video.batchDone').replace('{s}', t.success).replace('{f}', t.failed), t.failed > 0 ? 'err' : 'ok');
     } else if (t.status === 'error') {
-      _vdDlDone('下载异常: ' + (t.error || ''));
-      toast('下载异常: ' + (t.error || ''), 'err');
+      _vdDlDone(I18n.t('video.downloadAbnormal').replace('{e}', t.error || ''));
+      toast(I18n.t('video.downloadAbnormal').replace('{e}', t.error || ''), 'err');
     }
   } catch (e) {
     // 网络错误时继续轮询，不中断
@@ -348,10 +376,7 @@ export function _vdDlDone(msg) {
   const btn = document.getElementById('vdBatchBtn');
   if (dlStatus) dlStatus.textContent = msg;
   if (dlFill) dlFill.style.width = '100%';
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = '下载选中 (<span id="vdSelCount">' + _vdSel.size + '</span>)';
-  }
+  if (btn) btn.disabled = false;
   _vdSel.clear();
   _updateVdSelCount();
   vdLoad();

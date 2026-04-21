@@ -933,13 +933,7 @@
 .dyn-status-degraded { color: #f59e0b; }
 .dyn-status-down { color: #ef4444; }
 .dyn-status-unknown { color: var(--text-dim); }
-.dyn-actions {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
+/* 操作列：与账户表一致，使用 table.accounts-table .actions（见 table.css） */
 /* 提供方列表：搜索 + 分页（与账户搜索条同系） */
 .dyn-provider-list-toolbar {
   display: flex;

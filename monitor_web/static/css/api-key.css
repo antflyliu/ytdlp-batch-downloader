@@ -19,19 +19,32 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+}
+.vd-table td:not(.vd-check) {
   max-width: 520px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.vd-table th:first-child,
+.vd-table td.vd-check {
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  box-sizing: border-box;
+  text-align: center;
+  padding: 10px 8px;
+  overflow: visible;
+  border-left: 2px solid transparent;
+}
 .vd-table tr:hover td { background: var(--surface2); }
-.vd-table tr:hover td:first-child { border-left: 2px solid var(--accent); }
+.vd-table tr:hover td.vd-check { border-left-color: var(--accent); }
 .vd-title { color: var(--text); cursor: pointer; }
 .vd-title:hover { color: var(--accent); text-decoration: underline; }
 .vd-url { color: var(--text-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vd-desc { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vd-num { font-family: var(--mono); color: var(--text-muted); font-size: 12px; text-align: right; }
-.vd-check { width: 36px; }
+.vd-check { width: 48px; min-width: 48px; }
 
 /* Download Progress Bar */
 .vd-dl-bar { display:none; padding:8px 16px; border-bottom:1px solid var(--border); }

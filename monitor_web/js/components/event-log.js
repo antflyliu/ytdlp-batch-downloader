@@ -15,26 +15,26 @@ export async function loadEvents() {
   if (!Array.isArray(events)) {
     area.innerHTML =
       '<div class="log-line"><span class="log-time">—</span><span class="log-msg err">' +
-      esc((events && events.error) ? String(events.error) : '事件加载失败') +
+      esc((events && events.error) ? String(events.error) : I18n.t('eventLog.loadFailed')) +
       '</span></div>';
     return;
   }
   if (!events || events.length === 0) {
-    area.innerHTML = '<div class="log-line"><span class="log-time">—</span><span class="log-msg">暂无扫描记录</span></div>';
+    area.innerHTML = '<div class="log-line"><span class="log-time">—</span><span class="log-msg">' + I18n.t('eventLog.noEvents') + '</span></div>';
     return;
   }
   const countEl = el('eventCount');
   if (countEl) {
-    countEl.textContent = `最近 ${events.length} 条`;
+    countEl.textContent = I18n.t('eventLog.recentN').replace('{n}', events.length);
   }
   area.innerHTML = events.map(e => {
     const cls = e.status === 'success' ? 'ok' : e.status === 'error' ? 'err' : 'info';
     const time = e.scan_started_at ? fmtTime(e.scan_started_at) : '—';
     const msg = e.status === 'success'
-      ? `${e.account_name}: API返回${e.total_videos} 新增${e.new_videos} 耗时${e.duration_ms}ms`
+      ? `${e.account_name}: API ${I18n.t('eventLog.returnedN').replace('{total}', e.total_videos)} ${I18n.t('eventLog.newN').replace('{new}', e.new_videos)} ${I18n.t('eventLog.durationMs').replace('{ms}', e.duration_ms)}`
       : e.status === 'error'
-      ? `${e.account_name}: 失败 ${e.error_message}`
-      : `${e.account_name}: 进行中...`;
+      ? `${e.account_name}: ${I18n.t('eventLog.failed')} ${e.error_message}`
+      : `${e.account_name}: ${I18n.t('eventLog.inProgress')}`;
     return `<div class="log-line"><span class="log-time">${time}</span><span class="log-msg ${cls}">${esc(msg)}</span></div>`;
   }).join('');
 }

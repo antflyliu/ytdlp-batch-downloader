@@ -28,7 +28,9 @@ export function filterAccountTable(query) {
   });
   const countEl = el('accountCount');
   if (countEl) {
-    countEl.textContent = q ? `${visible} / ${_accountsCache.length}` : `共 ${_accountsCache.length} 个账户`;
+    countEl.textContent = q
+      ? `${visible} / ${_accountsCache.length}`
+      : I18n.t('account.totalAccounts').replace('{n}', String(_accountsCache.length));
   }
 }
 
@@ -45,9 +47,9 @@ export async function loadAccounts() {
   if (!tbody) return;
 
   if (!Array.isArray(accounts)) {
-    const msg = (accounts && accounts.error) ? String(accounts.error) : '加载失败';
+    const msg = (accounts && accounts.error) ? String(accounts.error) : I18n.t('account.loadFailed');
     if (accounts && accounts._httpStatus === 429) {
-      toast('账户列表请求被限流，将随下次刷新重试', 'warning');
+      toast(I18n.t('account.loadRateLimit'), 'warning');
     } else {
       toast(msg, 'err');
     }
@@ -73,7 +75,7 @@ export async function loadAccounts() {
 
   // Update count display
   const countEl = el('accountCount');
-  if (countEl) countEl.textContent = `共 ${accounts.length} 个账户`;
+  if (countEl) countEl.textContent = I18n.t('account.totalAccounts').replace('{n}', String(accounts.length));
 
   // Clear search input when reload
   const searchEl = el('accountSearch');
@@ -84,24 +86,24 @@ export async function loadAccounts() {
       ? '<span class="tag tag-muted">playlist</span>'
       : '<span class="tag tag-accent">search</span>';
     const platTag = a.notify_platform === 'feishu'
-      ? '<span class="tag tag-feishu">飞书</span>'
+      ? `<span class="tag tag-feishu">${I18n.t('account.platFeishu')}</span>`
       : a.notify_platform === 'dingtalk'
-      ? '<span class="tag tag-dingtalk">钉钉</span>'
+      ? `<span class="tag tag-dingtalk">${I18n.t('account.platDingtalk')}</span>`
       : a.notify_platform === 'telegram'
-      ? '<span class="tag tag-telegram">Telegram</span>'
-      : '<span class="tag tag-wecom">企微</span>';
+      ? `<span class="tag tag-telegram">${I18n.t('account.platTelegram')}</span>`
+      : `<span class="tag tag-wecom">${I18n.t('account.platWecom')}</span>`;
     const statusTag = a.enabled
-      ? '<span class="tag tag-success">启用</span>'
-      : '<span class="tag tag-muted">禁用</span>';
+      ? `<span class="tag tag-success">${I18n.t('account.statusEnabled')}</span>`
+      : `<span class="tag tag-muted">${I18n.t('account.statusDisabled')}</span>`;
     const notifyTag = a.notify_enabled
-      ? '<span class="tag tag-success">通知</span>'
-      : '<span class="tag tag-muted">静默</span>';
+      ? `<span class="tag tag-success">${I18n.t('account.notifyEnabled')}</span>`
+      : `<span class="tag tag-muted">${I18n.t('account.notifySilent')}</span>`;
     const apiKeyTag = a.api_key_id
       ? '<span class="tag tag-accent">Key-' + a.api_key_id + '</span>'
-      : '<span class="tag tag-muted">默认</span>';
+      : '<span class="tag tag-muted">' + I18n.t('common.default') + '</span>';
     const proxyTag = a.proxy_enabled && a.proxy_pool_id
-      ? '<span class="account-proxy-cell"><span class="proxy-dot on" title="代理已启用"></span><span style="font-size:11px;color:var(--proxy-text)">启用</span></span>'
-      : '<span class="account-proxy-cell"><span class="proxy-dot off" title="不使用代理"></span><span style="font-size:11px;color:var(--text-dim)">—</span></span>';
+      ? '<span class="account-proxy-cell"><span class="proxy-dot on" title=""></span><span style="font-size:11px;color:var(--proxy-text)">' + I18n.t('account.proxyEnabled') + '</span></span>'
+      : '<span class="account-proxy-cell"><span class="proxy-dot off" title=""></span><span style="font-size:11px;color:var(--text-dim)">—</span></span>';
     return `<tr data-name="${esc(a.name || '')}" data-url="${esc(a.channel_url || '')}">
       <td class="td-mono">${a.id}</td>
       <td class="td-name">${esc(a.name)}</td>
@@ -115,10 +117,10 @@ export async function loadAccounts() {
       <td>${proxyTag}</td>
       <td>
         <div class="actions">
-          <button class="btn-sm" onclick="window.openEditAccount(${a.id})">编辑</button>
-          <button class="btn-sm" onclick="window.openVideoDetail(${a.id})">详情</button>
-          <button class="btn-sm info" data-scan-now-id="${a.id}" onclick="window.scanNow(${a.id}, this)">立即扫描</button>
-          <button class="btn-sm danger" onclick="window.deleteAccount(${a.id})">删除</button>
+          <button class="btn-sm" onclick="window.openEditAccount(${a.id})">${I18n.t('account.btnEdit')}</button>
+          <button class="btn-sm" onclick="window.openVideoDetail(${a.id})">${I18n.t('account.btnDetail')}</button>
+          <button class="btn-sm info" data-scan-now-id="${a.id}" onclick="window.scanNow(${a.id}, this)">${I18n.t('account.btnScanNow')}</button>
+          <button class="btn-sm danger" onclick="window.deleteAccount(${a.id})">${I18n.t('account.btnDelete')}</button>
         </div>
       </td>
     </tr>`;

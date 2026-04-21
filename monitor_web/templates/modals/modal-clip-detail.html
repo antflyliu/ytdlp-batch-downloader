@@ -3,7 +3,10 @@
     <!-- Header -->
     <div class="ccd-header">
       <div class="ccd-header-left">
-        <div class="ccd-eyebrow" data-i18n="clipDetail.taskId">切片任务 #<span id="ccdTaskId"></span></div>
+        <!-- 勿在包裹 #ccdTaskId 的节点上使用 data-i18n：I18n.apply 会 textContent 覆盖并删除子节点 -->
+        <div class="ccd-eyebrow">
+          <span data-i18n="clipDetail.taskLabel">切片任务</span><span class="ccd-task-id-suffix"> #<span id="ccdTaskId"></span></span>
+        </div>
         <h2 class="ccd-title" id="ccdVideoTitle"></h2>
         <div class="ccd-meta">
           <span class="ccd-badge" id="ccdStatus"></span>

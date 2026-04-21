@@ -46,14 +46,14 @@ export async function loadProxyPoolTable() {
       <td>
         <div class="proxy-pool-status">
           <span class="proxy-dot ${p.enabled ? 'on' : 'off'}"></span>
-          ${p.enabled ? '<span class="proxy-pool-status__on">在线</span>' : '<span class="proxy-pool-status__off">离线</span>'}
+          ${p.enabled ? '<span class="proxy-pool-status__on">' + I18n.t('proxy.statusOnline') + '</span>' : '<span class="proxy-pool-status__off">' + I18n.t('proxy.statusOffline') + '</span>'}
         </div>
       </td>
       <td>
         <div class="actions">
-          <button class="btn-sm" onclick="window.openEditProxyPool(${p.id})">编辑</button>
-          <button class="btn-sm ${p.enabled ? 'warning' : 'success'}" onclick="window.toggleProxyPool(${p.id}, ${!p.enabled})">${p.enabled ? '禁用' : '启用'}</button>
-          <button class="btn-sm danger" onclick="window.deleteProxyPool(${p.id})">删除</button>
+          <button class="btn-sm" onclick="window.openEditProxyPool(${p.id})">${I18n.t('proxy.btnEdit')}</button>
+          <button class="btn-sm ${p.enabled ? 'warning' : 'success'}" onclick="window.toggleProxyPool(${p.id}, ${!p.enabled})">${p.enabled ? I18n.t('proxy.btnDisable') : I18n.t('proxy.btnEnable')}</button>
+          <button class="btn-sm danger" onclick="window.deleteProxyPool(${p.id})">${I18n.t('proxy.btnDelete')}</button>
         </div>
       </td>
     </tr>`).join('');
@@ -63,7 +63,7 @@ export async function loadProxyPoolTable() {
 export function openAddProxyPool() {
   closeProxyDemo();
   const title = el('modalProxyPoolFormTitle');
-  if (title) title.textContent = '添加代理节点';
+  if (title) title.textContent = I18n.t('proxy.modalTitleAdd');
   const ppId = el('ppId');
   if (ppId) ppId.value = '';
   const ppName = el('ppName');
@@ -78,9 +78,9 @@ export function openAddProxyPool() {
 export async function openEditProxyPool(id) {
   const pools = await api('GET', '/proxy-pools');
   const pool = pools && pools.find(p => p.id === id);
-  if (!pool) return toast('固定代理不存在', 'err');
+  if (!pool) return toast(I18n.t('proxy.notFound'), 'err');
   const title = el('modalProxyPoolFormTitle');
-  if (title) title.textContent = '编辑代理节点';
+  if (title) title.textContent = I18n.t('proxy.modalTitleEdit');
   const ppId = el('ppId');
   if (ppId) ppId.value = pool.id;
   const ppName = el('ppName');
@@ -100,7 +100,7 @@ export async function saveProxyPool() {
   const id = ppId ? ppId.value : '';
   const name = ppName ? ppName.value.trim() : '';
   const url = ppUrl ? ppUrl.value.trim() : '';
-  if (!name || !url) { toast('名称和代理地址不能为空', 'err'); return; }
+  if (!name || !url) { toast(I18n.t('proxy.nameAndUrlRequired'), 'err'); return; }
   const body = {
     name,
     proxy_url: url,
@@ -109,8 +109,8 @@ export async function saveProxyPool() {
   let r;
   if (id) r = await api('POST', `/proxy-pools/${id}/update`, body);
   else r = await api('POST', '/proxy-pools', body);
-  if (r.error) { toast(r.error || '保存失败', 'err'); return; }
-  toast(id ? '固定代理已更新' : '固定代理已添加', 'ok');
+  if (r.error) { toast(r.error || I18n.t('proxy.saveFailed'), 'err'); return; }
+  toast(id ? I18n.t('proxy.saved') : I18n.t('proxy.added'), 'ok');
   closeModal('modalProxyPoolForm');
   await loadProxyPoolTable();
   await refreshProxyPoolSelectors();
@@ -122,7 +122,7 @@ export async function toggleProxyPool(id, enabled) {
   if (!pool) return;
   const r = await api('POST', `/proxy-pools/${id}/update`, { enabled });
   if (r.error) { toast(r.error, 'err'); return; }
-  toast(enabled ? '固定代理已启用' : '固定代理已禁用', 'ok');
+  toast(enabled ? I18n.t('proxy.enabled') : I18n.t('proxy.disabled'), 'ok');
   await loadProxyPoolTable();
   await refreshProxyPoolSelectors();
 }
@@ -130,20 +130,20 @@ export async function toggleProxyPool(id, enabled) {
 export async function deleteProxyPool(id) {
   const pools = await api('GET', '/proxy-pools');
   const pool = pools && pools.find(p => p.id === id);
-  if (!pool) return toast('固定代理不存在', 'err');
+  if (!pool) return toast(I18n.t('proxy.notFound'), 'err');
   const ok = await showAppConfirm({
-    title: `确定删除固定代理「${pool.name}」？`,
-    message: '关联的账户将停止使用此代理。',
-    confirmText: '删除',
+    title: I18n.t('proxy.deleteConfirmTitle').replace('{name}', pool.name),
+    message: I18n.t('proxy.deleteConfirmMsg'),
+    confirmText: I18n.t('proxy.btnDelete'),
     variant: 'danger',
   });
   if (!ok) return;
   const r = await api('DELETE', `/proxy-pools/${id}`);
   if (r.error) { toast(r.error, 'err'); return; }
   if (r.affected_accounts && r.affected_accounts.length > 0) {
-    toast(`已删除（${r.affected_accounts.length} 个账户已停止使用此代理）`, 'ok');
+    toast(I18n.t('proxy.deletedWithAccounts').replace('{n}', r.affected_accounts.length), 'ok');
   } else {
-    toast('已删除', 'ok');
+    toast(I18n.t('proxy.btnDelete'), 'ok');
   }
   await loadProxyPoolTable();
   await refreshProxyPoolSelectors();

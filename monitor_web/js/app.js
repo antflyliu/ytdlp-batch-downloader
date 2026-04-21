@@ -11,7 +11,7 @@ import '../static/js/i18n.js';
 // ── Feature modules ────────────────────────────────────────────────
 import { toast, openModal, closeModal, showAppConfirm, closeAppConfirm, showAppConfirmWithCheckbox, closeScanConfirm } from './modules/ui.js';
 import { refresh, loadStats, refreshAccounts, openAddAccount, openEditAccount, onApiKeySelectChanged, toggleProxySection, onAccountProxyModeChange, onDynamicProxySettingChange, previewAccountRouting, refreshProxyPoolSelectors, saveAccount, deleteAccount, scanNow, confirmScanNow, selectPlatform, updateFeishuModeUI, PROXY_MODE_HELP, startAutoRefresh, stopAutoRefresh } from './modules/accounts.js';
-import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearFilters, vdToggle, vdToggleAll, vdBatchDownload, vdRetryFailed, _updateVdSubLabelText, _getVdSubPayload, _vdDlDone } from './modules/videoDetail.js';
+import { openVideoDetail, vdLoad, vdSearch, vdGoPage, vdChangePageSize, vdClearFilters, vdToggle, vdToggleAll, vdBatchDownload, vdRetryFailed, _updateVdSubLabelText, _getVdSubPayload, _vdDlDone, refreshVdBatchButtonLabel } from './modules/videoDetail.js';
 import { openConfig, saveConfig, openApiKeys, loadApiKeysList, openAddApiKey, openEditApiKey, saveApiKey, deleteApiKey, refreshApiKeySelectors } from './modules/config.js';
 import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, openAddProxyPool, openEditProxyPool, saveProxyPool, toggleProxyPool, deleteProxyPool } from './modules/proxyPool.js';
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
@@ -178,8 +178,16 @@ loadPartials()
     // Initialize i18n
     I18n.init();
 
-    // Language toggle button
-    document.getElementById('langToggle').addEventListener('click', () => I18n.switchLang());
+    // Language toggle: reload dynamic tables so JS-rendered strings pick up the new locale
+    document.getElementById('langToggle').addEventListener('click', async () => {
+      await I18n.switchLang();
+      try {
+        if (typeof window.refresh === 'function') await window.refresh();
+        if (typeof window.loadApiKeysList === 'function') await window.loadApiKeysList();
+        if (typeof window.refreshDynamicProvidersUi === 'function') await window.refreshDynamicProvidersUi();
+        refreshVdBatchButtonLabel();
+      } catch (_) { /* ignore */ }
+    });
 
     // Sidebar navigation click handlers
     // Pages with real section content → hash-based routing (no modal needed)

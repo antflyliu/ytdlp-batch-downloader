@@ -28,7 +28,7 @@
         <div class="form-group">
           <label class="form-label" style="color:var(--telegram)" data-i18n="config.telegramBotToken">Telegram Bot Token</label>
           <input class="form-input" id="cfgTelegramToken" type="password" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ" autocomplete="new-password">
-          <div class="form-hint" data-i18n="config.telegramBotTokenHint">格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取</div>
+          <div class="form-hint" data-i18n-html="config.telegramBotTokenHint">格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取</div>
         </div>
         <div class="form-group">
           <label class="form-label" style="color:var(--telegram)" data-i18n="config.telegramChatId">Telegram Chat ID</label>
@@ -38,7 +38,7 @@
         <div class="form-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
           <label class="form-label" data-i18n="config.quotaBudget">每日 API Quota 上限（兜底）</label>
           <input class="form-input" id="cfgQuotaBudget" type="number" placeholder="8000" style="width:120px">
-          <div class="form-hint" data-i18n="config.quotaBudgetHint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。统计口径为 <strong>配额单位（units）</strong>，与 Google Cloud 控制台一致（非 HTTP 调用次数）。</div>
+          <div class="form-hint" data-i18n-html="config.quotaBudgetHint">当账户未绑定 API Key，且系统默认 API Key 也未设置时，使用此值作为每日配额上限；若账户或默认 API Key 已设置 daily_quota，则优先使用 Key 自己的配额。统计口径为 <strong>配额单位（units）</strong>，与 Google Cloud 控制台一致（非 HTTP 调用次数）。</div>
         </div>
         <div class="form-group" style="margin-top:8px">
           <label class="form-label" data-i18n="config.quotaTimezone">配额统计时区</label>
@@ -51,7 +51,7 @@
         <div class="form-group">
           <label class="form-label" data-i18n="config.channelMetaTTL">频道元数据缓存 TTL（天）</label>
           <input class="form-input" id="cfgChannelMetaMaxAge" type="number" placeholder="30" style="width:100px" min="0" step="1">
-          <div class="form-hint" data-i18n="config.channelMetaTTLHint">超过该天数会重新请求 channels 元数据并写回 SQLite。设为 <strong>0</strong> 表示永不过期（与旧行为一致）。</div>
+          <div class="form-hint" data-i18n-html="config.channelMetaTTLHint">超过该天数会重新请求 channels 元数据并写回 SQLite。设为 <strong>0</strong> 表示永不过期（与旧行为一致）。</div>
         </div>
         <div class="form-group">
           <label class="form-label" data-i18n="config.notifyOnScanError">扫描失败时推送 Webhook</label>
@@ -90,7 +90,7 @@
           <label class="checkbox-label" style="margin-top:8px">
             <input type="checkbox" id="cfgNotifyChannelMetaMismatch">
             <span class="checkbox-box"></span>
-            <span data-i18n="config.notifyChannelMetaMismatch">不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → Telegram 优先）</span>
+            <span data-i18n-html="config.notifyChannelMetaMismatch">不一致时向<strong>全局 Webhook</strong>发送告警（飞书 → 钉钉 → Telegram 优先）</span>
           </label>
         </div>
         <div class="form-group">

@@ -62,23 +62,23 @@ function buildProviderRowHtml(p, meta) {
   const health = String(p.last_health_status || '');
   const healthClass = health === 'healthy' ? 'dyn-status-healthy' : health === 'degraded' ? 'dyn-status-degraded' : health === 'down' ? 'dyn-status-down' : 'dyn-status-unknown';
   const healthDotClass = health === 'healthy' ? 'on' : p.is_in_cooldown ? 'cooldown' : health === 'degraded' ? 'cooldown' : health === 'down' ? 'off' : 'off';
-  const healthLabel = health === 'healthy' ? '健康' : health === 'degraded' ? '降级' : health === 'down' ? '不可用' : '未知';
+  const healthLabel = health === 'healthy' ? I18n.t('provider.healthOk') : health === 'degraded' ? I18n.t('provider.healthDegraded') : health === 'down' ? I18n.t('provider.healthUnavailable') : I18n.t('provider.healthUnknown');
   const tierChip = p.billing_tier === 'paid'
-    ? '<span class="dyn-chip dyn-chip-paid">付费</span>'
-    : '<span class="dyn-chip dyn-chip-free">免费</span>';
+    ? '<span class="dyn-chip dyn-chip-paid">' + I18n.t('provider.paidChip') + '</span>'
+    : '<span class="dyn-chip dyn-chip-free">' + I18n.t('provider.freeChip') + '</span>';
   const caps = [];
-  if (p.supports_auto_download) caps.push('<span class="dyn-chip" style="background:rgba(34,197,94,0.08);border-color:rgba(34,197,94,0.2);color:#22c55e">自动下载</span>');
-  if (p.supports_cookies) caps.push('<span class="dyn-chip" style="background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.2);color:#3b82f6">Cookie</span>');
-  if (p.supports_sticky_session) caps.push('<span class="dyn-chip" style="background:rgba(168,85,247,0.08);border-color:rgba(168,85,247,0.2);color:#a855f7">粘性</span>');
-  const cooldownBadge = p.is_in_cooldown ? '<span class="dyn-badge">冷却中</span>' : '';
+  if (p.supports_auto_download) caps.push('<span class="dyn-chip" style="background:rgba(34,197,94,0.08);border-color:rgba(34,197,94,0.2);color:#22c55e">' + I18n.t('provider.autoDownloadChip') + '</span>');
+  if (p.supports_cookies) caps.push('<span class="dyn-chip" style="background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.2);color:#3b82f6">' + I18n.t('provider.cookiesChip') + '</span>');
+  if (p.supports_sticky_session) caps.push('<span class="dyn-chip" style="background:rgba(168,85,247,0.08);border-color:rgba(168,85,247,0.2);color:#a855f7">' + I18n.t('provider.stickyChip') + '</span>');
+  const cooldownBadge = p.is_in_cooldown ? '<span class="dyn-badge">' + I18n.t('provider.cooldownBadge') + '</span>' : '';
   const pid = p.id;
   const nextRun = nextRunMap[String(pid)] || null;
   const lastRefresh = lastRefreshMap[pid] || null;
   const lr = lastRefresh && typeof lastRefresh === 'object' ? /** @type {{ started_at?: string, raw_count?: number, valid_count?: number }} */ (lastRefresh) : null;
   const schedulerMeta = (nextRun || lr)
     ? '<div style="margin-top:5px;font-size:10px;color:#87867f;line-height:1.5">' +
-        (nextRun ? ('下次: ' + esc(nextRun)) : '下次: —') +
-        (lr ? ('<br>上次刷新: ' + esc(lr.started_at || '') + ' · raw ' + (lr.raw_count || 0) + ' / valid ' + (lr.valid_count || 0)) : '') +
+        (nextRun ? (I18n.t('provider.nextRun') + esc(nextRun)) : I18n.t('provider.nextRun') + '—') +
+        (lr ? ('<br>' + I18n.t('provider.lastRun') + esc(lr.started_at || '') + ' ' + I18n.t('provider.rawCount') + (lr.raw_count || 0) + ' / ' + I18n.t('provider.validCount') + (lr.valid_count || 0)) : '') +
       '</div>'
     : '';
   return '<tr>' +
@@ -96,15 +96,15 @@ function buildProviderRowHtml(p, meta) {
     '<td class="mono-cell">' + String(p.priority) + '</td>' +
     '<td><div class="chip-cell">' + caps.join('') + '</div></td>' +
     '<td>' +
-      '<div class="dyn-actions">' +
-        '<button class="btn-sm" onclick="window.openEditDynamicProvider(' + pid + ')">编辑</button>' +
-        '<button class="btn-sm ' + (p.enabled ? 'warning' : 'success') + '" onclick="window.toggleDynamicProvider(' + pid + ', ' + (!p.enabled) + ')">' + (p.enabled ? '禁用' : '启用') + '</button>' +
-        '<button class="btn-sm" onclick="window.healthCheckDynamicProvider(' + pid + ')">检查</button>' +
-        '<button class="btn-sm" onclick="window.refreshDynamicProvider(' + pid + ')">刷新</button>' +
-        '<button class="btn-sm" onclick="window.previewCandidatesDynamicProvider(' + pid + ')">预览</button>' +
-        '<button class="btn-sm" onclick="window.openDynamicProviderDetail(' + pid + ')">详情</button>' +
-        (p.is_in_cooldown ? '<button class="btn-sm success" onclick="window.clearCooldownDynamicProvider(' + pid + ')">解除冷却</button>' : '') +
-        '<button class="btn-sm danger" onclick="window.deleteDynamicProvider(' + pid + ')">删除</button>' +
+      '<div class="actions">' +
+        '<button type="button" class="btn-sm" onclick="window.openEditDynamicProvider(' + pid + ')">' + I18n.t('provider.btnEdit') + '</button>' +
+        '<button type="button" class="btn-sm ' + (p.enabled ? 'warning' : 'success') + '" onclick="window.toggleDynamicProvider(' + pid + ', ' + (!p.enabled) + ')">' + (p.enabled ? I18n.t('provider.btnDisable') : I18n.t('provider.btnToggle')) + '</button>' +
+        '<button type="button" class="btn-sm" onclick="window.healthCheckDynamicProvider(' + pid + ')">' + I18n.t('provider.btnCheck') + '</button>' +
+        '<button type="button" class="btn-sm" onclick="window.refreshDynamicProvider(' + pid + ')">' + I18n.t('provider.btnRefresh') + '</button>' +
+        '<button type="button" class="btn-sm" onclick="window.previewCandidatesDynamicProvider(' + pid + ')">' + I18n.t('provider.btnPreview') + '</button>' +
+        '<button type="button" class="btn-sm" onclick="window.openDynamicProviderDetail(' + pid + ')">' + I18n.t('provider.btnDetail') + '</button>' +
+        (p.is_in_cooldown ? '<button type="button" class="btn-sm success" onclick="window.clearCooldownDynamicProvider(' + pid + ')">' + I18n.t('provider.btnClearCooldown') + '</button>' : '') +
+        '<button type="button" class="btn-sm danger" onclick="window.deleteDynamicProvider(' + pid + ')">' + I18n.t('provider.btnDelete') + '</button>' +
       '</div>' +
     '</td>' +
   '</tr>';
@@ -158,7 +158,7 @@ function renderDynTableForSurface(surface) {
   const pageRows = filtered.slice(start, start + pageSize);
 
   if (total === 0 && all.length > 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">无匹配提供方可尝试调整关键词（名称、ID、适配器）</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">' + I18n.t('provider.noMatchProviders') + '</td></tr>';
   } else {
     tbody.innerHTML = pageRows.map((p) => buildProviderRowHtml(/** @type {Record<string, unknown>} */ (p), _dynSchedulerMeta)).join('');
   }
@@ -166,8 +166,8 @@ function renderDynTableForSurface(surface) {
   const q = String(st.search || '').trim();
   if (summaryEl) {
     summaryEl.textContent = q
-      ? `共 ${all.length} 条 · 筛选 ${total} 条 · 第 ${st.pageIndex + 1}/${totalPages} 页`
-      : `共 ${total} 条 · 第 ${st.pageIndex + 1}/${totalPages} 页`;
+      ? `${all.length} total · ${total} filtered · ${st.pageIndex + 1}/${totalPages}`
+      : `${total} total · ${st.pageIndex + 1}/${totalPages}`;
   }
   if (pageInfoEl) {
     pageInfoEl.textContent = total === 0 ? '—' : `${start + 1}–${Math.min(start + pageSize, total)} / ${total}`;
@@ -227,11 +227,11 @@ export async function updateProviderSchedulerHint() {
   const nextRuns = (status && Array.isArray(status.next_runs)) ? status.next_runs : [];
   if (running) {
     hints.forEach((h) => {
-      h.textContent = 'Provider scheduler 运行中：将按下方各任务的下次时间执行列表拉取与候选清理';
+      h.textContent = I18n.t('provider.schedulerRunningHint');
       h.style.color = 'var(--text-muted)';
     });
     badges.forEach((b) => {
-      b.textContent = '运行中';
+      b.textContent = I18n.t('provider.schedulerRunning');
       b.className = 'tag tag--success';
       b.removeAttribute('style');
     });
@@ -242,34 +242,32 @@ export async function updateProviderSchedulerHint() {
         esc(j.name || j.id || '') + ' · <span style="color:var(--text)">' + esc(j.next_run || '—') + '</span></div>'
       ).join('');
       const more = nextRuns.length > maxShow
-        ? '<div style="font-size:10px;color:var(--text-dim);margin-top:4px">… 共 ' + nextRuns.length + ' 个已注册任务</div>'
+        ? '<div style="font-size:10px;color:var(--text-dim);margin-top:4px">… ' + nextRuns.length + ' tasks registered</div>'
         : '';
-      const html = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">已注册任务与下次执行</div>' + lines + more;
+      const html = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Registered tasks and next run</div>' + lines + more;
       nextEls.forEach((el) => { el.innerHTML = html; });
     } else {
-      nextEls.forEach((el) => { el.textContent = '已启动，但未返回任务列表（可尝试重载动态代理任务）'; });
+      nextEls.forEach((el) => { el.textContent = I18n.t('provider.noTasksYet'); });
     }
     btns.forEach((b) => {
-      b.textContent = b.dataset.schedulerCompact === 'true' ? '停止调度' : '停止动态代理调度';
+      b.textContent = b.dataset.schedulerCompact === 'true' ? I18n.t('provider.btnStopScheduler') : I18n.t('provider.btnStopDynScheduler');
       b.classList.remove('btn--ghost', 'btn--success', 'btn--warning');
       b.classList.add('btn--warning');
     });
   } else {
     hints.forEach((h) => {
-      h.textContent = 'Provider scheduler 未运行：不会按「刷新间隔」自动拉列表';
+      h.textContent = I18n.t('provider.schedulerHint');
       h.style.color = 'var(--text-muted)';
     });
     badges.forEach((b) => {
-      b.textContent = '未启动';
+      b.textContent = I18n.t('provider.schedulerNotStarted');
       b.className = 'tag tag--warning';
       b.removeAttribute('style');
     });
-    const html =
-      '<div style="font-size:11px;color:var(--text-muted);line-height:1.55">请先点击右侧 <strong style="color:var(--text)">启动动态代理调度</strong>。</div>' +
-      '<div style="font-size:10px;color:var(--text-dim);line-height:1.55;margin-top:8px">启用 list_api / public_feed 后，在编辑提供方里把 <strong style="color:var(--text-muted)">刷新间隔（分钟）</strong> 设为大于 0 并保存；启动后若仍无定时拉取，可点 <strong style="color:var(--text-muted)">重载动态代理任务</strong>。</div>';
+    const html = '<div style="font-size:11px;color:var(--text-muted);line-height:1.55;margin-bottom:8px">' + I18n.t('provider.schedulerHintHtml') + '</div>';
     nextEls.forEach((el) => { el.innerHTML = html; });
     btns.forEach((b) => {
-      b.textContent = b.dataset.schedulerCompact === 'true' ? '启动调度' : '启动动态代理调度';
+      b.textContent = b.dataset.schedulerCompact === 'true' ? I18n.t('provider.btnStartScheduler') : I18n.t('provider.btnStartDynScheduler');
       b.classList.remove('btn--ghost', 'btn--success', 'btn--warning');
       b.classList.add('btn--success');
     });
@@ -317,7 +315,7 @@ export async function loadProviderSchedulerLogs() {
     return true;
   });
   if (!filtered || filtered.length === 0) {
-    const emptyHtml = '<div class="dyn-log-empty">当前筛选条件下暂无 provider 调度记录</div>';
+    const emptyHtml = '<div class="dyn-log-empty">' + I18n.t('provider.noLogsYet') + '</div>';
     shells.forEach((s) => { s.innerHTML = emptyHtml; });
     return;
   }
@@ -351,8 +349,8 @@ export async function loadDynamicProviderTable() {
       const titleEl = empty.querySelector('.dyn-empty-title');
       const descEl = empty.querySelector('.dyn-empty-desc');
       const ctaEl = empty.querySelector('.dyn-empty-cta');
-      if (titleEl) titleEl.textContent = '还没有配置动态代理提供方';
-      if (descEl) descEl.textContent = '添加一个提供方后，它将参与系统动态代理路由决策。付费提供方优先，免费提供方兜底。';
+      if (titleEl) titleEl.textContent = I18n.t('page.dynamicProviders.emptyTitle');
+      if (descEl) descEl.textContent = I18n.t('page.dynamicProviders.emptyDesc');
       if (ctaEl) ctaEl.style.display = '';
     });
   }
@@ -362,7 +360,7 @@ export async function loadDynamicProviderTable() {
       const titleEl = empty.querySelector('.dyn-empty-title');
       const descEl = empty.querySelector('.dyn-empty-desc');
       const ctaEl = empty.querySelector('.dyn-empty-cta');
-      if (titleEl) titleEl.textContent = '加载失败';
+      if (titleEl) titleEl.textContent = I18n.t('provider.loadFailed');
       if (descEl) descEl.textContent = errMsg;
       if (ctaEl) ctaEl.style.display = 'none';
     });
@@ -383,8 +381,8 @@ export async function loadDynamicProviderTable() {
 
   if (!Array.isArray(providers)) {
     const raw = providers && typeof providers === 'object' && providers !== null ? providers.error : undefined;
-    const errMsg = raw != null && String(raw).trim() ? String(raw).trim() : '无法解析提供方列表（请检查网络或 Token）';
-    toast('加载动态代理提供方失败：' + errMsg, 'err');
+    const errMsg = raw != null && String(raw).trim() ? String(raw).trim() : 'Unable to parse provider list (check network or Token)';
+    toast(I18n.t('provider.loadProvidersFailed') + ': ' + errMsg, 'err');
     tbodies.forEach((tb) => { tb.innerHTML = ''; });
     _dynProvidersCache = null;
     setTableShellsVisible(false);
@@ -452,7 +450,7 @@ export function onDynListApiAdvToggle() {
   const cur = adv.style.display;
   adv.style.display = cur === 'none' ? '' : 'none';
   const trigger = document.querySelector('#dynListApiAdvSection .dyn-adv-trigger');
-  if (trigger) trigger.textContent = cur === 'none' ? '高级字段映射 ▴' : '高级字段映射 ▾';
+  if (trigger) trigger.textContent = cur === 'none' ? I18n.t('provider.advMappingExpand') : I18n.t('provider.advMappingCollapse');
 }
 
 export function onDynBillingTierChange() {
@@ -464,7 +462,7 @@ export function onDynBillingTierChange() {
 
 export function openAddDynamicProvider() {
   if (!el('dynFormTitle') || !el('modalDynamicProviderForm')) return;
-  el('dynFormTitle').textContent = '添加动态代理提供方';
+  el('dynFormTitle').textContent = I18n.t('dynProviders.addProviderTitle');
   el('dynId').value = '';
   el('dynName').value = '';
   el('dynBillingTier').value = 'paid';
@@ -492,8 +490,8 @@ export async function openEditDynamicProvider(id) {
   if (!el('dynFormTitle') || !el('modalDynamicProviderForm')) return;
   const providers = await api('GET', '/dynamic-providers');
   const p = providers && providers.find(x => x.id === id);
-  if (!p) return toast('提供方不存在', 'err');
-  el('dynFormTitle').textContent = '编辑动态代理提供方';
+  if (!p) return toast(I18n.t('provider.providerNotFound'), 'err');
+  el('dynFormTitle').textContent = I18n.t('dynProviders.addProviderTitle');
   el('dynId').value = p.id;
   el('dynName').value = p.name || '';
   el('dynBillingTier').value = p.billing_tier || 'free';
@@ -540,7 +538,7 @@ export function _buildDynConfigJson() {
   if (adapter === 'rotating_gateway') {
     const host = document.getElementById('dynGatewayHost').value.trim();
     const port = document.getElementById('dynGatewayPort').value.trim();
-    if (!host || !port) { toast('网关地址和端口不能为空', 'err'); return null; }
+    if (!host || !port) { toast(I18n.t('provider.gatewayRequired'), 'err'); return null; }
     cfg.gateway_host = host;
     cfg.gateway_port = parseInt(port, 10);
     cfg.protocol = document.getElementById('dynProtocol').value;
@@ -550,11 +548,11 @@ export function _buildDynConfigJson() {
     if (pwd) cfg.password = pwd;
   } else if (adapter === 'local_gateway') {
     const url = document.getElementById('dynLocalProxyUrl').value.trim();
-    if (!url) { toast('本地代理地址不能为空', 'err'); return null; }
+    if (!url) { toast(I18n.t('provider.localProxyRequired'), 'err'); return null; }
     cfg.local_proxy_url = url;
   } else if (adapter === 'list_api' || adapter === 'public_feed') {
     const baseUrl = document.getElementById('dynListApiBaseUrl').value.trim();
-    if (!baseUrl) { toast('API 地址不能为空', 'err'); return null; }
+    if (!baseUrl) { toast(I18n.t('provider.apiUrlRequired'), 'err'); return null; }
     cfg.base_url = baseUrl;
     const listAdapter = document.getElementById('dynListApiAdapterName').value.trim();
     if (listAdapter) cfg.adapter_name = listAdapter;
@@ -605,7 +603,7 @@ export async function saveDynamicProvider() {
   }
   const id = idEl.value;
   const name = nameEl.value.trim();
-  if (!name) { toast('提供方名称不能为空', 'err'); return; }
+  if (!name) { toast(I18n.t('provider.providerNameRequired'), 'err'); return; }
   const cfg = _buildDynConfigJson();
   if (cfg === null) return;
   const body = {
@@ -626,8 +624,8 @@ export async function saveDynamicProvider() {
   let r;
   if (id) r = await api('POST', '/dynamic-providers/' + id + '/update', body);
   else r = await api('POST', '/dynamic-providers', body);
-  if (r.error) { toast(r.error || '保存失败', 'err'); return; }
-  toast(id ? '提供方已更新' : '提供方已添加', 'ok');
+  if (r.error) { toast(r.error || 'Failed to save', 'err'); return; }
+  toast(id ? I18n.t('provider.editSuccess') : I18n.t('provider.addSuccess'), 'ok');
   closeModal('modalDynamicProviderForm');
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }
@@ -635,25 +633,25 @@ export async function saveDynamicProvider() {
 export async function toggleDynamicProvider(id, enabled) {
   const r = await api('POST', '/dynamic-providers/' + id + '/update', { enabled });
   if (r.error) { toast(r.error, 'err'); return; }
-  toast(enabled ? '提供方已启用' : '提供方已禁用', 'ok');
+  toast(enabled ? I18n.t('proxy.enabled') : I18n.t('proxy.disabled'), 'ok');
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }
 
 export async function deleteDynamicProvider(id) {
   const providers = await api('GET', '/dynamic-providers');
-  if (!Array.isArray(providers)) { toast((providers && providers.error) ? String(providers.error) : '无法加载提供方列表', 'err'); return; }
+  if (!Array.isArray(providers)) { toast((providers && providers.error) ? String(providers.error) : I18n.t('provider.loadProviderListFailed'), 'err'); return; }
   const p = providers.find(x => x.id === id);
-  if (!p) return toast('提供方不存在', 'err');
+  if (!p) return toast(I18n.t('provider.providerNotFound'), 'err');
   const ok = await showAppConfirm({
-    title: '确定删除提供方「' + p.name + '」？',
-    message: '删除后它将不再参与路由决策。',
-    confirmText: '删除',
+    title: I18n.t('provider.deleteConfirmTitle'),
+    message: I18n.t('provider.deleteConfirmMsg').replace('{name}', p.name),
+    confirmText: I18n.t('provider.btnDelete'),
     variant: 'danger',
   });
   if (!ok) return;
   const r = await api('DELETE', '/dynamic-providers/' + id);
   if (r.error) { toast(r.error, 'err'); return; }
-  toast('已删除', 'ok');
+  toast(I18n.t('provider.deleteSuccess'), 'ok');
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }
 
@@ -663,7 +661,8 @@ export async function healthCheckDynamicProvider(id) {
   else {
     const latency = r.latency_ms >= 0 ? r.latency_ms + 'ms' : '-';
     const err = r.error_message ? ' | ' + r.error_message : '';
-    toast('健康检查: ' + (r.status || 'healthy') + ' (' + latency + ')' + err, r.status === 'healthy' ? 'ok' : 'warn');
+    const statusLabel = r.status === 'healthy' ? I18n.t('provider.healthOk') : r.status === 'degraded' ? I18n.t('provider.healthDegraded') : r.status === 'down' ? I18n.t('provider.healthUnavailable') : r.status || 'healthy';
+    toast('Health check: ' + statusLabel + ' (' + latency + ')' + err, r.status === 'healthy' ? 'ok' : 'warn');
   }
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }
@@ -671,19 +670,19 @@ export async function healthCheckDynamicProvider(id) {
 export async function clearCooldownDynamicProvider(id) {
   const r = await api('POST', '/dynamic-providers/' + id + '/cooldown/clear', {});
   if (r.error) { toast(r.error, 'err'); return; }
-  toast('冷却已解除', 'ok');
+  toast(I18n.t('provider.clearCooldown'), 'ok');
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }
 
 export async function refreshDynamicProvider(id) {
   const r = await api('POST', '/dynamic-providers/' + id + '/refresh', {});
-  if (r.error) { toast('刷新失败: ' + r.error, 'err'); return; }
+  if (r.error) { toast(I18n.t('provider.refreshError').replace('{e}', r.error), 'err'); return; }
   const raw = r.raw_count || 0;
   const valid = r.valid_count || 0;
   const top = r.top_candidate;
   const msg = top
-    ? '刷新完成，拉取' + raw + '个候选，入池' + valid + '个，健康=' + (top.last_probe_status || '-')
-    : '刷新完成，拉取' + raw + '个候选，入池' + valid + '个';
+    ? I18n.t('provider.refreshSuccess') + ' — pulled ' + raw + ', pooled ' + valid + ', health=' + (top.last_probe_status || '-')
+    : I18n.t('provider.refreshSuccess') + ' — pulled ' + raw + ', pooled ' + valid;
   toast(msg, 'ok');
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
   await window.openDynamicProviderDetail(id);
@@ -691,15 +690,15 @@ export async function refreshDynamicProvider(id) {
 
 export async function previewCandidatesDynamicProvider(id) {
   const r = await api('GET', '/dynamic-providers/' + id + '/candidates/preview');
-  if (!r || r.error || r._fetchFailed) { toast('预览失败: ' + (r.error || '未知'), 'err'); return; }
+  if (!r || r.error || r._fetchFailed) { toast(I18n.t('provider.previewFailed') + ': ' + (r.error || 'Unknown'), 'err'); return; }
   const total = r.total_count || 0;
   const sc = r.status_counts || {};
   const healthy = sc.healthy || 0;
   const down = sc.down || 0;
   const degraded = sc.degraded || 0;
   const top = r.top_candidate;
-  const topInfo = top ? ' | 当前最优: ' + (top.masked_proxy_endpoint || '-') + ' (' + (top.last_probe_status || '-') + ')' : '';
-  toast('候选总计' + total + '个，健康=' + healthy + '|降级=' + degraded + '|不可用=' + down + topInfo, 'ok');
+  const topInfo = top ? ' | ' + I18n.t('provider.topCandidate') + ': ' + (top.masked_proxy_endpoint || '-') + ' (' + (top.last_probe_status || '-') + ')' : '';
+  toast(I18n.t('provider.previewSuccess') + ' ' + total + ' — healthy=' + healthy + ' | degraded=' + degraded + ' | down=' + down + topInfo, 'ok');
 }
 
 // ── Provider Detail Drawer ───────────────────────────────────────────
@@ -711,7 +710,7 @@ export async function openDynamicProviderDetail(id) {
   const previewBox = document.getElementById('dynProviderDetailPreviewSummary');
   const failureBox = document.getElementById('dynProviderDetailFailures');
   if (!drawer || !body || !errBox || !previewBox || !failureBox) {
-    toast('详情面板未就绪，请刷新页面后重试', 'warning');
+    toast(I18n.t('provider.providerDetailNotReady'), 'warning');
     return;
   }
   openModal('dynProviderDetailDrawer');
@@ -721,7 +720,7 @@ export async function openDynamicProviderDetail(id) {
   previewBox.textContent = '';
   failureBox.style.display = 'none';
   failureBox.textContent = '';
-  body.innerHTML = '<div class="dpd-loading">加载中…</div>';
+  body.innerHTML = '<div class="dpd-loading">' + I18n.t('provider.providerDetailLoading') + '</div>';
 
   const [providers, logs, preview] = await Promise.all([
     api('GET', '/dynamic-providers'),
@@ -730,26 +729,26 @@ export async function openDynamicProviderDetail(id) {
   ]);
   const netErr = [providers, logs, preview].find(x => x && x._fetchFailed);
   if (netErr) {
-    body.innerHTML = '<div class="dpd-error-inline">' + esc(netErr.error || '请求失败') + '</div>';
+    body.innerHTML = '<div class="dpd-error-inline">' + esc(netErr.error || 'Request failed') + '</div>';
     return;
   }
   const providerList = Array.isArray(providers) ? providers : [];
   const logList = Array.isArray(logs) ? logs : [];
   const p = providerList.find(x => String(x.id) === String(id));
-  if (!p) { body.innerHTML = '<div class="dpd-error-inline">提供方不存在</div>'; return; }
+  if (!p) { body.innerHTML = '<div class="dpd-error-inline">' + I18n.t('provider.providerDetailNotFound') + '</div>'; return; }
   const rows = logList.filter(r => String(r.provider_id) === String(id)).slice(0, 8);
   const latest = rows.length ? rows[0] : null;
   const failureRows = rows.filter(r => r.status === 'error' || (r.message && r.message !== 'ok')).slice(0, 5);
   if (p.last_error_message || failureRows.length) {
     errBox.style.display = '';
-    errBox.innerHTML = '<strong>最近错误</strong>' +
-      esc((failureRows[0] && failureRows[0].message) || p.last_error_message || '未知错误');
+    errBox.innerHTML = '<strong>' + I18n.t('provider.recentError') + '</strong> ' +
+      esc((failureRows[0] && failureRows[0].message) || p.last_error_message || 'Unknown error');
   }
 if (failureRows.length) {
     failureBox.style.display = '';
     failureBox.dataset.expanded = 'false';
     const toggle = el('dynProviderDetailFailuresToggle');
-    if (toggle) toggle.textContent = failureRows.length > 2 ? '展开' : '收起';
+    if (toggle) toggle.textContent = failureRows.length > 2 ? I18n.t('provider.expand') : I18n.t('provider.collapse');
     const list = el('dynProviderDetailFailuresList');
     if (list) {
       list.innerHTML = failureRows.slice(0, 2).map(r => '<div class="dpd-failure-row"><span class="dpd-history-type">' + esc(r.job_type || '-') + '</span> · ' + esc(r.started_at || '') + '<br>' + esc(r.message || r.status || 'error') + '</div>').join('');
@@ -759,41 +758,41 @@ if (failureRows.length) {
   if (preview && !preview.error) {
     const sc = preview.status_counts || {};
     previewBox.style.display = '';
-    previewBox.innerHTML = '<strong>候选预览摘要</strong>' +
-      '总数 ' + esc(preview.total_count || 0) + ' · healthy ' + esc(sc.healthy || 0) +
+    previewBox.innerHTML = '<strong>' + I18n.t('provider.candidatePreview') + '</strong> ' +
+      'Total ' + esc(preview.total_count || 0) + ' · healthy ' + esc(sc.healthy || 0) +
       ' · degraded ' + esc(sc.degraded || 0) + ' · down ' + esc(sc.down || 0);
   }
   const actionBar = document.getElementById('dynProviderDetailActions');
   if (actionBar) {
     actionBar.innerHTML = `
-      <button class="btn-sm" onclick="window.refreshDynamicProviderDetail(${id})">刷新当前提供方</button>
-      <button class="btn-sm" onclick="window.previewCandidatesDynamicProvider(${id})">候选预览</button>
-      <button class="btn-sm" onclick="window.healthCheckDynamicProviderDetail(${id})">健康检查</button>
-      ${p.is_in_cooldown ? `<button class="btn-sm success" onclick="window.clearCooldownDynamicProviderDetail(${id})">解除冷却</button>` : ''}
+      <button class="btn-sm" onclick="window.refreshDynamicProviderDetail(${id})">${I18n.t('provider.btnRefreshCurrent')}</button>
+      <button class="btn-sm" onclick="window.previewCandidatesDynamicProvider(${id})">${I18n.t('provider.btnPreview')}</button>
+      <button class="btn-sm" onclick="window.healthCheckDynamicProviderDetail(${id})">${I18n.t('provider.btnHealthCheck')}</button>
+      ${p.is_in_cooldown ? `<button class="btn-sm success" onclick="window.clearCooldownDynamicProviderDetail(${id})">${I18n.t('provider.btnClearCooldown')}</button>` : ''}
     `;
   }
   body.innerHTML = `
     <div class="dpd-stack">
       <div class="dpd-card">
         <div class="dpd-card-title">${esc(p.name || '-')}</div>
-        <div class="dpd-card-sub">适配器 ${esc(p.adapter_type || '-')} · 优先级 ${esc(p.priority || '-')} · 刷新间隔 ${esc(p.refresh_interval_minutes || 0)} 分钟</div>
+        <div class="dpd-card-sub">Adapter ${esc(p.adapter_type || '-')} · Priority ${esc(p.priority || '-')} · Refresh ${esc(p.refresh_interval_minutes || 0)} min</div>
       </div>
       <div class="dpd-metrics">
         <div class="dpd-metric">
-          <div class="dpd-metric-label">最新 raw</div>
+          <div class="dpd-metric-label">${I18n.t('provider.latestRaw')}</div>
           <div class="dpd-metric-value">${latest ? esc(latest.raw_count || 0) : '—'}</div>
         </div>
         <div class="dpd-metric">
-          <div class="dpd-metric-label">最新 valid</div>
+          <div class="dpd-metric-label">${I18n.t('provider.latestValid')}</div>
           <div class="dpd-metric-value">${latest ? esc(latest.valid_count || 0) : '—'}</div>
         </div>
         <div class="dpd-metric">
-          <div class="dpd-metric-label">最新状态</div>
+          <div class="dpd-metric-label">${I18n.t('provider.latestStatus')}</div>
           <div class="dpd-metric-value">${latest ? esc(latest.status || '-') : '—'}</div>
         </div>
       </div>
       <div class="dpd-card">
-        <div class="dpd-section-title">最近执行历史</div>
+        <div class="dpd-section-title">${I18n.t('provider.recentExecHistory')}</div>
         <div class="dpd-history">
           ${rows.length ? rows.map(r => `
             <div class="dpd-history-item ${r.status === 'success' ? 'dpd-history-item--ok' : 'dpd-history-item--err'}">
@@ -803,7 +802,7 @@ if (failureRows.length) {
               </div>
               <div class="dpd-history-meta">raw ${esc(r.raw_count || 0)} / valid ${esc(r.valid_count || 0)} · ${esc(r.started_at || '')}</div>
             </div>
-          `).join('') : '<div class="dpd-empty">暂无该提供方的调度历史</div>'}
+          `).join('') : '<div class="dpd-empty">' + I18n.t('provider.noExecHistory') + '</div>'}
         </div>
       </div>
     </div>`;
@@ -811,17 +810,17 @@ if (failureRows.length) {
 
 export async function refreshDynamicProviderDetail(id) {
   try { await window.refreshDynamicProvider(id); await window.openDynamicProviderDetail(id); }
-  catch (e) { toast('刷新异常: ' + ((e && e.message) || e), 'err'); }
+  catch (e) { toast(I18n.t('provider.refreshException') + ': ' + ((e && e.message) || e), 'err'); }
 }
 
 export async function healthCheckDynamicProviderDetail(id) {
   try { await window.healthCheckDynamicProvider(id); await window.openDynamicProviderDetail(id); }
-  catch (e) { toast('健康检查异常: ' + ((e && e.message) || e), 'err'); }
+  catch (e) { toast(I18n.t('provider.healthCheckException') + ': ' + ((e && e.message) || e), 'err'); }
 }
 
 export async function clearCooldownDynamicProviderDetail(id) {
   try { await window.clearCooldownDynamicProvider(id); await window.openDynamicProviderDetail(id); }
-  catch (e) { toast('操作异常: ' + ((e && e.message) || e), 'err'); }
+  catch (e) { toast(I18n.t('provider.operationException') + ': ' + ((e && e.message) || e), 'err'); }
 }
 
 export function toggleProviderFailureList() {
@@ -834,7 +833,7 @@ export function toggleProviderFailureList() {
   const rows = expanded ? full.slice(0, 2) : full;
   list.innerHTML = rows.map(r => '<div class="dpd-failure-row"><span class="dpd-history-type">' + esc(r.job_type || '-') + '</span> · ' + esc(r.started_at || '') + '<br>' + esc(r.message || 'error') + '</div>').join('');
   box.dataset.expanded = expanded ? 'false' : 'true';
-  toggle.textContent = expanded ? '展开' : '收起';
+  toggle.textContent = expanded ? I18n.t('provider.expand') : I18n.t('provider.collapse');
 }
 
 export function closeDynamicProviderDetail() {
@@ -843,13 +842,13 @@ export function closeDynamicProviderDetail() {
 
 export async function healthCheckAllProviders() {
   const providers = await api('GET', '/dynamic-providers');
-  if (!providers || providers.length === 0) { toast('没有提供方', 'info'); return; }
-  toast('开始全量健康检查 (' + providers.length + ' 个)…', 'info');
+  if (!providers || providers.length === 0) { toast(I18n.t('provider.noProvidersToCheck'), 'info'); return; }
+  toast(I18n.t('provider.healthCheckAllStart') + ' (' + providers.length + ' providers)…', 'info');
   for (let i = 0; i < providers.length; i++) {
     await api('POST', '/dynamic-providers/' + providers[i].id + '/health-check', {});
     if (i % 3 === 2 || i === providers.length - 1) await window.loadDynamicProviderTable();
   }
-  toast('全量健康检查完成 (' + providers.length + ' 个)', 'ok');
+  toast(I18n.t('provider.healthCheckAllDone') + ' (' + providers.length + ' providers)', 'ok');
 }
 
 window.init_dynamic_providers_page = refreshDynamicProvidersUi;

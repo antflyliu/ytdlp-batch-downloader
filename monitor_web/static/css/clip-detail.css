@@ -456,8 +456,70 @@
   background: rgba(201, 100, 66, 0.06);
 }
 
-.mvd-body .vd-table tr:hover td:first-child {
-  border-left: 2px solid var(--clip-terracotta);
+.mvd-body .vd-table tr:hover td.vd-check {
+  border-left-color: var(--clip-terracotta);
+}
+
+/*
+ * 视频详情表格：首列复选框在 border-collapse:collapse + 横向滚动下易被裁成一条线。
+ * 使用独立滚动区留白、fixed 布局、separate+sticky 首列，保证多选框完整可见。
+ */
+#modalVideoDetail .mvd-table-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+  padding: 0 10px 0 14px;
+  box-sizing: border-box;
+}
+
+#modalVideoDetail .mvd-body .vd-table {
+  table-layout: fixed;
+  min-width: 920px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#modalVideoDetail .mvd-body .vd-table th:not(:first-child) {
+  z-index: 2;
+}
+
+/* 表头角格：同时 sticky top + left，避免横向滚动时首列被“挤”出视口 */
+#modalVideoDetail .mvd-body .vd-table thead .vd-th-check,
+#modalVideoDetail .mvd-body .vd-table thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  box-sizing: border-box;
+  overflow: visible;
+  text-align: center;
+  vertical-align: middle;
+  background: var(--clip-sand);
+  border-left: none;
+  box-shadow: 1px 0 0 var(--clip-creamborder);
+}
+
+#modalVideoDetail .mvd-body .vd-table tbody td.vd-check {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  box-sizing: border-box;
+  overflow: visible;
+  text-align: center;
+  vertical-align: middle;
+  background: var(--clip-canvas);
+  border-left: none;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.04);
+}
+
+#modalVideoDetail .mvd-body .vd-table tr:hover td.vd-check {
+  background: rgba(201, 100, 66, 0.08);
+  box-shadow: 1px 0 0 rgba(201, 100, 66, 0.25);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

@@ -30,21 +30,21 @@ export async function toggleScheduler() {
       if (r.ok !== false) {
         setSchedulerRunning(false);
         updateSchedulerUI();
-        toast('调度器已停止', 'ok');
+        toast(I18n.t('scheduler.schedulerStopped'), 'ok');
       } else {
-        toast(r.error || '操作失败', 'err');
+        toast(r.error || I18n.t('scheduler.operationFailed'), 'err');
         updateSchedulerUI();
       }
     } else {
       const confirmResult = await showAppConfirmWithCheckbox({
-        title: '启动监控',
-        message: '开始按计划扫描账号更新。',
-        confirmText: '启动监控',
-        cancelText: '取消',
+        title: I18n.t('scheduler.startMonitor'),
+        message: I18n.t('scheduler.startHint'),
+        confirmText: I18n.t('scheduler.startMonitor'),
+        cancelText: I18n.t('common.close'),
         confirmTone: 'primary',
         checkbox: {
-          label: '扫描到新视频后自动下载',
-          description: '每轮扫描完成后自动开始下载，最多 2 个视频同时下载',
+          label: I18n.t('scheduler.autoDownloadDesc'),
+          description: I18n.t('scheduler.autoDownloadDesc2'),
           checked: true,
         },
       });
@@ -61,19 +61,19 @@ export async function toggleScheduler() {
         updateSchedulerUI();
         if (r.already_running) {
           toast(
-            '调度器已在运行' + (confirmResult.checked ? '（已按本次选择同步自动下载选项）' : '（已按本次选择关闭自动下载）'),
+            confirmResult.checked ? I18n.t('scheduler.schedulerAlreadyRunningAuto') : I18n.t('scheduler.schedulerAlreadyRunningNoAuto'),
             'info'
           );
         } else {
-          toast('调度器已启动' + (confirmResult.checked ? '（含自动下载）' : ''), 'ok');
+          toast(confirmResult.checked ? I18n.t('scheduler.schedulerStartedAuto') : I18n.t('scheduler.schedulerRunning'), 'ok');
         }
       } else {
-        toast(r.error || '启动失败', 'err');
+        toast(r.error || I18n.t('scheduler.startFailed'), 'err');
         updateSchedulerUI();
       }
     }
   } catch(e) {
-    toast('网络错误', 'err');
+    toast(I18n.t('account.networkError'), 'err');
     updateSchedulerUI();
   } finally {
     setBtnLoading(false);
@@ -85,7 +85,7 @@ export async function toggleScheduler() {
  */
 export async function reloadJobs() {
   const r = await api('POST', '/scheduler/reload');
-  toast(r.ok ? `重载完成，活跃任务: ${r.active_jobs}` : '重载失败', r.ok ? 'ok' : 'err');
+  toast(r.ok ? I18n.t('scheduler.reloadDone').replace('{n}', r.active_jobs) : I18n.t('scheduler.reloadFailed'), r.ok ? 'ok' : 'err');
 }
 
 /**
@@ -97,34 +97,34 @@ export async function toggleDynamicProviderScheduler() {
 
   if (running) {
     const ok = await showAppConfirm({
-      title: '停止动态代理调度？',
-      message: '停止后，仅提供方 refresh / cleanup 任务会暂停；账号监控扫描不会受到影响。',
-      confirmText: '停止',
+      title: I18n.t('scheduler.stopScheduler'),
+      message: I18n.t('scheduler.stopSchedulerMsg'),
+      confirmText: I18n.t('common.stop'),
       variant: 'danger',
     });
     if (!ok) return;
     const r = await api('POST', '/provider-scheduler/stop', {});
     if (r.ok !== false) {
       await window.updateProviderSchedulerHint();
-      toast('动态代理调度已停止', 'ok');
+      toast(I18n.t('scheduler.dynSchedulerStopped'), 'ok');
     } else {
-      toast(r.error || '操作失败', 'err');
+      toast(r.error || I18n.t('scheduler.operationFailed'), 'err');
     }
     return;
   }
 
   const ok = await showAppConfirm({
-    title: '启动动态代理调度？',
-    message: '启动后，将按提供方配置的刷新间隔执行列表拉取与候选清理。',
-    confirmText: '启动',
+    title: I18n.t('scheduler.startScheduler'),
+    message: I18n.t('scheduler.startSchedulerMsg'),
+    confirmText: I18n.t('common.start'),
   });
   if (!ok) return;
   const r = await api('POST', '/provider-scheduler/start', {});
   if (r.ok !== false) {
     await window.updateProviderSchedulerHint();
-    toast('动态代理调度已启动', 'ok');
+    toast(I18n.t('scheduler.dynSchedulerStarted'), 'ok');
   } else {
-    toast(r.error || '启动失败', 'err');
+    toast(r.error || I18n.t('scheduler.startFailed'), 'err');
   }
 }
 
@@ -133,7 +133,7 @@ export async function toggleDynamicProviderScheduler() {
  */
 export async function reloadDynamicProviderJobs() {
   const r = await api('POST', '/provider-scheduler/reload', {});
-  toast(r.ok ? `动态代理任务已重载，活跃任务: ${r.active_jobs}` : '重载失败', r.ok ? 'ok' : 'err');
+  toast(r.ok ? I18n.t('scheduler.dynJobsReloaded').replace('{n}', r.active_jobs) : I18n.t('scheduler.reloadFailed'), r.ok ? 'ok' : 'err');
   await window.updateProviderSchedulerHint();
 }
 
@@ -142,21 +142,21 @@ export async function reloadDynamicProviderJobs() {
  */
 export async function runDynamicProviderJobsOnce() {
   const ok = await showAppConfirm({
-    title: '立即刷新全部列表 API？',
-    message: '这会立刻对所有启用的列表拉取型提供方执行一次 refresh。',
-    confirmText: '立即刷新',
+    title: I18n.t('scheduler.refreshAllProviders'),
+    message: I18n.t('scheduler.refreshAllProvidersMsg'),
+    confirmText: I18n.t('scheduler.refreshNow'),
   });
   if (!ok) return;
   const r = await api('POST', '/provider-scheduler/run-once', {});
   if (!r || r.error) {
-    toast('执行失败: ' + (r && r.error ? r.error : '未知错误'), 'err');
+    toast(I18n.t('scheduler.execFailed') + (r && r.error ? ': ' + r.error : ''), 'err');
     return;
   }
   const count = r.provider_count || 0;
   const results = r.results || [];
   const rawTotal = results.reduce((sum, x) => sum + (x.raw_count || 0), 0);
   const validTotal = results.reduce((sum, x) => sum + (x.valid_count || 0), 0);
-  toast(`已执行 ${count} 个提供方的立即刷新 · raw ${rawTotal} / valid ${validTotal}`, 'ok');
+  toast(I18n.t('scheduler.execDone').replace('{n}', count).replace('{raw}', rawTotal).replace('{valid}', validTotal), 'ok');
   await window.updateProviderSchedulerHint();
   await Promise.all([window.loadDynamicProviderTable(), window.loadProviderSchedulerLogs()]);
 }

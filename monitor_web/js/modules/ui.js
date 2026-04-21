@@ -94,10 +94,10 @@ export function showAppConfirm(options) {
     const primaryBtn = el('appConfirmPrimaryBtn');
     const cancelBtn = el('appConfirmCancelBtn');
     if (!titleEl || !bodyEl || !primaryBtn || !cancelBtn) return;
-    titleEl.textContent = options.title || '确认';
+    titleEl.textContent = options.title || I18n.t('ui.confirmTitle');
     bodyEl.textContent = options.message || '';
-    primaryBtn.textContent = options.confirmText || '确定';
-    cancelBtn.textContent = options.cancelText || '取消';
+    primaryBtn.textContent = options.confirmText || I18n.t('ui.btnOK');
+    cancelBtn.textContent = options.cancelText || I18n.t('common.close');
     const tone = options.confirmTone || (options.variant === 'danger' ? 'danger' : 'primary');
     primaryBtn.className = 'btn ' + (tone === 'danger' ? 'btn-danger' : tone === 'success' ? 'btn-success' : 'btn-primary');
     const appConfirmOverlay = el('modalAppConfirm');
@@ -185,17 +185,17 @@ export function updateSchedulerUI() {
   if (schedulerRunning) {
     if (chip) {
       chip.className = 'status-chip running';
-      chip.innerHTML = '<span class="status-dot"></span><span>调度器运行中</span>';
+      chip.innerHTML = `<span class="status-dot"></span><span>${I18n.t('ui.schedulerRunning')}</span>`;
     }
-    btn.textContent = '■ 停止监控';
+    btn.textContent = I18n.t('ui.btnStopMonitor');
     btn.className = 'btn btn-danger';
     btn.onclick = toggleScheduler;
   } else {
     if (chip) {
       chip.className = 'status-chip stopped';
-      chip.innerHTML = '<span class="status-dot"></span><span>调度器已停止</span>';
+      chip.innerHTML = `<span class="status-dot"></span><span>${I18n.t('ui.schedulerStopped')}</span>`;
     }
-    btn.textContent = '▶ 启动监控';
+    btn.textContent = I18n.t('ui.btnStartMonitor');
     btn.className = 'btn btn-success';
     btn.onclick = toggleScheduler;
   }

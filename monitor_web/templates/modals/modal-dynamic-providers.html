@@ -9,7 +9,7 @@
       <div class="dyn-toolbar-row dyn-modal-toolbar">
         <div class="dyn-toolbar-left" style="flex:1 1 320px;display:block">
           <div class="dyn-modal-lead__title" data-i18n="dynProviders.workbench">动态代理调度工作台</div>
-          <div class="dyn-modal-lead__desc" data-i18n="dynProviders.workbenchDesc">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。<strong style="color:var(--text);font-weight:600">Provider Scheduler 不会随页面打开自动启动</strong>，需点击「启动动态代理调度」。</div>
+          <div class="dyn-modal-lead__desc" data-i18n-html="dynProviders.workbenchDesc">仅管理列表拉取型提供方的 refresh / cleanup / run-once，不影响监控账户扫描事件。<strong style="color:var(--text);font-weight:600">Provider Scheduler 不会随页面打开自动启动</strong>，需点击「启动动态代理调度」。</div>
         </div>
         <div class="dyn-modal-scheduler-card">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px">
@@ -22,8 +22,8 @@
         <div class="dyn-toolbar-right dyn-scheduler-card__toolbar" style="align-items:flex-end;gap:10px;flex-wrap:wrap;justify-content:flex-end">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
             <button type="button" class="btn btn--sm btn--success" id="btnDynProviderSchedulerToggleModal" data-dyn-scheduler-toggle data-dyn-scheduler-primary onclick="toggleDynamicProviderScheduler()">启动动态代理调度</button>
-            <button type="button" class="btn btn--sm btn--ghost" onclick="reloadDynamicProviderJobs()">重载动态代理任务</button>
-            <button type="button" class="btn btn--sm btn--ghost" onclick="runDynamicProviderJobsOnce()">立即刷新全部列表 API</button>
+            <button type="button" class="btn btn--sm btn--ghost" onclick="reloadDynamicProviderJobs()" data-i18n="dynProviders.reloadDynamicProxyJobs">重载动态代理任务</button>
+            <button type="button" class="btn btn--sm btn--ghost" onclick="runDynamicProviderJobsOnce()" data-i18n="dynProviders.refreshAllListApisNow">立即刷新全部列表 API</button>
             <button type="button" class="btn btn--sm btn--ghost" onclick="healthCheckAllProviders()">
               <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               <span data-i18n="dynProviders.healthCheckAll">全量健康检查</span>
@@ -40,14 +40,14 @@
               <span class="dyn-collapse__chevron" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </span>
-              <span class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">时</span>
+              <span class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">📋</span>
               <span class="dyn-collapse__label" data-i18n="dynProviders.recentExec">最近调度执行</span>
             </span>
             <span class="dyn-collapse__hint" data-i18n="dynProviders.execHint">独立于 monitor_events · 展开后筛选</span>
           </button>
           <div id="dynSchedulerLogsPanelModal" class="dyn-collapse__panel" hidden>
             <div class="dyn-collapse__toolbar">
-              <label class="dyn-collapse__filter-label" for="dynProviderLogFilterModal">日志类型</label>
+              <label class="dyn-collapse__filter-label" for="dynProviderLogFilterModal" data-i18n="dynProviders.logTypeLabel">日志类型</label>
               <select id="dynProviderLogFilterModal" class="form-input dyn-collapse__filter" data-dyn-log-filter onchange="syncDynLogFilters(this); loadProviderSchedulerLogs();">
                 <option value="all" data-i18n="dynProviders.logAll">全部日志</option>
                 <option value="refresh" data-i18n="dynProviders.logRefresh">仅 refresh</option>
@@ -65,25 +65,25 @@
               <span class="dyn-collapse__chevron" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
               </span>
-              <span class="card-title-icon" style="background:var(--surface2);color:var(--text-muted)" aria-hidden="true">注</span>
+              <span class="card-title-icon" style="background:var(--surface2);color:var(--text-muted)" aria-hidden="true">📖</span>
               <span class="dyn-collapse__label" data-i18n="dynProviders.schedulerDesc">调度说明</span>
             </span>
             <span class="dyn-collapse__hint" data-i18n="dynProviders.schedulerDescHint">任务注册与按钮含义</span>
           </button>
           <div id="dynSchedulerHelpPanelModal" class="dyn-collapse__panel" hidden>
             <div class="dyn-scheduler-help-body dyn-scheduler-help-body--light">
-              <p>进程内只有 <strong>一个</strong> Provider Scheduler；各提供方以「定时任务」形式挂在上面，没有单独的「多个 Scheduler」列表。</p>
-              <p>仅 <strong>已启用</strong>、类型为 <strong>list_api / public_feed</strong> 且 <strong>刷新间隔（分钟）&gt; 0</strong> 的提供方会注册定时拉列表；否则启动后也只有每日 cleanup 等任务。</p>
-              <p><strong>重载动态代理任务</strong> 只重建任务，不会立即调用外部 API。</p>
-              <p><strong>立即刷新全部列表 API</strong> 会立刻执行一次批量 refresh。</p>
-              <p>cleanup 会独立记录，不再混入账号监控事件；「最近调度执行」即各任务运行历史。</p>
+              <p data-i18n-html="dynProviders.helpText1"></p>
+              <p data-i18n-html="dynProviders.helpText2"></p>
+              <p data-i18n-html="dynProviders.helpText3"></p>
+              <p data-i18n-html="dynProviders.helpText4"></p>
+              <p data-i18n-html="dynProviders.helpText5"></p>
             </div>
           </div>
         </div>
       </div>
 
       <div class="dyn-provider-list-toolbar card-account-search">
-        <input type="search" id="dynProviderSearchModal" class="form-input dyn-provider-search-input" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
+        <input type="search" id="dynProviderSearchModal" class="form-input dyn-provider-search-input" data-i18n-placeholder="page.dynamicProviders.searchPlaceholder" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
         <span id="dynProviderListSummaryModal" class="dyn-provider-list-summary" aria-live="polite"></span>
       </div>
       <div class="dyn-table-shell table-wrap--accounts">
@@ -97,7 +97,7 @@
               <th data-i18n="dynProviders.thHealth">健康状态</th>
               <th data-i18n="dynProviders.thPriority">优先级</th>
               <th data-i18n="dynProviders.thFeatures">功能</th>
-              <th style="width:160px" data-i18n="dynProviders.thActions">操作</th>
+              <th data-i18n="dynProviders.thActions">操作</th>
             </tr>
           </thead>
           <tbody id="dynProviderTableBody">

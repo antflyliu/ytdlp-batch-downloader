@@ -102,7 +102,7 @@ export async function loadStats() {
     totalScans = stats.reduce((s, r) => s + (r.total_scans || 0), 0);
     totalNew = stats.reduce((s, r) => s + (r.total_new_videos || 0), 0);
     const latest = stats.find(r => r.last_scan_at);
-    lastScan = latest && latest.last_scan_at ? fmtTime(latest.last_scan_at) : '从未';
+    lastScan = latest && latest.last_scan_at ? fmtTime(latest.last_scan_at) : I18n.t('account.neverScanned');
   }
   const sa = el('statAccounts'), ss = el('statScans'), sn = el('statNew'), sl = el('statLast');
   if (sa) sa.textContent = Array.isArray(stats) ? String(stats.length) : '—';
@@ -125,10 +125,10 @@ export async function loadStats() {
     if (sq) { sq.textContent = totalUsed.toLocaleString() + ' / ' + totalBudget.toLocaleString() + ' units'; sq.style.color = color; }
     if (qb) { qb.style.width = pct + '%'; qb.style.background = color; }
     if (qsub) qsub.textContent =
-      '扫描' + totalScanCount + '次' +
-      (blockedScans > 0 ? ' · 已阻止' + blockedScans + '次' : '') +
+      I18n.t('account.statsScans').replace('{n}', totalScanCount) +
+      (blockedScans > 0 ? I18n.t('account.statsBlocked').replace('{n}', blockedScans) : '') +
       ' · ' + pct + '%' +
-      ' · ' + quota.items.length + '个Key';
+      ' · ' + quota.items.length + I18n.t('account.statsKeys');
   } else {
     const qc = el('quotaCard');
     if (qc) qc.style.display = 'none';
@@ -175,7 +175,7 @@ export async function openAddAccount() {
   if (!mt) return; // Modal template not loaded yet
   const set = (id, v) => { const e = el(id); if (e) e.value = v; };
   const setCb = (id, v) => { const e = el(id); if (e) e.checked = v; };
-  mt.textContent = '添加监控账户';
+  mt.textContent = I18n.t('account.modalTitleAdd');
   set('accId', ''); set('accName', ''); set('accChannel', '');
   set('accApiKeySelect', ''); set('accApiKeyId', '');
   set('accApiKeyEnv', 'YOUTUBE_Data_API_V3');
@@ -200,10 +200,10 @@ export async function openEditAccount(id) {
   if (!mt) return;
   const accounts = await api('GET', '/accounts');
   const acc = accounts.find(a => a.id === id);
-  if (!acc) return toast('账户不存在', 'err');
+  if (!acc) return toast(I18n.t('account.accountNotFound'), 'err');
   const set = (eid, v) => { const e = el(eid); if (e) e.value = v; };
   const setCb = (eid, v) => { const e = el(eid); if (e) e.checked = v; };
-  mt.textContent = '编辑监控账户';
+  mt.textContent = I18n.t('account.modalTitleEdit');
   set('accId', acc.id); set('accName', acc.name); set('accChannel', acc.channel_url);
   set('accApiKeyId', acc.api_key_id || '');
   set('accApiKeyEnv', acc.api_key_env || 'YOUTUBE_Data_API_V3');
@@ -247,10 +247,10 @@ export async function toggleProxySection() {
 
 // Proxy mode descriptions
 export const PROXY_MODE_HELP = {
-  'auto': '优先使用账户固定代理，不可用时回退到系统动态代理',
-  'account_only': '只使用账户绑定的固定代理，不做系统回退',
-  'system_only': '忽略账户固定代理，始终使用系统动态代理',
-  'direct_only': '本账户下载不使用任何代理',
+  'auto': I18n.t('account.proxyModeAuto'),
+  'account_only': I18n.t('account.proxyModeAccountOnly'),
+  'system_only': I18n.t('account.proxyModeSystemOnly'),
+  'direct_only': I18n.t('account.proxyModeDirectOnly'),
 };
 
 export function onAccountProxyModeChange() {
@@ -285,7 +285,7 @@ export function onDynamicProxySettingChange() {
 
 export async function previewAccountRouting() {
   const accIdVal = el('accId')?.value;
-  if (!accIdVal) { toast('请先保存账户，再预览路由', 'info'); return; }
+  if (!accIdVal) { toast(I18n.t('account.previewSaveFirst'), 'info'); return; }
   const accountId = parseInt(accIdVal, 10);
   const auto = 0;
   const cookies = (_gConfig && _gConfig.download_cookies_file) ? 1 : 0;
@@ -294,16 +294,16 @@ export async function previewAccountRouting() {
   if (res.error) { toast(res.error, 'err'); return; }
   const routing = res.routing || {};
   const sourceLabels = {
-    account_static: '账户固定代理',
-    system_paid: '系统付费动态代理',
-    system_free: '系统免费动态代理',
-    direct: '直连',
-    failed: '路由失败',
+    account_static: I18n.t('account.routingAccountStatic'),
+    system_paid: I18n.t('account.routingSystemPaid'),
+    system_free: I18n.t('account.routingSystemFree'),
+    direct: I18n.t('account.routingDirect'),
+    failed: I18n.t('account.routingFailed'),
   };
   const box = el('routingPreviewBox');
   const mainEl = el('routingPreviewMain');
   if (!box || !mainEl) return;
-  const mainText = sourceLabels[routing.resolved_proxy_source] || routing.resolved_proxy_source || '未知';
+  const mainText = sourceLabels[routing.resolved_proxy_source] || routing.resolved_proxy_source || I18n.t('account.routingUnknown');
   mainEl.textContent = mainText;
   if (routing.resolved_proxy_source === 'failed') mainEl.style.color = '#f87171';
   else if (routing.resolved_proxy_source === 'direct') mainEl.style.color = '#fbbf24';
@@ -317,7 +317,7 @@ export async function previewAccountRouting() {
   const rpm = el('routingPreviewMeta'), rpr = el('routingPreviewReason'), rpw = el('routingPreviewWarnings');
   if (rpm) rpm.innerHTML = meta.join('');
   if (rpr) rpr.textContent = routing.reason || '—';
-  if (rpw) rpw.textContent = routing.warnings && routing.warnings.length ? ('注意：' + routing.warnings.join(' · ')) : '';
+  if (rpw) rpw.textContent = routing.warnings && routing.warnings.length ? (I18n.t('account.routingWarning') + ' ' + routing.warnings.join(' · ')) : '';
   box.classList.add('show');
 }
 
@@ -325,10 +325,10 @@ export async function refreshProxyPoolSelectors(selectedId) {
   const sel = el('accProxyPoolSelect');
   if (!sel) return;
   const pools = await api('GET', '/proxy-pools');
-  const opts = ['<option value="">— 选择固定代理 —</option>'];
+  const opts = ['<option value="">' + I18n.t('account.selectProxy') + '</option>'];
   if (pools && pools.length > 0) {
     pools.forEach(p => {
-      const enabled = p.enabled ? '' : ' [禁用]';
+      const enabled = p.enabled ? '' : ' ' + I18n.t('account.proxyDisabledTag');
       opts.push('<option value="' + p.id + '">' + esc(p.name) + enabled + '</option>');
     });
   }
@@ -364,30 +364,30 @@ export async function saveAccount() {
     proxy_enabled: document.getElementById('accProxyEnabled').checked,
     download_proxy_mode: document.getElementById('accDownloadProxyMode').value,
   };
-  if (!body.name || !body.channel_url) { toast('名称和频道 URL 不能为空', 'err'); return; }
+  if (!body.name || !body.channel_url) { toast(I18n.t('account.nameAndUrlRequired'), 'err'); return; }
   if (body.download_proxy_mode === 'account_only' && (!body.proxy_enabled || !body.proxy_pool_id)) {
-    toast('"仅账户固定代理"模式必须启用并选择一个固定代理节点', 'err');
+    toast(I18n.t('account.accountOnlyProxyMustEnable'), 'err');
     return;
   }
   const r = await api('POST', '/accounts', body);
   if (r.error) { toast(r.error, 'err'); }
-  else { toast('账户已保存', 'ok'); closeModal('modalAccount'); await refresh(); }
+  else { toast(I18n.t('account.saved'), 'ok'); closeModal('modalAccount'); await refresh(); }
 }
 
 export async function deleteAccount(id) {
   const accounts = await api('GET', '/accounts');
   const acc = Array.isArray(accounts) && accounts.find(a => a.id === id);
-  if (!acc) return toast('账户不存在', 'err');
+  if (!acc) return toast(I18n.t('account.accountNotFound'), 'err');
   const ok = await showAppConfirm({
-    title: `确定删除监控账户「${acc.name}」？`,
-    message: '删除后将停止对该频道的扫描与通知，且无法恢复。',
-    confirmText: '删除',
+    title: I18n.t('account.deleteConfirmTitle').replace('{name}', acc.name),
+    message: I18n.t('account.deleteConfirmMsg'),
+    confirmText: I18n.t('account.btnDelete'),
     variant: 'danger',
   });
   if (!ok) return;
   const r = await api('DELETE', `/accounts/${id}`, {});
   if (r.error) toast(r.error, 'err');
-  else { toast('账户已删除', 'ok'); await refresh(); }
+  else { toast(I18n.t('account.deleted'), 'ok'); await refresh(); }
 }
 
 // ── Scan Now ─────────────────────────────────────────────────────────
@@ -412,8 +412,8 @@ function _updateScanNowBtn(accountId, fallbackBtn) {
   const submitting = _scanNowSubmitting && _pendingScanNow.accountId === accountId;
   btn.disabled = submitting || _isScanNowCoolingDown(accountId);
   btn.innerHTML = submitting
-    ? '<span class="spinner"></span><span>扫描中</span>'
-    : '<span>立即扫描</span>';
+    ? '<span class="spinner"></span><span>' + I18n.t('account.scanning') + '</span>'
+    : '<span>' + I18n.t('account.scanNow') + '</span>';
 }
 
 export function scanNow(id, btn) {
@@ -442,12 +442,12 @@ export async function confirmScanNow() {
       auto_download: autoDl
     });
     if (r && !r.error && r.ok !== false) {
-      toast('扫描已触发' + (autoDl ? '（含自动下载）' : ''), 'info');
+      toast(I18n.t('account.scanTriggered') + (autoDl ? ' ' + I18n.t('account.autoDownloadIncluded') : ''), 'info');
     } else {
-      toast((r && r.error) || '扫描触发失败', 'err');
+      toast((r && r.error) || I18n.t('account.scanTriggerFailed'), 'err');
     }
   } catch (e) {
-    toast('网络错误', 'err');
+    toast(I18n.t('account.networkError'), 'err');
   } finally {
     const restoreBtn = btn;
     _scanNowCooldown.set(accountId, Date.now() + SCAN_NOW_COOLDOWN_MS);
@@ -460,7 +460,7 @@ export async function confirmScanNow() {
 // ── API Key Selectors (shared) ───────────────────────────────────────
 export async function refreshApiKeySelectors() {
   const keys = await api('GET', '/api-keys').catch(() => []);
-  const opts = ['<option value="">— 使用系统默认 —</option>'];
+  const opts = ['<option value="">' + I18n.t('account.apiKeyDefault') + '</option>'];
   keys.forEach(k => {
     opts.push(`<option value="${k.id}">${esc(k.name)} (${k.key_value})</option>`);
   });
@@ -468,7 +468,7 @@ export async function refreshApiKeySelectors() {
   if (sel) sel.innerHTML = opts.join('');
   const cfgSel = document.getElementById('cfgDefaultApiKey');
   if (cfgSel) {
-    const cfgOpts = ['<option value="">— 无默认 Key（需手动指定）—</option>'];
+    const cfgOpts = ['<option value="">' + I18n.t('account.noDefaultKey') + '</option>'];
     keys.forEach(k => { cfgOpts.push(`<option value="${k.id}">${esc(k.name)}</option>`); });
     cfgSel.innerHTML = cfgOpts.join('');
   }

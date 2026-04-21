@@ -30,13 +30,24 @@ const I18n = {
   apply() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.getAttribute('data-i18n');
-      el.textContent = this.t(key);
+      const text = this.t(key);
+      if (el.tagName === 'TITLE') {
+        el.textContent = text;
+        if (typeof document !== 'undefined') document.title = text;
+      } else {
+        el.textContent = text;
+      }
     });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
       const key = el.getAttribute('data-i18n-placeholder');
       el.placeholder = this.t(key);
     });
+    document.querySelectorAll('[data-i18n-html]').forEach(el => {
+      const key = el.getAttribute('data-i18n-html');
+      el.innerHTML = this.t(key);
+    });
   }
 };
 
 window.I18n = I18n;
+export { I18n };

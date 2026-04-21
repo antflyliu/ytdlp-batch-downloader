@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { esc } from '../utils/format.js';
 import { toast, openModal, closeModal, showAppConfirm } from './ui.js';
 import { setGConfig } from './state.js';
+import { I18n } from '../../static/js/i18n.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -200,8 +201,8 @@ export async function saveConfig() {
     mask_proxy_in_logs: el('cfg_mask_proxy_in_logs') ? c('cfg_mask_proxy_in_logs') : S.mask_proxy_in_logs !== false,
   };
   const r = await api('POST', '/config', body);
-  if (r.ok) { toast('配置已保存', 'ok'); closeModal('modalConfig'); }
-  else toast('保存失败', 'err');
+  if (r.ok) { toast(I18n.t('apiKeysUi.saveConfigOk'), 'ok'); closeModal('modalConfig'); }
+  else toast(I18n.t('apiKeysUi.saveConfigFail'), 'err');
 }
 
 // ── API Keys ────────────────────────────────────────────────────────
@@ -222,9 +223,9 @@ export async function loadApiKeysList() {
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
           </svg>
         </div>
-        <div class="ak-empty-title">无法加载 API Keys</div>
-        <div class="ak-empty-desc">请确认 Token 已正确配置</div>
-        <button class="btn btn-primary btn-sm" onclick="_promptToken();loadApiKeysList()">重新加载</button>
+        <div class="ak-empty-title">${esc(I18n.t('apiKeysUi.emptyLoadTitle'))}</div>
+        <div class="ak-empty-desc">${esc(I18n.t('apiKeysUi.emptyLoadDesc'))}</div>
+        <button class="btn btn-primary btn-sm" onclick="_promptToken();loadApiKeysList()">${esc(I18n.t('apiKeysUi.emptyReload'))}</button>
       </div>`;
     return;
   }
@@ -236,9 +237,9 @@ export async function loadApiKeysList() {
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
           </svg>
         </div>
-        <div class="ak-empty-title">暂无 API Key</div>
-        <div class="ak-empty-desc">点击下方「新增 Key」添加第一个 YouTube API Key</div>
-        <button class="btn btn-primary btn-sm" onclick="window.openAddApiKey()">+ 添加第一个 Key</button>
+        <div class="ak-empty-title">${esc(I18n.t('apiKeysUi.emptyNoKeysTitle'))}</div>
+        <div class="ak-empty-desc">${esc(I18n.t('apiKeysUi.emptyNoKeysDesc'))}</div>
+        <button class="btn btn-primary btn-sm" onclick="window.openAddApiKey()">${esc(I18n.t('apiKeysUi.emptyAddFirst'))}</button>
       </div>`;
     return;
   }
@@ -270,7 +271,7 @@ export async function loadApiKeysList() {
       <div class="ak-info">
         <div class="ak-name-row">
           <span class="ak-name">${esc(k.name)}</span>
-          <span class="ak-status ${k.is_active ? 'active' : 'inactive'}">${k.is_active ? '启用' : '禁用'}</span>
+          <span class="ak-status ${k.is_active ? 'active' : 'inactive'}">${k.is_active ? esc(I18n.t('apiKeysUi.statusOn')) : esc(I18n.t('apiKeysUi.statusOff'))}</span>
         </div>
         <div class="ak-key">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -282,20 +283,20 @@ export async function loadApiKeysList() {
           <div class="ak-quota-fill" style="width:${pct}%;background:${color}"></div>
         </div>
         <div class="ak-quota-stats">
-          <span>已用 <strong class="used">${used.toLocaleString()}</strong></span>
-          <span>限额 <strong>${quota.toLocaleString()}</strong></span>
-          <span>剩余 <strong class="remaining">${remaining.toLocaleString()}</strong></span>
-          <span>扫描 <strong>${k.scans_done || 0}</strong> 次</span>
+          <span>${esc(I18n.t('apiKeysUi.quotaUsed'))} <strong class="used">${used.toLocaleString()}</strong></span>
+          <span>${esc(I18n.t('apiKeysUi.quotaLimit'))} <strong>${quota.toLocaleString()}</strong></span>
+          <span>${esc(I18n.t('apiKeysUi.quotaRemaining'))} <strong class="remaining">${remaining.toLocaleString()}</strong></span>
+          <span>${esc(I18n.t('apiKeysUi.scans'))} <strong>${k.scans_done || 0}</strong> ${esc(I18n.t('apiKeysUi.times'))}</span>
         </div>
       </div>
       <div class="ak-actions">
-        <button class="btn-sm" onclick="window.openEditApiKey(${k.id})" title="编辑">
+        <button class="btn-sm" onclick="window.openEditApiKey(${k.id})" title="${esc(I18n.t('apiKeysUi.editTitle'))}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </button>
-        <button class="btn-sm danger" onclick="window.deleteApiKey(${k.id})" title="删除">
+        <button class="btn-sm danger" onclick="window.deleteApiKey(${k.id})" title="${esc(I18n.t('apiKeysUi.deleteTitle'))}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14H6L5 6"/>
@@ -313,10 +314,10 @@ export function openAddApiKey() {
   const set = (id, v) => { const e = el(id); if (e) e.value = v; };
   const setCb = (id, v) => { const e = el(id); if (e) e.checked = v; };
   const setText = (id, v) => { const e = el(id); if (e) e.textContent = v; };
-  setText('modalApiKeyFormTitle', '新增 API Key');
+  setText('modalApiKeyFormTitle', I18n.t('apiKeyForm.addTitle'));
   set('akId', ''); set('akName', ''); set('akValue', '');
   const akv = el('akValue'); if (akv) { akv.readOnly = false; akv.style.opacity = '1'; }
-  setText('akValueHint', 'YouTube Data API v3 的实际 Key 值，安全存储于本地数据库');
+  setText('akValueHint', I18n.t('apiKeyForm.keyValueHint'));
   set('akQuota', '10000'); setCb('akActive', true);
   openModal('modalApiKeyForm');
 }
@@ -325,14 +326,14 @@ export async function openEditApiKey(id) {
   if (!el('modalApiKeyForm')) return;
   const keys = await api('GET', '/api-keys');
   const k = keys && keys.find(x => x.id === id);
-  if (!k) return toast('API Key 不存在', 'err');
+  if (!k) return toast(I18n.t('apiKeysUi.toastNotFound'), 'err');
   const set = (eid, v) => { const e = el(eid); if (e) e.value = v; };
   const setCb = (eid, v) => { const e = el(eid); if (e) e.checked = v; };
   const setText = (eid, v) => { const e = el(eid); if (e) e.textContent = v; };
-  setText('modalApiKeyFormTitle', '编辑 API Key');
+  setText('modalApiKeyFormTitle', I18n.t('apiKeyForm.editTitle'));
   set('akId', k.id); set('akName', k.name); set('akValue', k.key_value);
   const akv = el('akValue'); if (akv) { akv.readOnly = true; akv.style.opacity = '0.5'; }
-  setText('akValueHint', 'Key 值创建后不可更改，如需更换请删除后重新创建');
+  setText('akValueHint', I18n.t('apiKeyForm.keyValueHintEdit'));
   set('akQuota', k.daily_quota); setCb('akActive', k.is_active);
   openModal('modalApiKeyForm');
 }
@@ -341,7 +342,7 @@ export async function saveApiKey() {
   if (!el('modalApiKeyForm')) return;
   const id = el('akId')?.value ?? '';
   const name = el('akName')?.value.trim() ?? '';
-  if (!name) { toast('名称不能为空', 'err'); return; }
+  if (!name) { toast(I18n.t('apiKeysUi.toastNameRequired'), 'err'); return; }
   const body = {
     name,
     daily_quota: parseInt(el('akQuota')?.value, 10) || 10000,
@@ -351,14 +352,14 @@ export async function saveApiKey() {
     body.key_value = el('akValue')?.value.trim() || undefined;
   } else {
     const keyVal = el('akValue')?.value.trim() ?? '';
-    if (!keyVal) { toast('Key 值不能为空', 'err'); return; }
+    if (!keyVal) { toast(I18n.t('apiKeysUi.toastKeyRequired'), 'err'); return; }
     body.key_value = keyVal;
   }
   let r;
   if (id) r = await api('POST', `/api-keys/${id}`, body);
   else r = await api('POST', '/api-keys', body);
   if (r.error) { toast(r.error, 'err'); return; }
-  toast('API Key 已保存', 'ok');
+  toast(I18n.t('apiKeysUi.toastSaved'), 'ok');
   closeModal('modalApiKeyForm');
   await loadApiKeysList();
   await refreshApiKeySelectors();
@@ -367,20 +368,20 @@ export async function saveApiKey() {
 export async function deleteApiKey(id) {
   const keys = await api('GET', '/api-keys');
   const k = keys && keys.find(x => x.id === id);
-  if (!k) return toast('API Key 不存在', 'err');
+  if (!k) return toast(I18n.t('apiKeysUi.toastNotFound'), 'err');
   const ok = await showAppConfirm({
-    title: `确定删除「${k.name}」？`,
-    message: '关联的账户将改用系统默认 Key。',
-    confirmText: '删除',
+    title: I18n.t('apiKeysUi.deleteConfirmTitle').replace('{name}', k.name),
+    message: I18n.t('apiKeysUi.deleteConfirmMsg'),
+    confirmText: I18n.t('apiKeysUi.deleteConfirmBtn'),
     variant: 'danger',
   });
   if (!ok) return;
   const r = await api('DELETE', `/api-keys/${id}`);
   if (r.error) { toast(r.error, 'err'); return; }
   if (r.affected_accounts && r.affected_accounts.length > 0) {
-    toast(`已删除（${r.affected_accounts.length} 个账户已改用默认 Key）`, 'ok');
+    toast(I18n.t('apiKeysUi.toastDeletedWithAccounts').replace('{n}', String(r.affected_accounts.length)), 'ok');
   } else {
-    toast('已删除', 'ok');
+    toast(I18n.t('apiKeysUi.toastDeleted'), 'ok');
   }
   await loadApiKeysList();
   await refreshApiKeySelectors();

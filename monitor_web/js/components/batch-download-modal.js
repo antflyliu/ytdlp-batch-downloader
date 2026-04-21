@@ -2,6 +2,7 @@
 import { api, apiForm } from '../api.js';
 import { esc } from '../utils/format.js';
 import { toast } from '../modules/ui.js';
+import { I18n } from '../../static/js/i18n.js';
 
 // ── DOM Helper (null-safe) ─────────────────────────────────────────
 const el = (id) => document.getElementById(id);
@@ -40,7 +41,7 @@ export function bdResetProgressState() {
   const bdTrackPulse = el('bdTrackPulse'); if (bdTrackPulse) bdTrackPulse.classList.remove('active');
   const bdLogText = el('bdLogText'); if (bdLogText) bdLogText.innerHTML = '';
   const bdLog = el('bdLog'); if (bdLog) bdLog.style.display = 'none';
-  const bdLogToggle = el('bdLogToggle'); if (bdLogToggle) bdLogToggle.textContent = '▾ 展开详情';
+  const bdLogToggle = el('bdLogToggle'); if (bdLogToggle) bdLogToggle.textContent = '▾ ' + I18n.t('batchDownload.expandLog');
 }
 
 // ── Open / Close ───────────────────────────────────────────────────
@@ -51,8 +52,8 @@ export function openBatchDownload() {
   if (_bdPollTimer) { clearInterval(_bdPollTimer); _bdPollTimer = null; }
   bdResetUploadState();
   bdResetProgressState();
-  const bdStartBtn = el('bdStartBtn'); if (bdStartBtn) { bdStartBtn.style.display = ''; bdStartBtn.disabled = false; bdStartBtn.textContent = '▶ 开始下载'; }
-  const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) { bdCancelBtn.textContent = '取消'; bdCancelBtn.disabled = false; }
+  const bdStartBtn = el('bdStartBtn'); if (bdStartBtn) { bdStartBtn.style.display = ''; bdStartBtn.disabled = false; bdStartBtn.textContent = '▶ ' + I18n.t('batchDownload.start'); }
+  const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) { bdCancelBtn.textContent = I18n.t('common.cancel'); bdCancelBtn.disabled = false; }
   const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '';
   loadProxyPoolsForBatch();
   loadRecentBatchTasks();
@@ -71,7 +72,7 @@ export function loadProxyPoolsForBatch() {
   api('GET', '/proxy-pools').then(r => {
     const sel = el('bdProxy');
     if (!sel) return;
-    sel.innerHTML = '<option value="">（按系统默认路由）</option>';
+    sel.innerHTML = '<option value="">' + I18n.t('batchDownload.proxyPoolDefault') + '</option>';
     if (!Array.isArray(r)) return;
     r.forEach(p => {
       if (!p || !p.enabled) return;
@@ -109,7 +110,7 @@ export async function bdHandleFile(input) {
     _bdPreviewUrls = Array.isArray(r.preview_urls) ? r.preview_urls : [];
     const bdFileName = el('bdFileName'); if (bdFileName) bdFileName.textContent = r.filename || file.name;
     const bdUrlCount = el('bdUrlCount'); if (bdUrlCount) bdUrlCount.textContent =
-      (r.url_count || 0) + ' 条 URL' + (_bdPreviewUrls.length ? '（预览 ' + _bdPreviewUrls.length + ' 条）' : '');
+      (r.url_count || 0) + ' ' + I18n.t('batch.urlCount').replace('{n}', '') + ' ' + (_bdPreviewUrls.length ? I18n.t('batch.previewCount').replace('{n}', _bdPreviewUrls.length) : '');
     const bdDropIdle = el('bdDropIdle'); if (bdDropIdle) bdDropIdle.style.display = 'none';
     const bdDropSelected = el('bdDropSelected'); if (bdDropSelected) bdDropSelected.style.display = '';
     const bdDropzone = el('bdDropzone'); if (bdDropzone) bdDropzone.className = 'bd-dropzone selected';
@@ -121,11 +122,11 @@ export async function bdHandleFile(input) {
   const bdFileError2 = el('bdFileError');
   if (r && !r._fetchFailed) {
     if (bdDropzone2) bdDropzone2.className = 'bd-dropzone error';
-    if (bdFileError2) { bdFileError2.textContent = '❌ ' + ((r && r.error) || '解析失败'); bdFileError2.style.display = ''; }
+    if (bdFileError2) { bdFileError2.textContent = '❌ ' + I18n.t('batch.parseFailed'); bdFileError2.style.display = ''; }
     return;
   }
   if (bdDropzone2) bdDropzone2.className = 'bd-dropzone error';
-  if (bdFileError2) { bdFileError2.textContent = '❌ 网络错误'; bdFileError2.style.display = ''; }
+  if (bdFileError2) { bdFileError2.textContent = '❌ ' + I18n.t('batch.networkError'); bdFileError2.style.display = ''; }
 }
 
 // ── Path Modal (injected styles + helper) ─────────────────────────
@@ -235,15 +236,15 @@ export async function bdHandleFile(input) {
           <button class="bd-path-card-close" id="bdPathCloseBtn">✕</button>
         </div>
         <div class="bd-path-card-body">
-          <div class="bd-path-card-label">路径</div>
+          <div class="bd-path-card-label">${I18n.t('batchDownload.outputPath')}</div>
           <div class="bd-path-input-wrap">
             <input class="bd-path-input" id="bdPathInput" value="${currentValue || ''}" placeholder="${placeholder}" spellcheck="false" autocomplete="off">
           </div>
           ${hint ? `<div class="bd-path-hint">${hint}</div>` : ''}
         </div>
         <div class="bd-path-card-footer">
-          <button class="bd-path-btn bd-path-btn-cancel" id="bdPathCancelBtn">取消</button>
-          <button class="bd-path-btn bd-path-btn-confirm" id="bdPathConfirmBtn">确认</button>
+          <button class="bd-path-btn bd-path-btn-cancel" id="bdPathCancelBtn">${I18n.t('common.cancel')}</button>
+          <button class="bd-path-btn bd-path-btn-confirm" id="bdPathConfirmBtn">${I18n.t('common.confirm')}</button>
         </div>
       </div>
     `;
@@ -282,11 +283,11 @@ export async function bdHandleFile(input) {
     const bdOutputPath = document.getElementById('bdOutputPath');
     const current = bdOutputPath ? bdOutputPath.value.trim() : '';
     openPathModal(
-      '保存路径',
+      I18n.t('batchDownload.outputPath'),
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
-      '例如：D:\\Downloads\\Videos',
+      I18n.t('batchDownload.outputPathPlaceholder'),
       current,
-      '留空则使用全局配置。请输入监控服务器可访问的完整路径。',
+      I18n.t('batchDownload.outputPathPlaceholder') + ' ' + I18n.t('common.required'),
       function (val) {
         if (bdOutputPath) bdOutputPath.value = val;
       }
@@ -297,11 +298,11 @@ export async function bdHandleFile(input) {
     const bdCookie = document.getElementById('bdCookie');
     const current = bdCookie ? bdCookie.value.trim() : '';
     openPathModal(
-      'Cookie 文件路径',
+      I18n.t('batchDownload.cookie'),
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 8v4l3 3"/></svg>',
-      '例如：C:\\cookies.txt 或留空使用全局配置',
+      I18n.t('batchDownload.cookiePlaceholder'),
       current,
-      '必须是监控服务器本机可访问的文件路径，不支持读取浏览器本地文件。',
+      I18n.t('batchDownload.cookieHint'),
       function (val) {
         if (bdCookie) bdCookie.value = val.trim();
       }
@@ -316,19 +317,19 @@ export function bdBrowseCookie() { window.bdBrowseCookieModal(); }
 
 export function bdTaskLabel(task) {
   const statusMap = {
-    running: '下载中',
-    cancelling: '取消中',
-    cancelled: '已取消',
-    done: '已完成',
-    error: '失败',
+    running: I18n.t('batchDownload.downloading'),
+    cancelling: I18n.t('batch.cancelling'),
+    cancelled: I18n.t('batch.cancelled'),
+    done: I18n.t('batch.completed'),
+    error: I18n.t('batch.failed'),
   };
-  const status = statusMap[task.status] || (task.status || '未知');
+  const status = statusMap[task.status] || (task.status || I18n.t('batch.unknown'));
   const total = Number(task.total || 0);
   const success = Number(task.success || 0);
   const failed = Number(task.failed || 0);
   const createdAt = (task.created_at || '').replace('T', ' ').slice(5, 16);
   const source = task.source_name ? ' · ' + task.source_name : '';
-  return '[' + status + '] ' + total + ' 个 · 成功 ' + success + ' / 失败 ' + failed + (createdAt ? ' · ' + createdAt : '') + source;
+  return '[' + status + '] ' + total + ' ' + I18n.t('batch.total') + ' · ' + I18n.t('batch.success') + ' ' + success + ' / ' + I18n.t('batch.failure') + ' ' + failed + (createdAt ? ' · ' + createdAt : '') + source;
 }
 
 export function bdFilterRecentTasks(tasks) {
@@ -351,7 +352,7 @@ export function bdUpdateRecentSummary(tasks) {
   const cancelledCount = tasks.filter(task => task.status === 'cancelled').length;
   const summary = document.getElementById('bdRecentSummary');
   if (summary) {
-    summary.textContent = '全部 ' + allCount + ' · 进行中 ' + activeCount + ' · 已结束 ' + finishedCount + ' · 已取消 ' + cancelledCount;
+    summary.textContent = I18n.t('batch.recentSummary').replace('{total}', allCount).replace('{active}', activeCount).replace('{finished}', finishedCount).replace('{cancelled}', cancelledCount);
   }
 }
 
@@ -367,7 +368,7 @@ export function bdRenderRecentTaskCards(tasks, activeTaskId) {
   const host = document.getElementById('bdRecentList');
   if (!host) return;
   if (!tasks.length) {
-    host.innerHTML = '<div class="bd-recent-empty">暂无最近任务</div>';
+    host.innerHTML = '<div class="bd-recent-empty">' + I18n.t('batch.noRecentTasks') + '</div>';
     return;
   }
   host.innerHTML = '';
@@ -383,27 +384,27 @@ export function bdRenderRecentTaskCards(tasks, activeTaskId) {
     const pending = Math.max(0, total - completed);
     const status = task.status || 'unknown';
     const statusText = {
-      running: '下载中',
-      cancelling: '取消中',
-      cancelled: '已取消',
-      done: '已完成',
-      error: '失败',
+      running: I18n.t('batchDownload.downloading'),
+      cancelling: I18n.t('batch.cancelling'),
+      cancelled: I18n.t('batch.cancelled'),
+      done: I18n.t('batch.completed'),
+      error: I18n.t('batch.failed'),
     }[status] || status;
-    const createdAt = (task.created_at || '').replace('T', ' ').slice(5, 16) || '时间未知';
+    const createdAt = (task.created_at || '').replace('T', ' ').slice(5, 16) || I18n.t('batch.timeUnknown');
     card.innerHTML =
       '<div class="bd-recent-top">' +
         '<span class="bd-recent-status ' + status + '">' + statusText + '</span>' +
         '<span class="bd-recent-time">' + createdAt + '</span>' +
       '</div>' +
-      '<div class="bd-recent-meta">共 ' + total + ' 个 · 成功 ' + success + ' · 失败 ' + failed + ' · 待处理 ' + pending + '</div>' +
-      '<div class="bd-recent-sub">' + (task.source_name || '未记录文件名') + ' · ' + (task.current_video || task.cancel_message || '点击查看详情') + '</div>';
+      '<div class="bd-recent-meta">' + I18n.t('batch.totalCount').replace('{n}', total) + ' · ' + I18n.t('batch.success') + ' ' + success + ' · ' + I18n.t('batch.failure') + ' ' + failed + ' · ' + I18n.t('batch.pending') + ' ' + pending + '</div>' +
+      '<div class="bd-recent-sub">' + (task.source_name || I18n.t('batch.sourceName')) + ' · ' + (task.current_video || task.cancel_message || I18n.t('batch.view')) + '</div>';
     const actions = document.createElement('div');
     actions.className = 'bd-recent-actions';
 
     const reopenBtn = document.createElement('button');
     reopenBtn.type = 'button';
     reopenBtn.className = 'bd-browse';
-    reopenBtn.textContent = '重开';
+    reopenBtn.textContent = I18n.t('batch.btnReopen');
     reopenBtn.onclick = (event) => {
       event.stopPropagation();
       bdRestartHistoryTask(task.task_id);
@@ -414,7 +415,7 @@ export function bdRenderRecentTaskCards(tasks, activeTaskId) {
       const cancelBtn = document.createElement('button');
       cancelBtn.type = 'button';
       cancelBtn.className = 'bd-browse';
-      cancelBtn.textContent = task.status === 'cancelling' ? '取消中...' : '取消';
+      cancelBtn.textContent = task.status === 'cancelling' ? I18n.t('batch.cancelling') + '...' : I18n.t('common.cancel');
       cancelBtn.disabled = task.status === 'cancelling';
       cancelBtn.onclick = (event) => {
         event.stopPropagation();
@@ -438,8 +439,8 @@ export function loadRecentBatchTasks(selectedTaskId) {
     bdUpdateRecentSummary(tasks);
     sel.innerHTML = '';
     if (!tasks.length) {
-      sel.innerHTML = '<option value="">暂无最近任务</option>';
-      hint.textContent = '可恢复查看运行中任务，或打开最近完成/取消的任务结果。';
+      sel.innerHTML = '<option value="">' + I18n.t('batch.noRecentTasks') + '</option>';
+      hint.textContent = I18n.t('batch.recentTaskHint');
       bdRenderRecentTaskCards([], '');
       return;
     }
@@ -457,8 +458,8 @@ export function loadRecentBatchTasks(selectedTaskId) {
     bdRenderRecentTaskCards(bdFilterRecentTasks(tasks), sel.value);
     const runningCount = tasks.filter(task => task.status === 'running' || task.status === 'cancelling').length;
     hint.textContent = runningCount > 0
-      ? '当前有 ' + runningCount + ' 个任务仍在运行/取消中，可切换查看实时状态。'
-      : '可打开最近完成、失败或已取消的批量任务结果。';
+      ? I18n.t('batch.runningTasks').replace('{n}', runningCount)
+      : I18n.t('batch.openResult');
   });
 }
 
@@ -466,7 +467,7 @@ export function bdOpenSelectedTask() {
   const sel = el('bdRecentTasks');
   const taskId = sel ? sel.value : '';
   if (!taskId) {
-    toast('暂无可查看的批量任务', 'info');
+    toast(I18n.t('batch.noTasksToView'), 'info');
     return;
   }
   bdAttachTask(taskId);
@@ -487,8 +488,8 @@ function _bdApplyRunningAfterStart(taskId) {
   _bdTaskId = taskId;
   _bdState = 'running';
   const btn = el('bdStartBtn');
-  if (btn) { btn.textContent = '下载中...'; btn.disabled = true; }
-  const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) bdCancelBtn.textContent = '取消';
+  if (btn) { btn.textContent = I18n.t('batchDownload.downloading') + '...'; btn.disabled = true; }
+  const bdCancelBtn = el('bdCancelBtn'); if (bdCancelBtn) bdCancelBtn.textContent = I18n.t('common.cancel');
   const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '0.5';
   const bdProgressSection = el('bdProgressSection'); if (bdProgressSection) bdProgressSection.style.display = '';
   const bdTrackPulse = el('bdTrackPulse'); if (bdTrackPulse) bdTrackPulse.classList.add('active');
@@ -504,23 +505,23 @@ function _bdApplyRunningAfterStart(taskId) {
 export function bdRestartHistoryTask(taskId) {
   if (_bdState === 'running' || _bdState === 'cancelling') return;
   if (!taskId) {
-    toast('无效的任务', 'err');
+    toast(I18n.t('batch.invalidTask'), 'err');
     return;
   }
   const btn = el('bdStartBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '启动中...'; }
+  if (btn) { btn.disabled = true; btn.textContent = I18n.t('batch.startupInProgress') + '...'; }
   bdResetProgressState();
   api('POST', '/batch/tasks/' + taskId + '/restart', {}).then(r => {
     if (btn) { btn.disabled = false; }
     if (r && r.task_id) {
       _bdApplyRunningAfterStart(r.task_id);
     } else {
-      toast((r && r.error) || '重开失败', 'err');
-      if (btn) btn.textContent = '▶ 重新下载';
+      toast((r && r.error) || I18n.t('batch.restartFailed'), 'err');
+      if (btn) btn.textContent = '▶ ' + I18n.t('batchDownload.start');
     }
   }).catch(() => {
-    if (btn) { btn.disabled = false; btn.textContent = '▶ 重新下载'; }
-    toast('网络错误', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '▶ ' + I18n.t('batchDownload.start'); }
+    toast(I18n.t('batch.networkError'), 'err');
   });
 }
 
@@ -529,14 +530,14 @@ export function bdCancelTask(taskId) {
     if (r && r.error) {
       if (_bdTaskId === taskId) {
         _bdState = 'running';
-        const btn = el('bdCancelBtn'); if (btn) { btn.disabled = false; btn.textContent = '取消'; }
+        const btn = el('bdCancelBtn'); if (btn) { btn.disabled = false; btn.textContent = I18n.t('common.cancel'); }
       }
-      toast(r.error || '取消失败', 'err');
+      toast(r.error || I18n.t('batch.cancelFailed'), 'err');
       return;
     }
     if (_bdTaskId === taskId) {
       _bdState = 'cancelling';
-      const bdCurrent = el('bdCurrent'); if (bdCurrent) bdCurrent.textContent = (r && r.message) || '正在取消下载任务…';
+      const bdCurrent = el('bdCurrent'); if (bdCurrent) bdCurrent.textContent = (r && r.message) || I18n.t('batch.cancellingTask');
     }
     loadRecentBatchTasks(taskId);
     if (_bdTaskId === taskId) {
@@ -545,9 +546,9 @@ export function bdCancelTask(taskId) {
   }).catch(() => {
     if (_bdTaskId === taskId) {
       _bdState = 'running';
-      const btn = el('bdCancelBtn'); if (btn) { btn.disabled = false; btn.textContent = '取消'; }
+      const btn = el('bdCancelBtn'); if (btn) { btn.disabled = false; btn.textContent = I18n.t('common.cancel'); }
     }
-    toast('取消请求失败', 'err');
+    toast(I18n.t('batch.cancelFailed'), 'err');
   });
 }
 
@@ -573,7 +574,7 @@ export function bdApplyTaskSnapshot(task, startPollingIfNeeded = true) {
     const div = el('bdLogText');
     if (div) {
       results.slice(_bdLastLogCount).forEach(item => {
-        const cls = item.status === '成功' ? 'log-success' : item.status === '失败' ? 'log-error' : '';
+        const cls = item.status === I18n.t('batch.success') ? 'log-success' : item.status === I18n.t('batch.failure') ? 'log-error' : '';
         const t = new Date().toLocaleTimeString();
         div.innerHTML += '<div class="' + cls + '">[' + t + '] ' + (item.status || '') + ' ' + (item.info || '') + '</div>';
       });
@@ -588,8 +589,8 @@ export function bdApplyTaskSnapshot(task, startPollingIfNeeded = true) {
 
   if (task.status === 'running' || task.status === 'cancelling') {
     _bdState = task.status === 'cancelling' ? 'cancelling' : 'running';
-    if (startBtn) { startBtn.disabled = true; startBtn.textContent = '下载中...'; startBtn.style.display = ''; }
-    if (cancelBtn) { cancelBtn.disabled = task.status === 'cancelling'; cancelBtn.textContent = task.status === 'cancelling' ? '取消中...' : '取消'; }
+    if (startBtn) { startBtn.disabled = true; startBtn.textContent = I18n.t('batchDownload.downloading') + '...'; startBtn.style.display = ''; }
+    if (cancelBtn) { cancelBtn.disabled = task.status === 'cancelling'; cancelBtn.textContent = task.status === 'cancelling' ? I18n.t('batch.cancelling') + '...' : I18n.t('common.cancel'); }
     const bdConfig = el('bdConfig'); if (bdConfig) bdConfig.style.opacity = '0.5';
     const bdTrackPulse = el('bdTrackPulse'); if (bdTrackPulse) bdTrackPulse.classList.add('active');
     if (completeEl) completeEl.style.display = 'none';
@@ -605,8 +606,8 @@ export function bdApplyTaskSnapshot(task, startPollingIfNeeded = true) {
   }
   _bdState = 'idle';
   const bdTrackPulse2 = el('bdTrackPulse'); if (bdTrackPulse2) bdTrackPulse2.classList.remove('active');
-  if (startBtn) { startBtn.disabled = false; startBtn.textContent = '▶ 重新下载'; }
-  if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = '关闭'; }
+  if (startBtn) { startBtn.disabled = false; startBtn.textContent = '▶ ' + I18n.t('batchDownload.start'); }
+  if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = I18n.t('common.close'); }
   const bdConfig2 = el('bdConfig'); if (bdConfig2) bdConfig2.style.opacity = '';
 
   if (completeEl) {
@@ -614,19 +615,19 @@ export function bdApplyTaskSnapshot(task, startPollingIfNeeded = true) {
     completeEl.className = 'bd-complete';
     if (task.status === 'cancelled') {
       completeEl.classList.add('warning');
-      completeEl.textContent = '已取消 — 成功: ' + success + '  失败: ' + failed + '  已完成: ' + completed + '/' + total;
-      if (bdCurrent) bdCurrent.textContent = task.cancel_message || '下载任务已取消';
+      completeEl.textContent = I18n.t('batch.taskSnapshotCancelled').replace('{s}', success).replace('{f}', failed).replace('{c}', completed).replace('{t}', total);
+      if (bdCurrent) bdCurrent.textContent = task.cancel_message || I18n.t('batch.cancelledMsg');
     } else if (failed === 0 && success > 0) {
       completeEl.classList.add('success');
-      completeEl.textContent = '下载成功 — 成功: ' + success + '  失败: ' + failed;
+      completeEl.textContent = I18n.t('batch.taskSnapshotSuccess').replace('{s}', success).replace('{f}', failed);
     } else if (success > 0 && failed > 0) {
       completeEl.classList.add('warning');
-      completeEl.textContent = '部分成功 — 成功: ' + success + '  失败: ' + failed;
+      completeEl.textContent = I18n.t('batch.taskSnapshotPartial').replace('{s}', success).replace('{f}', failed);
     } else {
       completeEl.classList.add('error');
-      completeEl.textContent = '下载失败 — 成功: ' + success + '  失败: ' + failed;
+      completeEl.textContent = I18n.t('batch.taskSnapshotFailed').replace('{s}', success).replace('{f}', failed);
       if (!task.current_video || task.current_video.startsWith('完成第 ')) {
-        if (bdCurrent) bdCurrent.textContent = '存在下载失败，请检查 Cookie / 代理 / 目标站点限制';
+        if (bdCurrent) bdCurrent.textContent = I18n.t('batch.checkCookieProxy');
       }
     }
   }
@@ -639,7 +640,7 @@ export function bdAttachTask(taskId) {
   bdResetProgressState();
   api('GET', '/batch/tasks/' + taskId).then(task => {
     if (!task || task.error) {
-      toast((task && task.error) || '无法加载任务详情', 'err');
+      toast((task && task.error) || I18n.t('batch.loadTaskFailed'), 'err');
       return;
     }
     loadRecentBatchTasks(taskId);
@@ -653,7 +654,7 @@ export function bdStart() {
   if (!_bdUploadId) {
     const restartTaskId = bdResolveRestartTaskId();
     if (!restartTaskId) {
-      toast('请先上传并解析包含 URL 的文件，或在「最近任务」中选择一条任务', 'err');
+      toast(I18n.t('batch.taskEmpty'), 'err');
       return;
     }
     bdRestartHistoryTask(restartTaskId);
@@ -675,19 +676,19 @@ export function bdStart() {
     cookies_file: (bdCookie && bdCookie.value.trim()) || null,
   };
   const btn = el('bdStartBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '启动中...'; }
+  if (btn) { btn.disabled = true; btn.textContent = I18n.t('batch.submitting') + '...'; }
   bdResetProgressState();
   api('POST', '/batch/start', body).then(r => {
     if (btn) { btn.disabled = false; }
     if (r && r.task_id) {
       _bdApplyRunningAfterStart(r.task_id);
     } else {
-      toast((r && r.error) || '启动失败', 'err');
-      if (btn) btn.textContent = '▶ 开始下载';
+      toast((r && r.error) || I18n.t('batch.downloadFailed').replace('{e}', ''), 'err');
+      if (btn) btn.textContent = '▶ ' + I18n.t('batchDownload.start');
     }
   }).catch(() => {
-    if (btn) { btn.disabled = false; btn.textContent = '▶ 开始下载'; }
-    toast('网络错误', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '▶ ' + I18n.t('batchDownload.start'); }
+    toast(I18n.t('batch.networkError'), 'err');
   });
 }
 
@@ -708,18 +709,18 @@ export function bdToggleLog() {
   if (!logEl || !logTog) return;
   if (logEl.style.display === 'none') {
     logEl.style.display = '';
-    logTog.textContent = '▴ 收起详情';
+    logTog.textContent = '▴ ' + I18n.t('batch.collapseLog');
   } else {
     logEl.style.display = 'none';
-    logTog.textContent = '▾ 展开详情';
+    logTog.textContent = '▾ ' + I18n.t('batchDownload.expandLog');
   }
 }
 
 export function bdCancel() {
   if (_bdState === 'running') {
     _bdState = 'cancelling';
-    const btn = el('bdCancelBtn'); if (btn) { btn.disabled = true; btn.textContent = '取消中...'; }
-    const bdCurrent = el('bdCurrent'); if (bdCurrent) bdCurrent.textContent = '正在请求取消下载任务…';
+    const btn = el('bdCancelBtn'); if (btn) { btn.disabled = true; btn.textContent = I18n.t('batch.cancelling') + '...'; }
+    const bdCurrent = el('bdCurrent'); if (bdCurrent) bdCurrent.textContent = I18n.t('batch.requestingCancel');
     bdCancelTask(_bdTaskId);
     return;
   }

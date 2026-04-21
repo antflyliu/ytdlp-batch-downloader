@@ -12,7 +12,7 @@
         </div>
       </div>
       <div class="mvd-header-actions">
-        <button type="button" class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled data-i18n="videoDetail.downloadSelected">下载选中 (<span id="vdSelCount">0</span>)</button>
+        <button type="button" class="btn btn-sm btn-primary" id="vdBatchBtn" onclick="vdBatchDownload()" disabled><span id="vdBatchBtnLabel"></span></button>
         <button type="button" class="ccd-close" onclick="closeModal('modalVideoDetail')" aria-label="关闭"><span aria-hidden="true">×</span></button>
       </div>
     </div>
@@ -55,12 +55,12 @@
         <div class="dl-track"><div class="dl-fill" id="vdDlFill" style="width:0%"></div></div>
         <div class="dl-status" id="vdDlStatus"></div>
       </div>
-      <!-- 表格 -->
-      <div style="flex:1;overflow:auto;min-height:0">
+      <!-- 表格（滚动区见 clip-detail.css .mvd-table-scroll） -->
+      <div class="mvd-table-scroll">
         <table class="vd-table">
           <thead>
             <tr>
-              <th style="width:40px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
+              <th class="vd-th-check" style="width:52px;min-width:52px"><input type="checkbox" id="vdCheckAll" onchange="vdToggleAll(this)"></th>
               <th data-i18n="videoDetail.titleCol">标题</th>
               <th style="width:90px" data-i18n="videoDetail.pubTimeCol">发布时间</th>
               <th style="width:80px" data-i18n="videoDetail.duration">时长</th>
