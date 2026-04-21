@@ -71,3 +71,72 @@ function renderStatus(status) {
   if (enableBtn) enableBtn.disabled = !!status.running;
   if (disableBtn) disableBtn.disabled = !status.running;
 }
+
+// ── Page Init (called by router.js when page is shown) ───────────────
+
+/** Bind button events for settings-proxy page. Called by router.js. */
+export function initSettingsProxyPage() {
+  // Refresh
+  document.getElementById('btn-proxy-refresh')?.addEventListener('click', () => {
+    refreshStatus();
+  });
+
+  // Enable
+  document.getElementById('btn-proxy-enable')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-proxy-enable');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await enable();
+      if (r.error) { alert(r.error); return; }
+      await refreshStatus();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // Disable
+  document.getElementById('btn-proxy-disable')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-proxy-disable');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await disable();
+      if (r.error) { alert(r.error); return; }
+      await refreshStatus();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // Install cert
+  document.getElementById('btn-cert-install')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-cert-install');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await installCert();
+      if (r.error) { alert(r.error); return; }
+      alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.certInstallSuccess') : '证书安装成功，请重启浏览器生效');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // System proxy on
+  document.getElementById('btn-proxy-system-on')?.addEventListener('click', async () => {
+    const r = await setSystemProxy('open');
+    if (r.error) { alert(r.error); return; }
+    alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.systemProxyOnSuccess') : '系统代理已开启');
+  });
+
+  // System proxy off
+  document.getElementById('btn-proxy-system-off')?.addEventListener('click', async () => {
+    const r = await setSystemProxy('unset');
+    if (r.error) { alert(r.error); return; }
+    alert(window.I18n ? window.I18n.t('PROXY_SNIFFER.systemProxyOffSuccess') : '系统代理已关闭');
+  });
+
+  // Initial load
+  refreshStatus();
+}
+
+// Expose as window.init_settings_proxy_page for router.js
+window.init_settings_proxy_page = initSettingsProxyPage;
