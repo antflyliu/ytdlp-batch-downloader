@@ -495,8 +495,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             MonitorHandler._api_token = env_token
         elif not hasattr(MonitorHandler, "_api_token") or MonitorHandler._api_token is None:
             MonitorHandler._api_token = _db.get_api_token()
+        # 支持 Authorization 请求头
         auth_header = self.headers.get("Authorization", "")
-        ok, err = verify_bearer_token(auth_header, MonitorHandler._api_token)
+        # 也支持 ?api_token= 查询参数（EventSource 等不支持自定义请求头）
+        query_token = ""
+        if hasattr(self, "path") and self.path:
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            token_list = qs.get("api_token", [])
+            if token_list:
+                query_token = token_list[0]
+        # 优先用 Authorization header，其次 query parameter
+        token_to_verify = auth_header if auth_header else ("Bearer " + query_token if query_token else "")
+        ok, err = verify_bearer_token(token_to_verify, MonitorHandler._api_token)
         if not ok:
             self._send_json({"error": err}, 401)
             return False
@@ -687,6 +698,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_proxy_status()
         elif path == "/api/proxy/config":
             self._api_proxy_config_get()
+        elif path == "/api/res-events":
+            self._api_res_events_stream()
         else:
             super().do_GET()
 
@@ -815,6 +828,23 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_proxy_system_proxy(body)
         elif path == "/api/proxy/cert/install":
             self._api_proxy_cert_install()
+        # ── 资源嗅探 API ──────────────────────────────────────
+        elif path == "/api/res/clear":
+            self._api_res_clear()
+        elif path == "/api/res/delete":
+            self._api_res_delete(body)
+        elif path == "/api/res/set-type":
+            self._api_res_set_type(body)
+        elif path == "/api/res/download":
+            self._api_res_download(body)
+        elif path == "/api/res/cancel":
+            self._api_res_cancel(body)
+        elif path == "/api/res/decode":
+            self._api_res_decode(body)
+        elif path == "/api/res/export":
+            self._api_res_export(body)
+        elif path == "/api/res/open-folder":
+            self._api_res_open_folder(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -2498,44 +2528,72 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_proxy_status(self):
         """GET /api/proxy/status — 获取代理运行状态。"""
-        mgr = get_proxy_manager()
+        import urllib.request
+        # 直接通过健康检查确认 Go 服务是否在响应
+        # 不依赖 subprocess wrapper，因为 Go 可能被外部启动
+        running = False
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:8899/health", timeout=2
+            )
+            running = True
+        except Exception:
+            pass
         self._send_json({
-            "running": mgr.is_running,
-            "port": mgr.proxy_port,
+            "running": running,
+            "port": 8899,
         })
 
     def _api_proxy_config_get(self):
         """GET /api/proxy/config — 获取 Go 侧配置。"""
+        import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
-        if not mgr.is_running:
-            self._send_json({"error": "proxy not running"}, 503)
-            return
         try:
-            self._send_json(mgr.get_config())
+            with urllib.request.urlopen(
+                f"{mgr.api_base}/api/get-config", timeout=5
+            ) as r:
+                self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
     def _api_proxy_config_update(self, body):
         """POST /api/proxy/config — 更新 Go 侧配置。"""
+        import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
-        if not mgr.is_running:
-            self._send_json({"error": "proxy not running"}, 503)
-            return
         try:
-            self._send_json(mgr.update_config(body or {}))
+            body_bytes = _json.dumps(body or {}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{mgr.api_base}/api/set-config",
+                data=body_bytes,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
     def _api_proxy_download(self, body):
         """POST /api/proxy/download — 触发下载任务。"""
+        import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
-        if not mgr.is_running:
-            self._send_json({"error": "proxy not running"}, 503)
-            return
         try:
-            url = body.get("url", "") if body else ""
-            output_path = body.get("output_path", "") if body else ""
-            self._send_json(mgr.trigger_download(url, output_path))
+            payload = {
+                "url": (body or {}).get("url", ""),
+                "output_path": (body or {}).get("output_path", ""),
+            }
+            body_bytes = _json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"{mgr.api_base}/api/download",
+                data=body_bytes,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
@@ -2544,21 +2602,27 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         import urllib.request
         import json as _json
         mgr = get_proxy_manager()
-        # 未运行时自动启动（"开启系统代理"需要代理先启动）
+        action = (body or {}).get("action", "")
+        subpath = "proxy-open" if action == "open" else "proxy-unset" if action == "unset" else ""
+        if not subpath:
+            self._send_json({"error": "invalid action"}, 400)
+            return
+        # 未运行时先启动
         if not mgr.is_running:
             try:
                 mgr.start()
             except Exception as e:
                 self._send_json({"error": f"启动代理失败: {e}"}, 500)
                 return
-        action = (body or {}).get("action", "") if body else ""
-        subpath = "proxy-open" if action == "open" else "proxy-unset" if action == "unset" else ""
-        if not subpath:
-            self._send_json({"error": "invalid action"}, 400)
-            return
         try:
-            url = f"{mgr.api_base}/api/{subpath}"
-            with urllib.request.urlopen(url, timeout=10) as r:
+            # POST 请求必须传 data=b''，否则 urlopen 发送的是 GET
+            req = urllib.request.Request(
+                f"{mgr.api_base}/api/{subpath}",
+                data=b"",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
                 self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
@@ -2568,15 +2632,158 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         import urllib.request
         import json as _json
         mgr = get_proxy_manager()
+        try:
+            req = urllib.request.Request(
+                f"{mgr.api_base}/api/install",
+                data=b"",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                self._send_json(_json.loads(r.read()))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    # ── 资源嗅探 API ──────────────────────────────────────────
+
+    def _api_res_clear(self):
+        """POST /api/res/clear — 清空资源列表。"""
+        mgr = get_proxy_manager()
         if not mgr.is_running:
             self._send_json({"error": "proxy not running"}, 503)
             return
         try:
-            url = f"{mgr.api_base}/api/install"
-            with urllib.request.urlopen(url, timeout=30) as r:
+            self._send_json(mgr.clear_resources())
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_delete(self, body):
+        """POST /api/res/delete — 删除指定资源。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        signs = (body or {}).get("sign", []) if body else []
+        try:
+            self._send_json(mgr.delete_resources(signs))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_set_type(self, body):
+        """POST /api/res/set-type — 设置资源类型过滤。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        types = (body or {}).get("type", "") if body else ""
+        try:
+            self._send_json(mgr.set_resource_type(types))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_download(self, body):
+        """POST /api/res/download — 下载资源（含解密）。"""
+        import urllib.request
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        try:
+            url = f"{mgr.api_base}/api/download"
+            payload = _json.dumps(body or {}).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
                 self._send_json(_json.loads(r.read()))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
+
+    def _api_res_cancel(self, body):
+        """POST /api/res/cancel — 取消下载。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        task_id = (body or {}).get("id", "") if body else ""
+        try:
+            self._send_json(mgr.cancel_download(task_id))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_decode(self, body):
+        """POST /api/res/decode — 解密微信加密文件。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        media_info = (body or {}).get("MediaInfo", {}) if body else {}
+        filename = (body or {}).get("Filename", "") if body else ""
+        decode_str = (body or {}).get("DecodeStr", "") if body else ""
+        try:
+            self._send_json(mgr.wx_file_decode(media_info, filename, decode_str))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_export(self, body):
+        """POST /api/res/export — 批量导出资源列表。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        content = (body or {}).get("content", "") if body else ""
+        try:
+            self._send_json(mgr.batch_export(content))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_open_folder(self, body):
+        """POST /api/res/open-folder — 打开下载目录。"""
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            self._send_json({"error": "proxy not running"}, 503)
+            return
+        file_path = (body or {}).get("filePath", "") if body else ""
+        try:
+            self._send_json(mgr.open_folder(file_path))
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+
+    def _api_res_events_stream(self):
+        """GET /api/res-events — SSE 流式推送资源事件。"""
+        import urllib.request
+        if not self._require_auth():
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.end_headers()
+
+        mgr = get_proxy_manager()
+        import json as _json
+        try:
+            while True:
+                event = mgr.get_event(timeout=30.0)
+                if event is not None:
+                    data = _json.dumps(event).encode("utf-8")
+                    self.wfile.write(b"data: ")
+                    self.wfile.write(data)
+                    self.wfile.write(b"\n\n")
+                    self.wfile.flush()
+                else:
+                    # 心跳（保持连接活跃）
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError, OSError):
+            pass  # 客户端断开
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────
 
