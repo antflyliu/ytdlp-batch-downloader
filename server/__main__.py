@@ -567,6 +567,43 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         path = self._path_only()
         if not path.startswith("/api/"):
             self._strip_conditional_headers_for_static()
+            # ── Special handling: inject api_token into index.html ───────────
+            # 浏览器 / pywebview 加载 index.html 时，如果 URL 带 ?api_token=xxx，
+            # 后端直接注入到 HTML 中作为 JS 全局变量，避免前端依赖 URLSearchParams
+            # （pywebview WebView2 可能缓存文件导致 query string 丢失）。
+            if path in ("/", "/index.html"):
+                from urllib.parse import urlparse
+                raw_path = self.path  # 保留原始 path（含 query string）
+                parsed = urlparse(raw_path)
+                token_param = ""
+                try:
+                    from urllib.parse import parse_qs
+                    qs = parse_qs(parsed.query)
+                    tokens = qs.get("api_token", [])
+                    if tokens:
+                        token = tokens[0].strip()
+                        if token:
+                            token_param = token
+                except Exception:
+                    pass
+                if token_param:
+                    # 服务端注入 token 到 HTML（安全：只在服务器本机生效，不涉及跨域）
+                    # 注入到 <head> 最前，确保在 ES module scripts 执行前已设置 window.__MONITOR_API_TOKEN__
+                    try:
+                        html_bytes = _INDEX_HTML.read_bytes()
+                        html_str = html_bytes.decode("utf-8", errors="replace")
+                        inject_script = (
+                            f'<script>window.__MONITOR_API_TOKEN__ = {json.dumps(token_param)};</script>'
+                        )
+                        html_str = html_str.replace("<head>", "<head>\n" + inject_script, 1)
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(html_str.encode("utf-8"))))
+                        self.end_headers()
+                        self.wfile.write(html_str.encode("utf-8"))
+                        return
+                    except Exception:
+                        pass  # fallback to super() below
             try:
                 super().do_GET()
             except (ConnectionAbortedError, BrokenPipeError):

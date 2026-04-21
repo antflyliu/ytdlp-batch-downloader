@@ -19,8 +19,19 @@ export const API_BASE = '/api';
   } catch (_) { /* ignore */ }
 })();
 
-// Bearer token：存储在 sessionStorage；无 token 时由 ensureBearerBeforeApi 串行提示（不请求 /api/token）
-export let _bearerToken = sessionStorage.getItem('monitor_api_token') || '';
+/**
+ * 获取当前 Bearer token。
+ * 优先级：sessionStorage（浏览器 URL 传入） > window.__MONITOR_API_TOKEN__（服务端注入，pywebview 场景）
+ * 每次调用时动态读取，避免 ES module 静态初始化时机问题。
+ */
+function getBearerToken() {
+  return (
+    sessionStorage.getItem('monitor_api_token') ||
+    (typeof window !== 'undefined' && window.__MONITOR_API_TOKEN__) ||
+    ''
+  );
+}
+
 /** @type {Promise<void>|null} 并行 api() 共用的「先拿到 token」屏障，避免竞态导致大量无 Authorization 请求 */
 let _ensureBearerPromise = null;
 
@@ -30,7 +41,7 @@ let _ensureBearerPromise = null;
  * 并行 api() 仍通过 _ensureBearerPromise 共用一个 prompt，避免竞态。
  */
 export async function ensureBearerBeforeApi() {
-  if (_bearerToken) return;
+  if (getBearerToken()) return;
   if (_ensureBearerPromise) return _ensureBearerPromise;
   _ensureBearerPromise = (async () => {
     _promptToken();
@@ -43,10 +54,9 @@ export async function ensureBearerBeforeApi() {
 export function _promptToken() {
   const t = prompt('请输入 API Token:');
   if (t && t.trim()) {
-    _bearerToken = t.trim();
-    sessionStorage.setItem('monitor_api_token', _bearerToken);
+    sessionStorage.setItem('monitor_api_token', t.trim());
   }
-  return _bearerToken;
+  return getBearerToken();
 }
 
 /**
@@ -67,11 +77,12 @@ export function ensureReauthAfter401() {
 
 export async function api(method, path, body, _retry = false) {
   if (!_retry) await ensureBearerBeforeApi();
+  const token = getBearerToken();
   const opts = {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(_bearerToken ? { 'Authorization': 'Bearer ' + _bearerToken } : {}),
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
     },
   };
   if (body !== undefined) opts.body = JSON.stringify(body);
@@ -101,10 +112,11 @@ export async function api(method, path, body, _retry = false) {
 
 export async function apiForm(method, path, formData, _retry = false) {
   if (!_retry) await ensureBearerBeforeApi();
+  const token = getBearerToken();
   const opts = {
     method,
     headers: {
-      ...(_bearerToken ? { 'Authorization': 'Bearer ' + _bearerToken } : {}),
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
     },
     body: formData,
   };
@@ -113,7 +125,7 @@ export async function apiForm(method, path, formData, _retry = false) {
     r = await fetch(API_BASE + path, opts);
   } catch (e) {
     const msg = (e && e.message) ? e.message : String(e);
-    return { error: '网络错误: ' + msg, _fetchFailed: true };
+    return { error: '网络错误: ' + msg, _fetchFailed: 1, _httpStatus: 0 };
   }
   if (r.status === 401 && !_retry) {
     await ensureReauthAfter401();

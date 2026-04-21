@@ -1140,7 +1140,7 @@ def _shutdown_existing_web_ui(port: int) -> bool:
     """尝试通过受保护的 shutdown API 关闭已运行的 Web UI。"""
     try:
         import urllib.request
-        token = _db.get_api_token()
+        token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/system/shutdown",
             method="POST",
@@ -1204,9 +1204,10 @@ def run_standalone(force_restart: bool = False, port: int = 5000):
         print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
         print("   如需加载最新代码，请执行: python monitor_ui.py --force-restart")
 
-    import webbrowser
-    webbrowser.open(f"http://127.0.0.1:{port}")
-    print(f"\n监控 Web UI 已启动: http://127.0.0.1:{port}")
+    token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token() or ""
+    url = f"http://127.0.0.1:{port}" + (f"?api_token={token}" if token else "")
+    webbrowser.open(url)
+    print(f"\n监控 Web UI 已启动: {url}")
     print(f"   按 Ctrl+C 停止\n")
     try:
         while True:
@@ -1350,7 +1351,8 @@ def run_standalone_webview(force_restart: bool = False,
         _log.info("清理完成")
 
     # 5. 创建 pywebview 窗口
-    url = f"http://127.0.0.1:{port}"
+    token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token() or ""
+    url = f"http://127.0.0.1:{port}" + (f"?api_token={token}" if token else "")
     _log.info(f"创建 WebView2 窗口: {url}")
     try:
         window = create_webview_window(
