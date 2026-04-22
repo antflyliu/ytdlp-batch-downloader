@@ -616,6 +616,56 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                         return
                     except Exception:
                         pass  # fallback to super() below
+            # ── Vue SPA fallback — all non-API routes return from frontend-vue/dist ──
+            vue_dist = os.path.join(_PROJECT_ROOT, 'frontend-vue', 'dist')
+            if path == '/':
+                # Serve Vue index.html
+                try:
+                    index_path = os.path.join(vue_dist, 'index.html')
+                    with open(index_path, 'rb') as f:
+                        content = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+                except (FileNotFoundError, IOError):
+                    pass  # fallback to super() below
+            elif not path.startswith('api/'):
+                # Try Vue dist first, fallback to super() if not found
+                vue_file = os.path.join(vue_dist, path)
+                if os.path.isfile(vue_file):
+                    try:
+                        with open(vue_file, 'rb') as f:
+                            content = f.read()
+                        self.send_response(200)
+                        # Infer Content-Type from extension
+                        import pathlib
+                        suffix = pathlib.Path(path).suffix.lower()
+                        ctype_map = {
+                            '.js': 'application/javascript',
+                            '.mjs': 'application/javascript',
+                            '.css': 'text/css',
+                            '.html': 'text/html',
+                            '.json': 'application/json',
+                            '.png': 'image/png',
+                            '.jpg': 'image/jpeg',
+                            '.jpeg': 'image/jpeg',
+                            '.svg': 'image/svg+xml',
+                            '.ico': 'image/x-icon',
+                            '.woff': 'font/woff',
+                            '.woff2': 'font/woff2',
+                            '.ttf': 'font/ttf',
+                        }
+                        ctype = ctype_map.get(suffix, 'application/octet-stream')
+                        self.send_header("Content-Type", ctype)
+                        self.send_header("Content-Length", str(len(content)))
+                        self.end_headers()
+                        self.wfile.write(content)
+                        return
+                    except (FileNotFoundError, IOError):
+                        pass  # fallback to super() below
             try:
                 super().do_GET()
             except (ConnectionAbortedError, BrokenPipeError):
@@ -700,6 +750,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_proxy_config_get()
         elif path == "/api/res-events":
             self._api_res_events_stream()
+        elif path == "/api/res/preview":
+            self._api_res_preview()
+        elif path == "/api/res/preview/encrypted":
+            self._api_res_preview_encrypted()
         else:
             super().do_GET()
 
@@ -2684,6 +2738,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_res_download(self, body):
         """POST /api/res/download — 下载资源（含解密）。"""
         import urllib.request
+        import json as _json
         mgr = get_proxy_manager()
         if not mgr.is_running:
             self._send_json({"error": "proxy not running"}, 503)
@@ -2767,12 +2822,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
         self.end_headers()
 
+        _log.info("[SSE] Client connected to /api/res-events")
         mgr = get_proxy_manager()
         import json as _json
         try:
             while True:
                 event = mgr.get_event(timeout=30.0)
                 if event is not None:
+                    _log.debug("[SSE] dispatching event: %s", str(event))
                     data = _json.dumps(event).encode("utf-8")
                     self.wfile.write(b"data: ")
                     self.wfile.write(data)
@@ -2782,8 +2839,156 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     # 心跳（保持连接活跃）
                     self.wfile.write(b": heartbeat\n\n")
                     self.wfile.flush()
-        except (BrokenPipeError, ConnectionAbortedError, OSError):
-            pass  # 客户端断开
+        except (BrokenPipeError, ConnectionAbortedError, OSError) as e:
+            _log.info("[SSE] Client disconnected: %s", e)
+
+    def _api_res_preview(self):
+        """GET /api/res/preview?url=... — 代理原始媒体 URL 用于预览。"""
+        if not self._require_auth():
+            return
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            _log.warning("[preview] proxy not running")
+            self.send_error(503, "proxy not running")
+            return
+        from urllib.parse import unquote, parse_qs, urlparse, quote
+        raw_url = unquote(parse_qs(urlparse(self.path).query).get("url", [""])[0])
+        if not raw_url:
+            self.send_error(400, "missing url parameter")
+            return
+        upstream_url = f"{mgr.api_base}/api/preview?url={quote(raw_url, safe='')}"
+
+        try:
+            import urllib.request as _ur
+            # 透传关键认证头（Bilibili 等需要）
+            req = _ur.Request(upstream_url, method="GET")
+            for h in ("Range", "Referer", "User-Agent", "Cookie", "Origin"):
+                v = self.headers.get(h)
+                if v:
+                    req.add_header(h, v)
+            with _ur.urlopen(req, timeout=30) as resp:
+                # 透传响应头（Content-Type, Content-Length, Accept-Ranges 等）
+                self.send_response(resp.status)
+                for k, v in resp.headers.items():
+                    if k.lower() not in ("transfer-encoding", "connection", "keep-alive"):
+                        self.send_header(k, v)
+                self.end_headers()
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+        except Exception as e:
+            _log.warning("[preview] failed to proxy %s: %s", raw_url[:80], e)
+            try:
+                self.send_error(502, repr(e))
+            except Exception:
+                pass
+
+    def _api_res_preview_encrypted(self):
+        """GET /api/res/preview/encrypted?url=...&decodeKey=... — 下载并解密加密媒体。
+
+        工作流：
+        1. 通过 Go 的 /api/preview 代理下载加密文件到内存
+        2. 用 Node.js 运行 isaac_keygen.js 生成 ISAAC-64 密钥流
+        3. 在 Python 侧对前 131072 字节做 XOR 解密
+        4. 将解密后的数据流式返回给浏览器
+        """
+        if not self._require_auth():
+            return
+        mgr = get_proxy_manager()
+        if not mgr.is_running:
+            _log.warning("[preview:enc] proxy not running")
+            self.send_error(503, "proxy not running")
+            return
+        from urllib.parse import unquote, parse_qs, urlparse, quote
+        params = parse_qs(urlparse(self.path).query)
+        raw_url = unquote(params.get("url", [""])[0])
+        decode_key = unquote(params.get("decodeKey", [""])[0])
+        if not raw_url:
+            self.send_error(400, "missing url parameter")
+            return
+        if not decode_key:
+            self.send_error(400, "missing decodeKey parameter")
+            return
+
+        # Step 1: Generate ISAAC-64 keystream via Node.js subprocess
+        import subprocess
+        _keygen_script = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "monitor_web", "js", "isaac_keygen.js",
+        )
+        try:
+            keygen_result = subprocess.run(
+                ["node", _keygen_script, decode_key],
+                capture_output=True, timeout=15,
+            )
+            if keygen_result.returncode != 0:
+                _log.warning("[preview:enc] keygen failed: %s", keygen_result.stderr)
+                self.send_error(500, "ISAAC keygen failed")
+                return
+            import base64
+            keystream = base64.b64decode(keygen_result.stdout.strip())
+            if len(keystream) < 1024:
+                _log.warning("[preview:enc] keygen returned too few bytes: %d", len(keystream))
+                self.send_error(500, "ISAAC keygen returned too few bytes")
+                return
+        except FileNotFoundError:
+            _log.error("[preview:enc] Node.js not found")
+            self.send_error(500, "Node.js not found")
+            return
+        except subprocess.TimeoutExpired:
+            _log.error("[preview:enc] keygen timed out")
+            self.send_error(500, "ISAAC keygen timed out")
+            return
+        except Exception as e:
+            _log.error("[preview:enc] keygen error: %s", e)
+            self.send_error(500, "ISAAC keygen error")
+            return
+
+        # Step 2: Download encrypted file via Go's plain /api/preview proxy
+        try:
+            import urllib.request as _ur
+            proxy_url = f"{mgr.api_base}/api/preview?url={quote(raw_url, safe='')}"
+            req = _ur.Request(proxy_url, method="GET")
+            for h in ("Referer", "User-Agent", "Cookie", "Origin"):
+                v = self.headers.get(h)
+                if v:
+                    req.add_header(h, v)
+
+            with _ur.urlopen(req, timeout=60) as resp:
+                encrypted_data = resp.read()
+        except Exception as e:
+            _log.warning("[preview:enc] download failed: %s", e)
+            try:
+                self.send_error(502, "Failed to download encrypted file")
+            except Exception:
+                pass
+            return
+
+        # Step 3: XOR decrypt the first len(keystream) bytes
+        data_arr = bytearray(encrypted_data)
+        ks_len = len(keystream)
+        decrypt_len = min(ks_len, len(data_arr))
+        for i in range(decrypt_len):
+            data_arr[i] ^= keystream[i]
+
+        # Step 4: Stream decrypted data to browser
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(len(data_arr)))
+        self.send_header("Content-Disposition", "inline")
+        self.send_header("Accept-Ranges", "none")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.end_headers()
+        try:
+            self.wfile.write(bytes(data_arr))
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError):
+            pass
 
     # ── 静态文件服务覆盖 ──────────────────────────────────────
 
