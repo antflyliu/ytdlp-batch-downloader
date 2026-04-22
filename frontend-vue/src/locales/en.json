@@ -130,6 +130,22 @@
     "basic_setting": "Basic Setting",
     "advanced_setting": "Advanced Setting"
   },
+  "action": {
+    "download": "Download",
+    "delete": "Delete",
+    "more": "More",
+    "copyLink": "Copy Link",
+    "openBrowser": "Open in Browser",
+    "copyJson": "Copy JSON"
+  },
+  "confirm": {
+    "delete": "Confirm delete?"
+  },
+  "message": {
+    "downloadSuccess": "Download started",
+    "downloadFailed": "Download failed",
+    "copied": "Copied"
+  },
   "footer": {
     "title": "About Us",
     "description": "A software combining network resource sniffing + high-speed download functions, with high aesthetics, performance and diversity, providing personal users with the ability to download their own resources uploaded to various platforms!",
@@ -140,5 +156,19 @@
     "source_code": "Source Code",
     "help": "Issues",
     "update_log": "Update Log"
+  },
+  "filter": {
+    "all": "All",
+    "video": "Video",
+    "audio": "Audio",
+    "image": "Image",
+    "items": "items"
+  },
+  "column": {
+    "url": "URL",
+    "type": "Type",
+    "size": "Size",
+    "domain": "Domain",
+    "description": "Description"
   }
 }
