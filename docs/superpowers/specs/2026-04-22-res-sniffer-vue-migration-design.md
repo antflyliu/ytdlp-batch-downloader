@@ -181,10 +181,10 @@ SSE 推送进度 → Vue 更新行状态
 | 目标文件 | 改动说明 |
 |---------|---------|
 | `server/__main__.py` | Flask 静态文件 serve + `/` → Vue SPA |
-| `monitor_web/js/api.js` | 替换为 Vue axios 封装 |
-| `monitor_web/js/modules/resources.js` | 废弃，被 Vue 组件替代 |
+| `monitor_web/js/api.js` | 保留（备份），Vue API 层独立实现 |
+| `monitor_web/js/modules/resources.js` | 保留（备份），新功能在 Vue 实现 |
 | `monitor_web/js/isaac.js` | 保留，`decrypt.js` 替代其功能 |
-| `monitor_web/static/decrypt.js` | 替换为 res-downloader 版本 |
+| `monitor_web/static/decrypt.js` | 保留（备份），`frontend-vue/src/assets/js/decrypt.js` 为新实现 |
 
 ### 4.3 新增文件
 
@@ -345,6 +345,8 @@ playVideoWithoutTotalLength()
 
 迁移源文件位于：`D:\WORKSPACE\video-download-space\res-downloader\frontend\src\`
 
+**重要**：当前 `monitor_web/` 目录**作为备份保留**，不删除。新功能在 `frontend-vue/` 目录实现。Flask serve 路径从 `monitor_web/` 切换到 `frontend-vue/dist/` 时，旧代码仍有备份可查。
+
 ### Step 0.1: 创建 Vue 项目结构
 
 ```bash
@@ -441,7 +443,7 @@ def vue_index():
 
 b) Vue build 输出路径：`frontend-vue/dist/` → Flask serve 目录
 c) 验证：启动 Flask 后访问 / 应返回 Vue SPA 的 index.html
-d) 兼容：旧的 monitor_web/ 静态文件在 Vue SPA 就绪前继续服务，Phase 4 清理
+d) 兼容：旧的 `monitor_web/` 作为备份保留，Phase 4 清理时仅删除已被 Vue 完全替代的部分
 
 ### Phase 2: 核心功能迁移（2-3天）
 
@@ -463,8 +465,10 @@ d) 兼容：旧的 monitor_web/ 静态文件在 Vue SPA 就绪前继续服务，
 
 ### Phase 4: 收尾（0.5天）
 
-1. 清理旧的 `monitor_web/js/modules/resources.js`
-2. 清理旧的 Flask Jinja 模板（如果全部迁移完成）
+**重要**：`monitor_web/` 作为备份保留，不删除。只清理已被 Vue 完全替代的特定文件。
+
+1. 对齐 API：确认 `resources.js` 中的 SSE 事件处理与 Phase 1 新增的 eventStore 逻辑一致
+2. 回归测试：旧 `monitor_web/` 中不受迁移影响的路由（下载历史、账户管理、调度器等）继续正常工作
 3. 确认所有 API 路由正确
 4. 回归测试
 
