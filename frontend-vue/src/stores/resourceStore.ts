@@ -111,6 +111,10 @@ export const useResourceStore = defineStore('resource', () => {
     }
   }
 
+  // Auto-load from localStorage on store creation
+  loadFromStorage()
+  loadQueueFromStorage()
+
   return {
     resources, downloadQueue, isLoading, filter,
     filteredResources, addResources, removeResource, setFilter,
