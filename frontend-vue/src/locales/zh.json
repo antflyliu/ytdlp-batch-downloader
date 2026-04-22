@@ -176,6 +176,7 @@
     "directoryRequired": "请输入下载目录",
     "selectDirectoryTip": "请在下方输入完整路径"
   },
+  "filter": {
     "all": "全部",
     "video": "视频",
     "audio": "音频",

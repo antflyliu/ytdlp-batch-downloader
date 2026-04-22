@@ -176,6 +176,7 @@
     "directoryRequired": "Download directory is required",
     "selectDirectoryTip": "Enter the full path below"
   },
+  "filter": {
     "all": "All",
     "video": "Video",
     "audio": "Audio",
