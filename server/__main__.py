@@ -584,8 +584,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             # 后端直接注入到 HTML 中作为 JS 全局变量，避免前端依赖 URLSearchParams
             # （pywebview WebView2 可能缓存文件导致 query string 丢失）。
             if path in ("/", "/index.html"):
+                vue_dist = os.path.join(_PROJECT_ROOT, 'frontend-vue', 'dist')
                 from urllib.parse import urlparse
-                raw_path = self.path  # 保留原始 path（含 query string）
+                raw_path = self.path
                 parsed = urlparse(raw_path)
                 token_param = ""
                 try:
@@ -599,10 +600,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     pass
                 if token_param:
-                    # 服务端注入 token 到 HTML（安全：只在服务器本机生效，不涉及跨域）
-                    # 注入到 <head> 最前，确保在 ES module scripts 执行前已设置 window.__MONITOR_API_TOKEN__
+                    # Inject token into Vue index.html for pywebview/WebView2 compatibility
                     try:
-                        html_bytes = _INDEX_HTML.read_bytes()
+                        vue_index = os.path.join(vue_dist, 'index.html')
+                        with open(vue_index, 'rb') as f:
+                            html_bytes = f.read()
                         html_str = html_bytes.decode("utf-8", errors="replace")
                         inject_script = (
                             f'<script>window.__MONITOR_API_TOKEN__ = {json.dumps(token_param)};</script>'
@@ -616,6 +618,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                         return
                     except Exception:
                         pass  # fallback to super() below
+                # No token: serve Vue index.html directly (below)
             # ── Vue SPA fallback — all non-API routes return from frontend-vue/dist ──
             vue_dist = os.path.join(_PROJECT_ROOT, 'frontend-vue', 'dist')
             if path == '/':
