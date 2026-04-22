@@ -30,14 +30,22 @@ export const useResourceStore = defineStore('resource', () => {
   })
 
   const addResources = (newItems: MediaInfo[]) => {
-    // Avoid duplicates by UrlSign
+    // Deduplicate within newItems batch first
+    const seenInBatch = new Set<string>()
+    const dedupedBatch = newItems.filter(item => {
+      if (seenInBatch.has(item.UrlSign)) return false
+      seenInBatch.add(item.UrlSign)
+      return true
+    })
+    // Deduplicate against existing
     const existingSigns = new Set(resources.value.map(r => r.UrlSign))
-    const unique = newItems.filter(item => !existingSigns.has(item.UrlSign))
-    resources.value.push(...unique)
-    // Cap at 2000 to prevent reactive degradation
-    if (resources.value.length > 2000) {
-      resources.value.splice(0, resources.value.length - 2000)
+    const unique = dedupedBatch.filter(item => !existingSigns.has(item.UrlSign))
+    // Cap: keep newest 2000 items
+    if (resources.value.length + unique.length > 2000) {
+      const overflow = resources.value.length + unique.length - 2000
+      resources.value.splice(0, overflow)
     }
+    resources.value.push(...unique)
     saveToStorage()
   }
 

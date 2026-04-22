@@ -38,6 +38,7 @@ export const useEventStore = defineStore('event', () => {
 
     es.onerror = () => {
       console.error('[eventStore] SSE error, reconnecting...')
+      eventSourceRef.value = null  // null out before close to avoid stale ref
       es.close()
       // Exponential back-off: min(30s, 1s * 2^attempt)
       const delay = Math.min(30_000, 1000 * Math.pow(2, reconnectAttempt.value))
