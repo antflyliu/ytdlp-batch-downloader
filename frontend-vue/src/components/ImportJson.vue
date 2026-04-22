@@ -1,38 +1,83 @@
 <template>
-  <NModal
-      :show="showModal"
-      :on-update:show="changeShow"
-      style="--wails-draggable:no-drag"
+  <div class="import-json">
+    <NModal
+      v-model:show="showModal"
       preset="card"
-      class="w-[640px]"
-      :title="t('index.batch_import')"
-  >
-    <NForm
-        size="medium"
-        label-placement="left"
-        label-width="auto"
-        require-mark-placement="right-hanging"
-        style="--wails-draggable:no-drag"
+      :title="t('importJson.title')"
+      style="width: 500px"
     >
-      <NFormItem>
-        <NInput type="textarea" v-model:value="content" rows="8" :autosize="false" :placeholder="t('index.import_placeholder')"></NInput>
-      </NFormItem>
-      <NFormItem>
-        <NButton strong secondary type="success" @click="emits('submit', content)" class="w-20">{{ t('common.submit') }}</NButton>
-      </NFormItem>
-    </NForm>
-  </NModal>
+      <NUpload
+        accept=".json"
+        :max="1"
+        @change="handleFileChange"
+        @remove="handleFileRemove"
+      >
+        <NButton>{{ t('importJson.selectFile') }}</NButton>
+      </NUpload>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <NButton @click="showModal = false">{{ t('common.cancel') }}</NButton>
+          <NButton type="primary" :disabled="!fileContent" @click="handleImport">
+            {{ t('importJson.import') }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+  </div>
 </template>
+
 <script setup lang="ts">
-import {ref} from "vue"
-import {useI18n} from 'vue-i18n'
+import { ref } from 'vue'
+import { NModal, NUpload, NButton, useMessage } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
+import { useResourceStore } from '@/stores/resourceStore'
+import type { MediaInfo } from '@/stores/resourceStore'
 
-const {t} = useI18n()
-const content = ref("")
-const props = defineProps<{
-  showModal: boolean
-}>()
+const { t } = useI18n()
+const message = useMessage()
+const store = useResourceStore()
 
-const emits = defineEmits(["update:showModal", "submit"])
-const changeShow = (value: boolean) => emits("update:showModal", value)
+const showModal = ref(false)
+const fileContent = ref<string | null>(null)
+
+const handleFileChange = (options: { file: any }) => {
+  const file = options.file
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const text = e.target?.result as string
+      // Validate it's valid JSON array
+      const parsed = JSON.parse(text)
+      if (!Array.isArray(parsed)) {
+        message.error(t('importJson.invalidFormat'))
+        return
+      }
+      fileContent.value = text
+    } catch {
+      message.error(t('importJson.invalidJson'))
+    }
+  }
+  reader.readAsText(file.file)
+}
+
+const handleFileRemove = () => {
+  fileContent.value = null
+}
+
+const handleImport = () => {
+  if (!fileContent.value) return
+  try {
+    const items: MediaInfo[] = JSON.parse(fileContent.value)
+    store.addResources(items)
+    store.saveToStorage()
+    message.success(t('importJson.success', { count: items.length }))
+    showModal.value = false
+    fileContent.value = null
+  } catch {
+    message.error(t('importJson.invalidJson'))
+  }
+}
+
+defineExpose({ showModal })
 </script>

@@ -8,7 +8,8 @@
     "submit": "提交",
     "delete": "删除",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "cancel": "取消"
   },
   "components": {
     "password_title": "管理员授权",
@@ -187,5 +188,13 @@
     "size": "大小",
     "domain": "域名",
     "description": "描述"
+  },
+  "importJson": {
+    "title": "批量导入",
+    "selectFile": "选择文件",
+    "import": "导入",
+    "invalidFormat": "文件格式错误，请选择 JSON 数组文件",
+    "invalidJson": "JSON 解析失败",
+    "success": "成功导入 {count} 条资源"
   }
 }

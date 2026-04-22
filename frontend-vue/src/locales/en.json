@@ -8,7 +8,8 @@
     "submit": "Submit",
     "delete": "Delete",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "cancel": "Cancel"
   },
   "components": {
     "password_title": "Admin Authorization",
@@ -187,5 +188,13 @@
     "size": "Size",
     "domain": "Domain",
     "description": "Description"
+  },
+  "importJson": {
+    "title": "Batch Import",
+    "selectFile": "Select File",
+    "import": "Import",
+    "invalidFormat": "Invalid format, please select a JSON array file",
+    "invalidJson": "JSON parsing failed",
+    "success": "Successfully imported {count} resources"
   }
 }
