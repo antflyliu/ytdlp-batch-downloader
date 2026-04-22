@@ -11,49 +11,41 @@
 <script setup lang="ts">
 import NaiveProvider from '@/components/NaiveProvider.vue'
 import {darkTheme, lightTheme, zhCN, enUS} from 'naive-ui'
-import {useIndexStore} from "@/stores"
+import {useResourceStore} from "@/stores/resourceStore"
+import {useEventStore} from "@/stores/eventStore"
 import {computed, onMounted} from "vue"
-import {useEventStore} from "@/stores/event"
-import type {appType} from "@/types/app"
 import {useI18n} from 'vue-i18n'
 
-const store = useIndexStore()
+const resourceStore = useResourceStore()
 const eventStore = useEventStore()
 const {locale} = useI18n()
 
 const theme = computed(() => {
-  if (store.globalConfig.Theme === "darkTheme") {
-    document.documentElement.classList.add('dark');
-    return darkTheme
-  }
-  document.documentElement.classList.remove('dark');
+  // Default to lightTheme (dark mode toggle can be added later)
   return lightTheme
 })
 
 const uiLocale = computed(() => {
-  locale.value = store.globalConfig.Locale
-  if (store.globalConfig.Locale === "zh") {
-    return zhCN
-  }
-  return enUS
+  return locale.value === "zh" ? zhCN : enUS
 })
 
 onMounted(async () => {
-  await store.init()
+  // Get token from window.__MONITOR_API_TOKEN__ (injected by Flask)
+  const token = (window as any).__MONITOR_API_TOKEN__ || ''
 
-  eventStore.init()
-  eventStore.addHandle({
-    type: "message",
-    event: (res: appType.Message) => {
-      switch (res?.code) {
-        case 0:
-          window.$message?.error(res.message)
-          break
-        case 1:
-          window.$message?.success(res.message)
-          break
-      }
-    }
+  // Initialize SSE connection
+  eventStore.init(token)
+
+  // Register newResources handler — add to resource store
+  eventStore.addHandle('newResources', (data: any) => {
+    const items = Array.isArray(data) ? data : [data]
+    resourceStore.addResources(items)
+  })
+
+  // Register downloadProgress handler
+  eventStore.addHandle('downloadProgress', (data: any) => {
+    // Progress updates handled by UI components watching the queue
+    console.debug('[downloadProgress]', data)
   })
 })
 </script>
