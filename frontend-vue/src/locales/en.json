@@ -159,7 +159,22 @@
     "help": "Issues",
     "update_log": "Update Log"
   },
-  "filter": {
+  "settings": {
+    "title": "Settings",
+    "saveDirectory": "Download Directory",
+    "browse": "Browse",
+    "downNumber": "Concurrent Downloads",
+    "taskNumber": "Connections per Task",
+    "filenameLen": "Filename Length",
+    "filenameTime": "Append Timestamp to Filename",
+    "insertTail": "Append to End",
+    "save": "Save",
+    "loadFailed": "Failed to load settings",
+    "saveFailed": "Failed to save settings",
+    "saved": "Settings saved",
+    "directoryRequired": "Download directory is required",
+    "selectDirectoryTip": "Enter the full path below"
+  },
     "all": "All",
     "video": "Video",
     "audio": "Audio",

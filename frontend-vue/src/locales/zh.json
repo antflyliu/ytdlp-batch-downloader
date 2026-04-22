@@ -159,7 +159,22 @@
     "help": "帮助支持",
     "update_log": "更新日志"
   },
-  "filter": {
+  "settings": {
+    "title": "设置",
+    "saveDirectory": "下载目录",
+    "browse": "浏览",
+    "downNumber": "并发下载数",
+    "taskNumber": "连接数/任务",
+    "filenameLen": "文件名长度",
+    "filenameTime": "文件名追加时间戳",
+    "insertTail": "追加到末尾",
+    "save": "保存",
+    "loadFailed": "加载设置失败",
+    "saveFailed": "保存设置失败",
+    "saved": "设置已保存",
+    "directoryRequired": "请输入下载目录",
+    "selectDirectoryTip": "请在下方输入完整路径"
+  },
     "all": "全部",
     "video": "视频",
     "audio": "音频",
