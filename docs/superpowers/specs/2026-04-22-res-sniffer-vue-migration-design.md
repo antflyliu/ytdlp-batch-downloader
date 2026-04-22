@@ -147,7 +147,7 @@ SSE 推送进度 → Vue 更新行状态
 | `App.vue` | `frontend-vue/src/App.vue` | 根组件（简化版） |
 | `main.ts` | `frontend-vue/src/main.ts` | 入口 |
 | `router/index.ts` | `frontend-vue/src/router/index.ts` | 路由 |
-| `stores/index.ts` | `frontend-vue/src/stores/resource.ts` | Pinia 状态（重写） |
+| `stores/index.ts` | `frontend-vue/src/stores/resource.ts` | Pinia 状态管理（含 appInfo/globalConfig/isProxy/baseUrl，拆分出 event.ts 后重写） |
 | `stores/event.ts` | `frontend-vue/src/stores/event.ts` | 事件分发（重写） |
 
 #### API 与类型 (4个)
@@ -159,13 +159,15 @@ SSE 推送进度 → Vue 更新行状态
 | `types/app.d.ts` | `frontend-vue/src/types/resource.ts` | TypeScript 类型定义 |
 | `types/global.d.ts` | `frontend-vue/src/types/global.d.ts` | 全局类型扩展 |
 
-#### 样式与资源 (3个)
+#### 样式与资源 (5个)
 
 | 源文件 | 目标文件 | 说明 |
 |--------|---------|------|
-| `assets/css/base.css` | `frontend-vue/src/assets/css/base.css` | 基础样式 |
-| `assets/css/main.css` | `frontend-vue/src/assets/css/main.css` | 主样式 |
+| `assets/css/base.css` | `frontend-vue/src/assets/css/base.css` | 基础样式（Naive UI + Tailwind 变量定义） |
+| `assets/css/main.css` | `frontend-vue/src/assets/css/main.css` | 主样式（Tailwind directives + #app 样式） |
 | `assets/js/decrypt.js` | `frontend-vue/src/assets/js/decrypt.js` | XOR 解密算法 |
+| `i18n.ts` | `frontend-vue/src/i18n.ts` | i18n 配置 |
+| `func.ts` | `frontend-vue/src/func.ts` | 工具函数 |
 
 #### i18n (2个)
 
@@ -240,13 +242,35 @@ SSE 推送进度 → Vue 更新行状态
 
 **eventStore 重写核心逻辑**:
 ```typescript
-// 浏览器端: EventSource 连接 Flask SSE
-const es = new EventSource('/api/res-events')
+// 浏览器端: EventSource 连接 Flask SSE（必须传 api_token）
+const token = sessionStorage.getItem('monitor_api_token') || window.__MONITOR_API_TOKEN__ || '';
+const es = new EventSource('/api/res-events?api_token=' + encodeURIComponent(token));
 es.onmessage = (e) => {
-  const msg = JSON.parse(e.data)  // {event: "newResources", data: {...}}
-  handles.value[msg.event]?.(msg.data)
-}
-es.onerror = () => { /* 重连逻辑 */ }
+  const msg = JSON.parse(e.data);
+  // Go send() 发 {"type": "newResources", "data": {...}}
+  // Python _dispatch_ws_message 透传后 SSE: data: {"type": "...", "data": {...}}
+  // 注意: msg.event 是 undefined，需用 msg.type 获取事件类型
+  const eventType = msg.event || msg.type;
+  const eventData = msg.data?.data || msg.data; // 双层 unwrap
+  if (!eventType) return;
+  if (handles.value[eventType]) {
+    try {
+      handles.value[eventType](eventData);
+    } catch (err) {
+      console.error('[eventStore] Handler error for', eventType, err);
+    }
+  } else {
+    console.warn('[eventStore] No handler for event:', eventType);
+  }
+};
+// EventSource 不支持自定义 Header，token 必须通过 URL 参数传递
+// Flask _require_auth() 会读取 ?api_token= 参数
+es.onerror = () => {
+  es.close(); // 必须先关闭旧实例避免处理器堆积
+  const delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts));
+  reconnectAttempts++;
+  setTimeout(() => new es('/api/res-events?...'), delay);
+};
 ```
 
 ---
@@ -317,25 +341,69 @@ playVideoWithoutTotalLength()
 
 ---
 
-## 七、Phase 0 — 源文件获取（前置步骤）
+## 七、Phase 0 — 源文件获取与目录初始化（前置步骤）
 
 迁移源文件位于：`D:\WORKSPACE\video-download-space\res-downloader\frontend\src\`
 
-**在开始任何代码迁移前，需确认以下文件已就绪**：
+### Step 0.1: 创建 Vue 项目结构
 
 ```bash
-# 验证源文件目录
-ls res-downloader/frontend/src/
-# 应包含: views/, components/, api/, stores/, types/, assets/, locales/, router/
+# 在项目根目录创建 frontend-vue/
+mkdir frontend-vue
+cd frontend-vue
 
-# 验证关键文件存在
-ls res-downloader/frontend/src/views/index.vue      # 主页面
-ls res-downloader/frontend/src/components/Preview.vue  # 预览播放器
-ls res-downloader/frontend/src/stores/event.ts       # 事件分发
-ls res-downloader/frontend/src/assets/js/decrypt.js    # XOR 解密
+# 初始化 package.json（含锁定版本）
+npm init -y
+
+# 安装依赖
+npm install vue@^3.4.0 naive-ui@2.38.2 pinia@^2.1.0 vue-router@^4.3.0 vue-i18n@^9.10.0 axios@^1.6.0 video.js@^8.10.0 flv.js@^0.8.0
+
+# 开发依赖
+npm install -D vite@^5.2.0 @vitejs/plugin-vue@^5.0.0 tailwindcss@^3.4.0 postcss autoprefixer typescript vue-tsc
 ```
 
-**迁移策略**：直接引用源文件路径进行迁移，不做物理移动，后续 git 保持独立仓库的 clean 状态。
+### Step 0.2: 复制源文件
+
+```bash
+# 复制 Vue 源文件（从 res-downloader 到 frontend-vue/src/）
+cp -r ../res-downloader/frontend/src/views    src/
+cp -r ../res-downloader/frontend/src/components src/
+cp -r ../res-downloader/frontend/src/api     src/
+cp -r ../res-downloader/frontend/src/stores  src/
+cp -r ../res-downloader/frontend/src/types  src/
+cp -r ../res-downloader/frontend/src/assets src/
+cp -r ../res-downloader/frontend/src/router  src/
+cp -r ../res-downloader/frontend/src/App.vue src/
+cp -r ../res-downloader/frontend/src/main.ts src/
+cp -r ../res-downloader/frontend/src/i18n.ts src/
+cp -r ../res-downloader/frontend/src/func.ts src/
+```
+
+### Step 0.3: 初始化配置文件
+
+```bash
+# 创建构建配置
+cp ../res-downloader/frontend/vite.config.ts src/../vite.config.ts
+cp ../res-downloader/frontend/tailwind.config.js src/../tailwind.config.js
+cp ../res-downloader/frontend/postcss.config.js src/../postcss.config.js
+cp ../res-downloader/frontend/tsconfig.json src/../tsconfig.json
+cp ../res-downloader/frontend/index.html src/../index.html
+```
+
+### Step 0.4: 验证源文件
+
+```bash
+# 验证关键文件存在
+ls src/views/index.vue      # 主页面
+ls src/components/Preview.vue  # 预览播放器
+ls src/stores/event.ts       # 事件分发
+ls src/assets/js/decrypt.js  # XOR 解密
+ls src/assets/css/base.css    # 基础样式
+ls src/assets/css/main.css    # 主样式
+ls src/i18n.ts              # i18n 配置
+```
+
+**迁移策略**：从 res-downloader 源码目录直接复制，保持 git 独立仓库干净。后续同步更新时重新复制即可。
 
 ---
 
@@ -349,6 +417,31 @@ ls res-downloader/frontend/src/assets/js/decrypt.js    # XOR 解密
 4. 实现 Pinia store 骨架
 5. 配置 vue-i18n
 6. Flask 改造：serve Vue build 输出，API 路由保持不变
+
+### Phase 1 补充步骤：
+
+#### 1.3. Flask 改造：serve Vue SPA
+
+Flask 静态文件 serve 改造步骤：
+
+a) 在 `server/__main__.py` 中添加 Vue SPA 路由（加在现有静态文件路由之前）：
+
+```python
+# Vue SPA fallback（所有非 API 路由返回 index.html）
+@app.route('/<path:fallback>')
+def vue_spa_fallback(fallback):
+    if fallback.startswith('api/'):
+        return "Not Found", 404
+    return send_from_directory('frontend-vue/dist', fallback)
+
+@app.route('/')
+def vue_index():
+    return send_from_directory('frontend-vue/dist', 'index.html')
+```
+
+b) Vue build 输出路径：`frontend-vue/dist/` → Flask serve 目录
+c) 验证：启动 Flask 后访问 / 应返回 Vue SPA 的 index.html
+d) 兼容：旧的 monitor_web/ 静态文件在 Vue SPA 就绪前继续服务，Phase 4 清理
 
 ### Phase 2: 核心功能迁移（2-3天）
 
@@ -377,7 +470,29 @@ ls res-downloader/frontend/src/assets/js/decrypt.js    # XOR 解密
 
 ---
 
-## 九、风险与注意事项
+## 九、CI/CD 补充：打包流水线修改
+
+### PyInstaller 修改
+
+当前 `YouTubeMonitor.spec` 只打包 `monitor/` 和 `monitor_web/`。需要新增：
+
+1. 复制 Vue build 输出到 monitor_web/static/：
+   ```bash
+   # 构建 Vue 后执行
+   cp -r frontend-vue/dist/* monitor_web/static/
+   ```
+
+2. 在 PyInstaller spec 中添加 Go exe 引用（如果用户配置了本地编译）：
+   ```python
+   # 示例：在 spec 中添加 Go exe
+   a.datas += [('res-downloader.exe', 'D:/WORKSPACE/video-download-space/res-downloader/res-downloader.exe', 'DATA')]
+   ```
+
+3. 现有流程（文件系统查找 exe）保持不变作为 fallback
+
+---
+
+## 十、风险与注意事项
 
 | 风险 | 影响 | 应对 |
 |------|------|------|
