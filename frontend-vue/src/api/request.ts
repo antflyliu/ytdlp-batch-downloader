@@ -1,38 +1,24 @@
-import type {AxiosResponse, InternalAxiosRequestConfig} from 'axios'
 import axios from 'axios'
 
-interface RequestOptions {
-    url: string
-    method: 'get' | 'post' | 'put' | 'delete'
-    params?: Record<string, any>
-    data?: Record<string, any>
-}
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
 
-const instance = axios.create({
-    baseURL: "/",
-    timeout: 180000
+const request = axios.create({
+  baseURL: API_BASE,
+  timeout: 30000,
 })
 
-instance.interceptors.request.use(
-    (config: InternalAxiosRequestConfig<any>) => {
-        return config
-    },
-    (error) => {
-        return Promise.reject(error)
+// Inject auth token into every request
+request.interceptors.request.use(config => {
+  const token = sessionStorage.getItem('monitor_api_token') || ''
+  if (token) {
+    // For GET, add as query param; for POST, add as header
+    if (config.method === 'get') {
+      config.params = { ...config.params, api_token: token }
+    } else {
+      config.headers.Authorization = `Bearer ${token}`
     }
-)
-
-instance.interceptors.response.use(
-    (response: AxiosResponse) => {
-        return response.data
-    },
-    (error) => {
-        return Promise.reject(error);
-    }
-)
-
-const request = ({url, method, params, data}: RequestOptions): Promise<any> => {
-    return instance({url, method, params, data, baseURL: window.$baseUrl})
-}
+  }
+  return config
+})
 
 export default request
