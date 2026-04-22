@@ -136,7 +136,8 @@
     "more": "More",
     "copyLink": "Copy Link",
     "openBrowser": "Open in Browser",
-    "copyJson": "Copy JSON"
+    "copyJson": "Copy JSON",
+    "wechatDecrypt": "WeChat Decrypt"
   },
   "confirm": {
     "delete": "Confirm delete?"
@@ -144,7 +145,8 @@
   "message": {
     "downloadSuccess": "Download started",
     "downloadFailed": "Download failed",
-    "copied": "Copied"
+    "copied": "Copied",
+    "decryptNotImplemented": "Decrypt feature in development"
   },
   "footer": {
     "title": "About Us",

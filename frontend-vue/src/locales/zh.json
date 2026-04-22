@@ -136,7 +136,8 @@
     "more": "更多",
     "copyLink": "复制链接",
     "openBrowser": "浏览器打开",
-    "copyJson": "复制JSON"
+    "copyJson": "复制JSON",
+    "wechatDecrypt": "微信解密"
   },
   "confirm": {
     "delete": "确定删除？"
@@ -144,7 +145,8 @@
   "message": {
     "downloadSuccess": "下载成功",
     "downloadFailed": "下载失败",
-    "copied": "已复制"
+    "copied": "已复制",
+    "decryptNotImplemented": "解密功能开发中"
   },
   "footer": {
     "title": "关于我们",

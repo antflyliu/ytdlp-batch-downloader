@@ -1,6 +1,5 @@
 <template>
   <NModal
-      style="--wails-draggable:no-drag"
       :show="showModal"
       :on-update:show="changeShow"
       preset="card"

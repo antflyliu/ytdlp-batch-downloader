@@ -3,7 +3,7 @@
     <!-- Download button -->
     <NButton
       v-if="canDownload(row)"
-      type="primary"
+      type="success"
       size="small"
       @click="handleDownload"
     >
@@ -90,18 +90,25 @@ const copyJson = () => {
   message.success(t('message.copied'))
 }
 
+const wechatDecrypt = () => {
+  // DecodeKey present - trigger decrypt flow
+  // Opens Preview modal in decrypt mode
+  message.info(t('message.decryptNotImplemented'))
+}
+
 const moreOptions = computed(() => [
-  { label: t('action.copyLink'), key: 'copyLink', show: true },
-  { label: t('action.openBrowser'), key: 'openBrowser', show: true },
-  { label: t('action.copyJson'), key: 'copyJson', show: true },
-  // DecodeKey decrypt option if DecodeKey present
-].filter(o => o.show !== false))
+  { label: t('action.copyLink'), key: 'copyLink' },
+  { label: t('action.openBrowser'), key: 'openBrowser' },
+  { label: t('action.copyJson'), key: 'copyJson' },
+  ...(props.row.DecodeKey ? [{ label: t('action.wechatDecrypt'), key: 'wechatDecrypt' }] : []),
+])
 
 const handleSelect = (key: string) => {
   switch (key) {
     case 'copyLink': copyLink(); break
     case 'openBrowser': openInBrowser(); break
     case 'copyJson': copyJson(); break
+    case 'wechatDecrypt': wechatDecrypt(); break
   }
 }
 </script>
