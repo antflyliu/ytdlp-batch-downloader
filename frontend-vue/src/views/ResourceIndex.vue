@@ -117,7 +117,19 @@ const columns = computed(() => [
     title: t('column.description'),
     key: 'Description',
     ellipsis: true,
-    render: (row: MediaInfo) => row.Description || '-'
+    render: (row: MediaInfo) => {
+      if (row.Description) return row.Description
+      // Fallback: extract filename/host from URL (same logic as old monitor_web)
+      try {
+        const u = new URL(row.Url)
+        const parts = u.pathname.split('/')
+        const last = parts[parts.length - 1]
+        if (last && last.includes('.')) return decodeURIComponent(last)
+        return u.hostname
+      } catch {
+        return row.Url || '-'
+      }
+    }
   },
   {
     title: t('column.action'),

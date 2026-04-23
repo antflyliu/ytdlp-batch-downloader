@@ -9,7 +9,7 @@ const request = axios.create({
 
 // Inject auth token into every request
 request.interceptors.request.use(config => {
-  const token = sessionStorage.getItem('monitor_api_token') || ''
+  const token = (window as any).__MONITOR_API_TOKEN__ || ''
   if (token) {
     // For GET, add as query param; for POST, add as header
     if (config.method === 'get') {

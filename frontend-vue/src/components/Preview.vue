@@ -47,7 +47,7 @@ let decodeArr: any = null
 let rowUrl = ''
 
 const API_BASE = 'http://127.0.0.1:5000'
-const getToken = () => sessionStorage.getItem('monitor_api_token') || ''
+const getToken = () => (window as any).__MONITOR_API_TOKEN__ || ''
 
 const props = defineProps<{
   showModal: boolean

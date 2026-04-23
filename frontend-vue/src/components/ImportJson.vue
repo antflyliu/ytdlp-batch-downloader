@@ -28,13 +28,13 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NModal, NUpload, NButton, useMessage } from 'naive-ui'
+import { NModal, NUpload, NButton } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useResourceStore } from '@/stores/resourceStore'
 import type { MediaInfo } from '@/stores/resourceStore'
 
 const { t } = useI18n()
-const message = useMessage()
+const $message = (window as any).$message
 const store = useResourceStore()
 
 const showModal = ref(false)
@@ -50,12 +50,12 @@ const handleFileChange = (options: { file: any }) => {
       // Validate it's valid JSON array
       const parsed = JSON.parse(text)
       if (!Array.isArray(parsed)) {
-        message.error(t('importJson.invalidFormat'))
+        $message.error(t('importJson.invalidFormat'))
         return
       }
       fileContent.value = text
     } catch {
-      message.error(t('importJson.invalidJson'))
+      $message.error(t('importJson.invalidJson'))
     }
   }
   reader.readAsText(file.file)
@@ -71,7 +71,7 @@ const handleImport = () => {
     const items: MediaInfo[] = JSON.parse(fileContent.value)
     store.addResources(items)
     store.saveToStorage()
-    message.success(t('importJson.success', { count: items.length }))
+    $message.success(t('importJson.success', { count: items.length }))
     showModal.value = false
     fileContent.value = null
   } catch {

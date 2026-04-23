@@ -44,7 +44,6 @@ onMounted(async () => {
 
   // Register downloadProgress handler
   eventStore.addHandle('downloadProgress', (data: any) => {
-    // Progress updates handled by UI components watching the queue
     console.debug('[downloadProgress]', data)
   })
 })

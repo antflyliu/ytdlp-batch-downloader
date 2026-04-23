@@ -46,15 +46,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { NCard, NForm, NFormItem, NInput, NInputNumber, NSwitch, NButton, useMessage } from 'naive-ui'
+import { NCard, NForm, NFormItem, NInput, NInputNumber, NSwitch, NButton } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 
 const { t } = useI18n()
-const message = useMessage()
+const $message = (window as any).$message
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
-const token = sessionStorage.getItem('monitor_api_token') || ''
+const token = (window as any).__MONITOR_API_TOKEN__ || ''
 
 const saving = ref(false)
 const formValue = ref({
@@ -81,13 +81,13 @@ onMounted(async () => {
       InsertTail: data.InsertTail ?? true,
     }
   } catch (e) {
-    message.error(t('settings.loadFailed'))
+    $message.error(t('settings.loadFailed'))
   }
 })
 
 const saveSettings = async () => {
   if (!formValue.value.SaveDirectory) {
-    message.warning(t('settings.directoryRequired'))
+    $message.warning(t('settings.directoryRequired'))
     return
   }
   saving.value = true
@@ -104,9 +104,9 @@ const saveSettings = async () => {
       { SaveDirectory: formValue.value.SaveDirectory },
       { headers: { Authorization: `Bearer ${token}` } }
     )
-    message.success(t('settings.saved'))
+    $message.success(t('settings.saved'))
   } catch (e: any) {
-    message.error(e.message || t('settings.saveFailed'))
+    $message.error(e.message || t('settings.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -115,6 +115,6 @@ const saveSettings = async () => {
 const selectDirectory = () => {
   // For web, this would typically use an<input type="file" webkitdirectory>
   // Or open a native dialog via pywebview
-  message.info(t('settings.selectDirectoryTip'))
+  $message.info(t('settings.selectDirectoryTip'))
 }
 </script>
