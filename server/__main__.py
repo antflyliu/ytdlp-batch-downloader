@@ -2739,26 +2739,80 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(e)}, 502)
 
     def _api_res_download(self, body):
-        """POST /api/res/download — 下载资源（含解密）。"""
+        """POST /api/res/download — 下载资源（含解密）。
+
+        有 DecodeKey（微信加密视频）→ Go 代理下载（支持解密）。
+        无 DecodeKey（B站等通用视频）→ yt-dlp 批量下载。
+        """
         import urllib.request
         import json as _json
-        mgr = get_proxy_manager()
-        if not mgr.is_running:
-            self._send_json({"error": "proxy not running"}, 503)
+
+        body = body or {}
+        decode_key = body.get("DecodeKey", "")
+
+        if decode_key:
+            # 微信加密视频 → 走 Go 代理解密下载
+            mgr = get_proxy_manager()
+            if not mgr.is_running:
+                self._send_json({"error": "proxy not running"}, 503)
+                return
+            try:
+                url = f"{mgr.api_base}/api/download"
+                payload = _json.dumps(body).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    self._send_json(_json.loads(r.read()))
+            except Exception as e:
+                self._send_json({"error": str(e)}, 502)
             return
+
+        # ── 通用视频 → yt-dlp 下载 ────────────────────────────────
+        video_url = body.get("Url", "").strip()
+        if not video_url:
+            self._send_json({"error": "url is required"}, 400)
+            return
+
+        # 解析输出目录：优先用 SavePath，否则用配置
+        cfg = _db.load_config()
+        requested_output = body.get("SavePath", "") or ""
         try:
-            url = f"{mgr.api_base}/api/download"
-            payload = _json.dumps(body or {}).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                self._send_json(_json.loads(r.read()))
-        except Exception as e:
-            self._send_json({"error": str(e)}, 502)
+            output_path = _resolve_download_output_path(requested_output, cfg)
+        except ValueError as ex:
+            self._send_json({"error": str(ex)}, 400)
+            return
+
+        # Bilibili CDN segment URL 立即过期，从 OtherData["referer"] 直接提取 BVID，
+        # 构造视频页面 URL 供 yt-dlp 使用（yt-dlp 可自动重试并获取最新 CDN URL）
+        download_url = video_url
+        _referer = body.get("OtherData", {}).get("referer", "")
+        if "bilivideo.com" in video_url or ".bili" in video_url.lower():
+            if _referer:
+                # BVID = "BV" + 10 alphanumeric chars (total 12)
+                bvid_match = re.search(r'/video/(BV[a-zA-Z0-9]{10})', _referer)
+                if bvid_match:
+                    page_url = "https://www.bilibili.com/video/" + bvid_match.group(1)
+                    download_url = page_url
+                    _log.info(f"[res-download] Bilibili CDN URL detected, using page URL: {page_url}")
+
+        # 后台线程执行 yt-dlp 下载，避免阻塞 HTTP 请求
+        def _bg_yt_dlp():
+            try:
+                results = batch_download(
+                    [download_url],
+                    output_path,
+                    resolution="best",
+                    extra_ydl_opts=build_aria2_opts(None),
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg_yt_dlp, daemon=True).start()
+        self._send_json({"code": 1, "message": "下载任务已提交"})
 
     def _api_res_cancel(self, body):
         """POST /api/res/cancel — 取消下载。"""
@@ -3029,6 +3083,19 @@ def main():
 
     _db.init_db()
     _db.ensure_app_state_table()
+
+    # Auto-start Go proxy in background
+    def _start_go_proxy():
+        try:
+            mgr = get_proxy_manager()
+            if not mgr.is_running:
+                mgr.start()
+                _log.info("Go MitM proxy auto-started")
+        except RuntimeError as e:
+            _log.warning("Go proxy not available: %s", e)
+        except Exception as e:
+            _log.warning("Failed to auto-start Go proxy: %s", e)
+    threading.Thread(target=_start_go_proxy, daemon=True).start()
 
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:

@@ -5,26 +5,22 @@ go_proxy_manager.py — Go MitM 代理子进程生命周期管理。
 - 启动/停止 Go 可执行文件
 - 健康检查（轮询 /health 端点）
 - 自动重启（最多 MAX_RESTARTS 次）
-- WebSocket 事件接收（转发为 Python 回调）
-
-使用方式：
-    from go_proxy_manager import get_proxy_manager
-    mgr = get_proxy_manager()
-    mgr.start()
-    # ...
-    mgr.stop()
+- WebSocket 事件接收（转发为 Python 回调 + SSE 广播）
 """
 from __future__ import annotations
 
-import os
-import sys
-import time
+import json as _json
 import logging
+import os
+import queue
 import subprocess
+import sys
 import threading
+import time
+from codecs import getreader
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import requests
 
@@ -93,6 +89,9 @@ class GoProxyManager:
         self._on_proxy_started = on_proxy_started
         self._on_proxy_stopped = on_proxy_stopped
 
+        # SSE 广播队列（所有 SSE 消费者共享同一个队列实例）
+        self._event_queue: queue.Queue[Optional[dict]] = queue.Queue(maxsize=256)
+
     @property
     def api_base(self) -> str:
         return f"http://127.0.0.1:{self.proxy_port}"
@@ -122,11 +121,20 @@ class GoProxyManager:
 
         self._process = subprocess.Popen(
             [exe_path],
-            env=None,  # 使用继承的环境变量
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            env=None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
+
+        # 后台线程：捕获 Go 子进程 stdout，转发到 Python 日志
+        def _read_go_stdout():
+            import codecs
+            reader = codecs.getreader('utf-8')(self._process.stdout)
+            for line in reader:
+                _log.info("[SPAWN stdout] %s", line.rstrip())
+        self._stdout_thread = threading.Thread(target=_read_go_stdout, daemon=True)
+        self._stdout_thread.start()
 
         # 等待健康检查通过
         started_at = time.time()
@@ -222,6 +230,77 @@ class GoProxyManager:
         r.raise_for_status()
         return r.json()
 
+    def clear_resources(self) -> dict:
+        """清空资源列表。"""
+        r = requests.post(f"{self.api_base}/api/clear", timeout=5)
+        r.raise_for_status()
+        return r.json()
+
+    def delete_resources(self, signs: list[str]) -> dict:
+        """删除指定资源。"""
+        r = requests.post(
+            f"{self.api_base}/api/delete",
+            json={"sign": signs},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def set_resource_type(self, types: str) -> dict:
+        """设置资源类型过滤（逗号分隔，如 "video,audio,image"）。"""
+        r = requests.post(
+            f"{self.api_base}/api/set-type",
+            json={"type": types},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def cancel_download(self, task_id: str) -> dict:
+        """取消下载任务。"""
+        r = requests.post(
+            f"{self.api_base}/api/cancel",
+            json={"id": task_id},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def wx_file_decode(self, media_info: dict, filename: str, decode_str: str) -> dict:
+        """解密微信加密文件。"""
+        payload = {
+            "MediaInfo": media_info,
+            "filename": filename,
+            "decodeStr": decode_str,
+        }
+        r = requests.post(
+            f"{self.api_base}/api/wx-file-decode",
+            json=payload,
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def batch_export(self, content: str) -> dict:
+        """批量导出资源列表。"""
+        r = requests.post(
+            f"{self.api_base}/api/batch-export",
+            json={"content": content},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def open_folder(self, file_path: str) -> dict:
+        """打开包含指定文件的目录。"""
+        r = requests.post(
+            f"{self.api_base}/api/open-folder",
+            json={"filePath": file_path},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()
+
     # ── WebSocket 客户端 ─────────────────────────────────────
 
     def _start_ws_client(self) -> None:
@@ -239,33 +318,38 @@ class GoProxyManager:
 
     def _ws_loop(self) -> None:
         """WebSocket 接收循环（运行在独立线程）。"""
-        import json as _json
-
+        _log.info("[WS] WebSocket thread starting for port %d", self.proxy_port)
+        try:
+            import websocket as _ws_module
+        except ImportError as e:
+            _log.error("[WS] Failed to import websocket-client: %s", e)
+            return
+        import logging as _ws_log
+        _ws_log = logging.getLogger("go_proxy_manager.ws")
         ws_url = f"ws://127.0.0.1:{self.proxy_port}/ws"
         while self._ws_running and self.is_running:
             try:
-                # 使用 websocket-client 库
-                import websocket as _ws_module
+                _ws_log.info("[WS] Connecting to %s", ws_url)
                 ws = _ws_module.create_connection(
                     ws_url,
-                    timeout=30,
+                    timeout=10,
                     enable_multithread=True,
                 )
-                _log.debug("WebSocket connected to %s", ws_url)
+                _ws_log.info("[WS] Connected to %s", ws_url)
                 while self._ws_running and self.is_running:
                     msg = ws.recv()
+                    _ws_log.debug("[WS] recv: %s", msg[:120] if msg else "")
                     self._dispatch_ws_message(msg)
                 ws.close()
             except Exception as e:
                 if self._ws_running and not self._stopping:
-                    _log.debug("WebSocket disconnected: %s, reconnecting...", e)
+                    _ws_log.warning("[WS] disconnected: %s, reconnecting in 2s...", e)
                     time.sleep(2)
-                break
+                else:
+                    break
 
     def _dispatch_ws_message(self, raw: str) -> None:
-        """解析 WebSocket 消息并触发对应回调。"""
-        import json as _json
-
+        """解析 WebSocket 消息并触发对应回调 + SSE 广播。"""
         try:
             msg = _json.loads(raw)
         except Exception:
@@ -273,15 +357,65 @@ class GoProxyManager:
             return
 
         event = msg.get("event", "")
-        data = msg.get("data", {})
+        raw_data = msg.get("data", "")
 
-        if event == "resource_found" and self._on_resource_found:
-            self._on_resource_found(data)
-        elif event == "download_progress" and self._on_download_progress:
-            self._on_download_progress(data)
+        # res-downloader 的 send() 先将数据Marshal为 {"type": t, "data": mediaInfo}
+        # 然后作为字符串传入 EmitEvent，再次Marshal为 {"event": t, "data": <json字符串>}
+        # 因此 data 字段可能是一个已经Marshal过的字符串，需要解析
+        parsed = raw_data
+        try:
+            if isinstance(raw_data, str):
+                parsed = _json.loads(raw_data)
+            elif isinstance(raw_data, dict):
+                parsed = raw_data
+        except Exception:
+            _log.warning("Failed to parse WS data: %s", str(raw_data)[:100])
+            parsed = {}
+
+        # Go send() 额外包装了 {"type": ..., "data": ...}，需要解包获取真正的 mediaInfo
+        # downloadProgress 的 data 字段是 dict（不是字符串），直接可用
+        if isinstance(parsed, dict) and "data" in parsed:
+            inner = parsed["data"]
+            if isinstance(inner, str):
+                try:
+                    inner = _json.loads(inner)
+                except Exception:
+                    pass
+            # SSE 广播：用 Go send() 的原始包装（type + data），浏览器端自行解包
+            sse_data = parsed
+        else:
+            sse_data = parsed
+
+        # 触发回调（传入解包后的数据）
+        if event == "newResources" and self._on_resource_found:
+            self._on_resource_found(sse_data)
+        elif event == "downloadProgress" and self._on_download_progress:
+            self._on_download_progress(sse_data)
+
+        # SSE 广播（放入队列，非阻塞）
+        broadcast = {"event": event, "data": sse_data}
+        try:
+            self._event_queue.put_nowait(broadcast)
+        except queue.Full:
+            _log.warning("SSE event queue full, dropping event: %s", event)
+
+    def get_event(self, timeout: float = 30.0) -> Optional[dict]:
+        """
+        从 SSE 队列中获取一个事件。
+        供 SSE endpoint 调用。timeout=0 时立即返回（非阻塞）。
+        Returns None 表示队列为空或超时。
+        """
+        try:
+            return self._event_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def event_queue_size(self) -> int:
+        """返回当前队列中的事件数量。"""
+        return self._event_queue.qsize()
 
 
-# ── 全局单例 ────────────────────────────────────────────────
+# ── 全局单例 ───────────────────────────────────────────────
 _manager: Optional[GoProxyManager] = None
 _manager_lock = threading.Lock()
 
