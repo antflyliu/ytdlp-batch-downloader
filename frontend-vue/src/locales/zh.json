@@ -147,7 +147,8 @@
     "downloadSuccess": "下载成功",
     "downloadFailed": "下载失败",
     "copied": "已复制",
-    "decryptNotImplemented": "解密功能开发中"
+    "decryptNotImplemented": "解密功能开发中",
+    "deleted": "已删除"
   },
   "footer": {
     "title": "关于我们",

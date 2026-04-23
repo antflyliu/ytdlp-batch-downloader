@@ -147,7 +147,8 @@
     "downloadSuccess": "Download started",
     "downloadFailed": "Download failed",
     "copied": "Copied",
-    "decryptNotImplemented": "Decrypt feature in development"
+    "decryptNotImplemented": "Decrypt feature in development",
+    "deleted": "Deleted"
   },
   "footer": {
     "title": "About Us",
