@@ -39,9 +39,8 @@ def is_loopback_ip(ip: str) -> bool:
 
 
 def get_client_ip_from_headers(headers, client_address: tuple) -> str:
-    """Extract client IP from headers (X-Forwarded-For) or socket address."""
-    xff = headers.get("X-Forwarded-For", "")
-    return (xff.split(",")[0].strip() if xff else client_address[0]) or ""
+    """Extract client IP from the socket address (local desktop app, no reverse proxy)."""
+    return client_address[0] or ""
 
 
 def path_skips_rate_limit(path: str) -> bool:

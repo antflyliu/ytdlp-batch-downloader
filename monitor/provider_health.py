@@ -7,6 +7,7 @@ their actual health status.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import ssl
 from dataclasses import dataclass
@@ -198,11 +199,13 @@ def _http_probe(
                 proxy_type = "http"
 
             proxy = urllib.request.ProxyHandler({proxy_type: proxy_url})
-            # Build SSL context that skips certificate verification for proxies
-            # (proxy TLS certs are typically self-signed or untrusted)
+            # Build SSL context: verify upstream certs by default.
+            # If local proxies use self-signed certs, set MONITOR_INSECURE_PROBE=true
             ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
+            if os.environ.get("MONITOR_INSECURE_PROBE", "").lower() in ("true", "1", "yes"):
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                _log.warning("proxy health check SSL verification disabled via MONITOR_INSECURE_PROBE")
 
             opener = urllib.request.build_opener(proxy, urllib.request.HTTPSHandler(context=ssl_ctx))
             request = urllib.request.Request(test_url, method="HEAD")

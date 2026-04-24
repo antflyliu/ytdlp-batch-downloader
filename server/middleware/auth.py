@@ -35,6 +35,8 @@ def verify_bearer_token(
         (is_valid, error_message) — is_valid=True means authorized, False means unauthorized.
         error_message is a human-readable reason for 401 responses (None when valid).
     """
+    if not token:
+        return False, "服务端 token 未配置"
     if not auth_header.startswith("Bearer "):
         return False, "未授权，请提供 Bearer token"
     provided = auth_header[7:]
