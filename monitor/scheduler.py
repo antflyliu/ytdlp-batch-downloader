@@ -90,11 +90,11 @@ def _set_direct_cooldown(retry_count: int) -> None:
     """设置全局直连退避状态（线程安全）"""
     global _direct_cooldown_until, _direct_retry_count
     now = time.monotonic()
-    # 清理已过期的直连退避
-    if _direct_cooldown_until is not None and _direct_cooldown_until <= now:
-        _direct_cooldown_until = None
-        _direct_retry_count = 0
     with _direct_lock:
+        # 在锁内检查并清理已过期的退避（避免 TOCTOU 竞态）
+        if _direct_cooldown_until is not None and _direct_cooldown_until <= now:
+            _direct_cooldown_until = None
+            _direct_retry_count = 0
         _direct_cooldown_until = now + _get_backoff_seconds(retry_count)
         _direct_retry_count = retry_count
 

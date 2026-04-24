@@ -13,6 +13,7 @@ import ssl
 from dataclasses import dataclass
 
 import monitor.db as _db
+from monitor.proxy.models import ProxyEndpoint
 
 _log = logging.getLogger("provider_health")
 
@@ -81,8 +82,9 @@ def _probe_rotating_gateway(cfg: dict) -> ProbeResult:
             response_code=None,
         )
 
-    proxy_url = _build_gateway_proxy_url(protocol, username, password, host, port)
-    return _http_probe(proxy_url, protocol)
+    endpoint = _build_proxy_endpoint(protocol, username, password, host, port)
+    _log.debug("Health probing rotating_gateway %s", endpoint)
+    return _http_probe(endpoint.url, protocol)
 
 
 def _probe_local_gateway(cfg: dict) -> ProbeResult:
@@ -110,15 +112,24 @@ def _probe_local_gateway(cfg: dict) -> ProbeResult:
     return _http_probe(local_url, scheme)
 
 
-def _build_gateway_proxy_url(protocol: str, username: str, password: str, host: str, port: int) -> str:
-    """Build a proxy URL for the rotating gateway."""
-    # Normalize protocol for urllib
+def _build_proxy_endpoint(protocol: str, username: str, password: str, host: str, port: int) -> ProxyEndpoint:
+    """Build a ProxyEndpoint for the rotating gateway with safe str/repr."""
     proxy_scheme = "http" if protocol.lower() in ("http", "https") else protocol.lower()
-    if username or password:
-        netloc = f"{username}:{password}@{host}:{port}"
-    else:
-        netloc = f"{host}:{port}"
-    return f"{proxy_scheme}://{netloc}"
+    return ProxyEndpoint(
+        scheme=proxy_scheme,
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+    )
+
+
+def _build_gateway_proxy_url(protocol: str, username: str, password: str, host: str, port: int) -> str:
+    """Build a proxy URL for the rotating gateway.
+
+    Deprecated: use _build_proxy_endpoint() and ProxyEndpoint.url instead.
+    """
+    return _build_proxy_endpoint(protocol, username, password, host, port).url
 
 
 # ── HTTP Probe ───────────────────────────────────────────────────

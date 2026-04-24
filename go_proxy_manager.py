@@ -156,7 +156,7 @@ class GoProxyManager:
                         self._on_proxy_started({"port": self.proxy_port})
                     return
             except requests.exceptions.RequestException:
-                pass
+                _log.debug("Go proxy health check failed (retrying)")
             time.sleep(HEALTH_CHECK_INTERVAL)
 
         # 超时未就绪，尝试终止
@@ -200,7 +200,7 @@ class GoProxyManager:
         try:
             self.stop()
         except Exception:
-            pass
+            _log.debug("Ignoring stop() error during restart")
         time.sleep(1)
         try:
             self.start()
@@ -438,9 +438,13 @@ def get_proxy_manager(
         except Exception:
             proxy_port = DEFAULT_PROXY_PORT
     with _manager_lock:
-        if _manager is None or _manager.proxy_port != proxy_port:
-            if _manager is not None and _manager.is_running:
-                _manager.stop()
+        need_stop = _manager is not None and _manager.proxy_port != proxy_port and _manager.is_running
+        needs_new = _manager is None or _manager.proxy_port != proxy_port
+    if need_stop:
+        # 在锁外停止旧进程，避免阻塞其他调用者
+        _manager.stop()
+    with _manager_lock:
+        if needs_new:
             _manager = GoProxyManager(proxy_port=proxy_port)
         return _manager
 

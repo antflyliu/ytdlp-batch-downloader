@@ -68,6 +68,87 @@ def is_webview2_available() -> bool:
 
 # ── 2. Bootstrapper 下载与安装 ─────────────────────────────────
 
+def _verify_authenticode(path: str) -> bool:
+    """
+    Verify Authenticode (digital signature) of a PE file using WinVerifyTrust.
+
+    Returns True if the file has a valid signature from a trusted publisher.
+    """
+    try:
+        # WinTrust API constants and structures
+        WINTRUST_ACTION_GENERIC_VERIFY_V2 = (
+            b"\x00\xa0\xc9\x0d\x62\x61\xcf\x11"
+            b"\xa6\x1a\x00\xaa\x00\x47\xae\x3b"
+        )
+        WTD_CHOICE_FILE = 1
+        WTD_UI_NONE = 2
+        WTD_REVOCATION_NONE = 0x100
+        WTD_STATEACTION_IGNORE = 0
+        WTD_STATEACTION_VERIFY = 1
+        WTD_STATEACTION_CLOSE = 2
+
+        class WINTRUST_FILE_INFO(ctypes.Structure):
+            _fields_ = [
+                ("cbStruct", ctypes.c_ulong),
+                ("pcwszFilePath", ctypes.c_wchar_p),
+                ("hFile", ctypes.c_void_p),
+                ("pgKnownSubject", ctypes.c_void_p),
+            ]
+
+        class WINTRUST_DATA(ctypes.Structure):
+            _fields_ = [
+                ("cbStruct", ctypes.c_ulong),
+                ("pPolicyCallbackData", ctypes.c_void_p),
+                ("pSIPCallbackData", ctypes.c_void_p),
+                ("dwUIChoice", ctypes.c_ulong),
+                ("fdwRevocationChecks", ctypes.c_ulong),
+                ("dwUnionChoice", ctypes.c_ulong),
+                ("pFile", ctypes.POINTER(WINTRUST_FILE_INFO)),
+                ("dwStateAction", ctypes.c_ulong),
+                ("hWVTStateData", ctypes.c_void_p),
+                ("pwszURLReference", ctypes.c_wchar_p),
+                ("dwProvFlags", ctypes.c_ulong),
+                ("dwUIContext", ctypes.c_ulong),
+            }
+
+        file_info = WINTRUST_FILE_INFO(
+            cbStruct=ctypes.sizeof(WINTRUST_FILE_INFO),
+            pcwszFilePath=path,
+            hFile=None,
+            pgKnownSubject=None,
+        )
+
+        trust_data = WINTRUST_DATA(
+            cbStruct=ctypes.sizeof(WINTRUST_DATA),
+            pPolicyCallbackData=None,
+            pSIPCallbackData=None,
+            dwUIChoice=WTD_UI_NONE,
+            fdwRevocationChecks=WTD_REVOCATION_NONE,
+            dwUnionChoice=WTD_CHOICE_FILE,
+            pFile=ctypes.pointer(file_info),
+            dwStateAction=WTD_STATEACTION_VERIFY,
+            hWVTStateData=None,
+            pwszURLReference=None,
+            dwProvFlags=0,
+            dwUIContext=0,
+        )
+
+        wintrust = ctypes.windll.wintrust.WinVerifyTrust
+        wintrust.restype = ctypes.c_long
+
+        # Verify
+        result = wintrust(None, ctypes.byref(ctypes.create_string_buffer(WINTRUST_ACTION_GENERIC_VERIFY_V2)), ctypes.byref(trust_data))
+
+        # Close state
+        trust_data.dwStateAction = WTD_STATEACTION_CLOSE
+        wintrust(None, ctypes.byref(ctypes.create_string_buffer(WINTRUST_ACTION_GENERIC_VERIFY_V2)), ctypes.byref(trust_data))
+
+        return result == 0  # ERROR_SUCCESS
+    except Exception as e:
+        _log.warning(f"Authenticode verification failed: {e}")
+        return False
+
+
 def install_webview2_bootstrapper(dest_path: str | None = None) -> str | None:
     """
     下载 WebView2 Evergreen Bootstrapper。
@@ -102,9 +183,18 @@ def install_webview2_bootstrapper(dest_path: str | None = None) -> str | None:
             with open(dest_path, "wb") as f:
                 f.write(response.read())
         _log.info(f"Bootstrapper 已下载: {dest_path}")
-        # CRITICAL #9 (Bootstrapper 文件有效性): 基本校验
+        # 基本校验：文件大小
         if os.path.getsize(dest_path) < 1024 * 1024:
             _log.warning(f"Bootstrapper 文件小于 1MB，可能下载不完整: {dest_path}")
+        # Authenticode 数字签名验证（防止中间人篡改）
+        if not _verify_authenticode(dest_path):
+            _log.error(f"Bootstrapper 数字签名验证失败，删除不可信文件: {dest_path}")
+            try:
+                os.remove(dest_path)
+            except Exception:
+                pass
+            return None
+        _log.info("Bootstrapper 数字签名验证通过")
         return dest_path
     except Exception as e:
         _log.error(f"Bootstrapper 下载失败: {e}")

@@ -2048,7 +2048,8 @@ def backup_db() -> str | None:
     backup_path = os.path.join(backup_dir, f"monitor_{ts}.db")
 
     try:
-        # 备份时排除 api_keys 表以防明文 Key 泄露
+        # 排除敏感数据：api_keys 表 + app_state 中的密钥/token
+        _EXCLUDED_APP_STATE_KEYS = ("webhook_enc_key", "api_token")
         conn_backup = sqlite3.connect(backup_path)
         conn_src = sqlite3.connect(_DB_PATH)
         conn_backup.execute("PRAGMA journal_mode=WAL")
@@ -2057,6 +2058,11 @@ def backup_db() -> str | None:
             if (stripped.startswith("CREATE TABLE api_keys")
                     or stripped.startswith("INSERT INTO api_keys")):
                 continue
+            if stripped.startswith("INSERT INTO app_state"):
+                import re
+                match = re.search(r"VALUES\s*\(\s*'([^']+)'", stripped)
+                if match and match.group(1) in _EXCLUDED_APP_STATE_KEYS:
+                    continue
             try:
                 conn_backup.execute(line)
             except Exception:

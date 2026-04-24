@@ -23,10 +23,25 @@ def _get_fernet():
     return _fernet
 
 
+_KEY_FILE = os.path.join(_DATA_DIR, ".webhook_enc_key")
+
+
 def _get_webhook_enc_key() -> bytes:
-    """Get/create Fernet encryption key stored in app_state."""
+    """
+    Get/create Fernet encryption key.
+
+    Priority:
+      1. Key file at DATA_DIR/.webhook_enc_key (primary)
+      2. Legacy app_state table in SQLite (backward compat, migrated to file)
+      3. Generate new key if neither exists
+    """
     from cryptography.fernet import Fernet
-    # Ensure app_state table exists
+
+    # 1. Try file-based key
+    if os.path.exists(_KEY_FILE):
+        with open(_KEY_FILE, "r") as f:
+            return f.read().strip().encode("utf-8")
+
     import sqlite3
     conn = sqlite3.connect(_DB_PATH)
     conn.execute(
@@ -39,10 +54,18 @@ def _get_webhook_enc_key() -> bytes:
     row = conn.execute(
         "SELECT value FROM app_state WHERE key='webhook_enc_key'"
     ).fetchone()
+
     if row:
+        key_str = row[0]
         conn.close()
-        return row[0].encode("utf-8")
+        # 2. Found in SQLite — migrate to file, keep SQLite copy for safety
+        _write_key_file(key_str)
+        return key_str.encode("utf-8")
+
+    # 3. Generate new key
     key_str = Fernet.generate_key().decode("utf-8")
+    _write_key_file(key_str)
+    # Also write to SQLite for backward compat with existing app_state readers
     conn.execute(
         "INSERT OR REPLACE INTO app_state (key, value) VALUES ('webhook_enc_key', ?)",
         (key_str,),
@@ -50,6 +73,17 @@ def _get_webhook_enc_key() -> bytes:
     conn.commit()
     conn.close()
     return key_str.encode("utf-8")
+
+
+def _write_key_file(key_str: str) -> None:
+    """Write encryption key to file with restricted permissions."""
+    import stat
+    with open(_KEY_FILE, "w") as f:
+        f.write(key_str.strip() + "\n")
+    try:
+        os.chmod(_KEY_FILE, stat.S_IRUSR | stat.S_IWUSR)
+    except PermissionError:
+        pass  # Windows may not support chmod fully, best-effort only
 
 
 # ── Webhook URL encryption ──────────────────────────────────────

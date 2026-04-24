@@ -7,7 +7,7 @@ from datetime import datetime
 
 import monitor.db as _db
 
-from monitor.proxy.models import ProxyProviderCandidate, CanonicalProxyCandidate
+from monitor.proxy.models import ProxyProviderCandidate, CanonicalProxyCandidate, ProxyEndpoint
 
 _log = logging.getLogger("proxy_router")
 
@@ -164,6 +164,9 @@ def _resolve_rotating_gateway(config_json: dict) -> str | None:
 
     Returns gateway URL like 'http://user:pass@gateway_host:port'
     or 'socks5://user:pass@gateway_host:port'.
+
+    Note: The returned URL embeds credentials for urllib/yt-dlp consumption.
+    Use ProxyEndpoint for safe logging (str() masks credentials).
     """
     host = config_json.get("gateway_host")
     port = config_json.get("gateway_port")
@@ -174,17 +177,13 @@ def _resolve_rotating_gateway(config_json: dict) -> str | None:
     if not host or not port:
         return None
 
-    # In v1, password is stored encrypted in config_json; we use it as-is
-    # to construct the URL for the downloader. The downloader handles the proxy.
-    if username or password:
-        # Password is encrypted in config_json; for v1 we decrypt on-the-fly
-        # by reading the stored value. In production this should be decrypted
-        # via a proper secret manager. Here we treat it as already usable.
-        netloc = f"{username}:{password}@{host}:{port}"
-    else:
-        netloc = f"{host}:{port}"
-
-    return f"{protocol}://{netloc}"
+    return ProxyEndpoint(
+        scheme=protocol,
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+    ).url
 
 
 def _resolve_local_gateway(config_json: dict) -> str | None:

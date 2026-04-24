@@ -2,6 +2,67 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
+
+
+@dataclass
+class ProxyEndpoint:
+    """
+    Structured proxy endpoint with safe string representation.
+
+    Separates proxy components (scheme, host, port, credentials) from the URL
+    string so that str() and repr() never leak credentials.
+
+    Use .url to get the full URL (with credentials) for downstream consumers
+    such as urllib, requests, or yt-dlp.
+    """
+
+    scheme: str = "http"
+    host: str = ""
+    port: int | None = None
+    username: str = ""
+    password: str = ""
+
+    @property
+    def url(self) -> str:
+        """Full proxy URL with embedded credentials (for urllib/curl/yt-dlp)."""
+        if self.username or self.password:
+            netloc = f"{self.username}:{self.password}@{self.host}"
+        else:
+            netloc = self.host
+        if self.port is not None:
+            netloc += f":{self.port}"
+        return f"{self.scheme}://{netloc}"
+
+    @property
+    def safe_url(self) -> str:
+        """Masked proxy URL safe for logging (credentials replaced with ****)."""
+        host_part = self.host or "***"
+        if self.port is not None:
+            host_part += f":{self.port}"
+        if self.username or self.password:
+            return f"{self.scheme}://****:****@{host_part}"
+        return f"{self.scheme}://{host_part}"
+
+    def __str__(self) -> str:
+        return self.safe_url
+
+    def __repr__(self) -> str:
+        return f"ProxyEndpoint({self.safe_url})"
+
+    @classmethod
+    def from_url(cls, url: str) -> ProxyEndpoint:
+        """Parse a proxy URL string into a ProxyEndpoint (credentials parsed but not stored)."""
+        parsed = urlparse(url)
+        return cls(
+            scheme=parsed.scheme or "http",
+            host=parsed.hostname or "",
+            port=parsed.port,
+        )
+
+
+@dataclass
+class ProxyRouteResult:
 
 
 @dataclass
