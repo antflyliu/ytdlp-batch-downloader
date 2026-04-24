@@ -1,9 +1,9 @@
 {
-  "global_feishu_url": "enc:gAAAAABp40sxzRvEi0CqWkZfRO0yzwjNIEi2jmJOHoZze-p7PJJ71aH8dF1wg1ZinRvbRpiH1a6pASqN8WU5on5hLLw3qzSLvwcF-hn9rLDoCWGefCJh2wItCCCA3JGu5F96NGEWZdl0W0-T4g6ZOeVdZrJEpuXs4w==",
+  "global_feishu_url": "enc:gAAAAABp6vT8Wc4FeZhBh5p6nq0ND3f3axMqoTZ_2qUvwgVb0Lnq9mlC9XAmpKotPtMwqJoMFvzpPZLMjszvHhpOUkJaBjF3wPaxMGCR1hrssv15DCsUriLKH84XLrkUArB7x4minBP2_zli__HlJD31EpkzitPfxA==",
   "global_dingtalk_url": "",
   "global_dingtalk_sign_secret": "",
   "global_wecom_url": "",
-  "global_telegram_token": "enc:gAAAAABp40sxrc8PdG_b_c6W3eKz1MwNDASvZpeXp78I9aoq93lk0yu3Lu4QecoLKKO9w6DHcIixSvcCekvk4HYLkRAL8dlrQvUdb8w92Lsf9SHkZ2u4oJCpAQqVlE-4FVbFr0HdKsAQ",
+  "global_telegram_token": "enc:gAAAAABp6vT8DCpEOkf9u2_8xxxTKFBqzaH2cWonqXkZnu7GRBofeDQNWGjOqXJwU5sUUM-P026H-LS82tAsT0Opuw-GXAnI9VWb6FD7Kw-WX5WNo7CIQTkb6vDpX0zi4OoTDKYzWCme",
   "global_telegram_chat_id": "-1002437857450",
   "default_fetch_mode": "playlist",
   "default_fetch_limit": 5,
@@ -63,5 +63,7 @@
   "clip_thumbnail_quality": 2,
   "auto_clip_enabled": false,
   "auto_clip_notify_enabled": false,
+  "proxy_sniffer_enabled": false,
+  "proxy_sniffer_port": 8899,
   "enable_aria2": true
 }

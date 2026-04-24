@@ -97,6 +97,9 @@ def _config_default() -> dict:
         # ── 自动切片配置 ─────────────────────────────────────
         "auto_clip_enabled": False,          # 下载完成后自动触发 AI 切片
         "auto_clip_notify_enabled": False,    # 切片完成后发送通知
+        # ── 资源嗅探 ──────────────────────────────────────────
+        "proxy_sniffer_enabled": False,      # 默认关闭，手动在配置中心开启
+        "proxy_sniffer_port": 8899,          # Go 子进程监听端口
     }
 
 

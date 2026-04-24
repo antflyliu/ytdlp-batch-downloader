@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from codecs import getreader
+from config.settings import load_config
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -120,7 +121,7 @@ class GoProxyManager:
         _log.info("Starting Go proxy: %s (port=%s)", exe_path, self.proxy_port)
 
         self._process = subprocess.Popen(
-            [exe_path],
+            [exe_path, "-port", str(self.proxy_port)],
             env=None,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -421,12 +422,25 @@ _manager_lock = threading.Lock()
 
 
 def get_proxy_manager(
-    proxy_port: int = DEFAULT_PROXY_PORT,
+    proxy_port: int | None = None,
 ) -> GoProxyManager:
-    """获取全局 GoProxyManager 单例（线程安全）。"""
+    """获取全局 GoProxyManager 单例（线程安全）。
+
+    若未指定 proxy_port，则从 config.json 读取 proxy_sniffer_port。
+    若已存在单例但端口与配置不符，先停止旧实例（如果运行中）再重建。
+    """
     global _manager
+    # 读取配置中的端口
+    if proxy_port is None:
+        try:
+            cfg = load_config()
+            proxy_port = int(cfg.get("proxy_sniffer_port") or DEFAULT_PROXY_PORT)
+        except Exception:
+            proxy_port = DEFAULT_PROXY_PORT
     with _manager_lock:
-        if _manager is None:
+        if _manager is None or _manager.proxy_port != proxy_port:
+            if _manager is not None and _manager.is_running:
+                _manager.stop()
             _manager = GoProxyManager(proxy_port=proxy_port)
         return _manager
 

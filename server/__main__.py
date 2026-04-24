@@ -2575,30 +2575,50 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, 500)
 
     def _api_proxy_disable(self):
-        """POST /api/proxy/disable — 停止 Go 子进程。"""
+        """POST /api/proxy/disable — 停止 Go 子进程，同时清除系统代理。"""
+        import urllib.request
         mgr = get_proxy_manager()
         if not mgr.is_running:
             self._send_json({"ok": True, "message": "not running"})
             return
+        # 先清除系统代理（Windows 注册表），避免进程退出后残留
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{mgr.proxy_port}/api/proxy-unset",
+                data=b"",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception:
+            pass  # Go 进程可能已卡死，忽略 unset 错误
         mgr.stop()
         self._send_json({"ok": True})
 
     def _api_proxy_status(self):
         """GET /api/proxy/status — 获取代理运行状态。"""
         import urllib.request
+        # 从 config 读取端口，与 go_proxy_manager.get_proxy_manager() 保持一致
+        try:
+            from config.settings import load_config
+            cfg = load_config()
+            proxy_port = int(cfg.get("proxy_sniffer_port") or 8899)
+        except Exception:
+            proxy_port = 8899
         # 直接通过健康检查确认 Go 服务是否在响应
         # 不依赖 subprocess wrapper，因为 Go 可能被外部启动
         running = False
         try:
             urllib.request.urlopen(
-                f"http://127.0.0.1:8899/health", timeout=2
+                f"http://127.0.0.1:{proxy_port}/health", timeout=2
             )
             running = True
         except Exception:
             pass
         self._send_json({
             "running": running,
-            "port": 8899,
+            "port": proxy_port,
         })
 
     def _api_proxy_config_get(self):
@@ -2886,7 +2906,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             while True:
                 event = mgr.get_event(timeout=30.0)
                 if event is not None:
-                    _log.debug("[SSE] dispatching event: %s", str(event))
+                    # _log.debug("[SSE] dispatching event: %s", str(event))
                     data = _json.dumps(event).encode("utf-8")
                     self.wfile.write(b"data: ")
                     self.wfile.write(data)
@@ -3083,19 +3103,6 @@ def main():
 
     _db.init_db()
     _db.ensure_app_state_table()
-
-    # Auto-start Go proxy in background
-    def _start_go_proxy():
-        try:
-            mgr = get_proxy_manager()
-            if not mgr.is_running:
-                mgr.start()
-                _log.info("Go MitM proxy auto-started")
-        except RuntimeError as e:
-            _log.warning("Go proxy not available: %s", e)
-        except Exception as e:
-            _log.warning("Failed to auto-start Go proxy: %s", e)
-    threading.Thread(target=_start_go_proxy, daemon=True).start()
 
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:
