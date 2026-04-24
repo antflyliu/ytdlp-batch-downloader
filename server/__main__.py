@@ -685,12 +685,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if path == "/api/status":
             self._api_status()
             return
-        if path.startswith("/api/video-stream"):
-            self._api_video_stream()
-            return
         if not self._require_auth():
             return
         if not self._path_skips_rate_limit(path) and not self._check_rate_limit():
+            return
+        if path.startswith("/api/video-stream"):
+            self._api_video_stream()
             return
         if path == "/api/accounts":
             self._api_accounts()
