@@ -18,6 +18,7 @@ import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, d
 import { openDynamicProviders, refreshDynamicProvidersUi, updateProviderSchedulerHint, loadProviderSchedulerLogs, syncDynLogFilters, toggleDynCollapse, loadDynamicProviderTable, dynProviderGoPage, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
 import { openClipHistory } from './modules/clipHistory.js';
 import { initSettingsProxyPage } from './modules/proxySniffer.js'; // registers window.init_settings_proxy_page
+import { initResourcesPage, destroyResourcesPage } from './modules/resources.js'; // registers window.init_resources_page, window.destroy_resources_page + res* onclick handlers
 
 // ── Component modules ───────────────────────────────────────────────
 import { loadAccounts, filterAccountTable } from './components/account-list.js';

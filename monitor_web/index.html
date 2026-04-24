@@ -20,6 +20,8 @@
 <link rel="stylesheet" href="/static/css/api-key.css">
 <link rel="stylesheet" href="/static/css/theme.css">
 <link rel="stylesheet" href="/static/css/clip-detail.css">
+<link href="https://unpkg.com/video.js@7/dist/video-js.min.css" rel="stylesheet">
+<script src="https://unpkg.com/video.js@7/dist/video.min.js"></script>
 <link rel="stylesheet" href="/static/css/sidebar.css">
 </head>
 <body>
@@ -59,6 +61,10 @@
         <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span>
         <span class="sidebar__item-label" data-i18n="nav.clipHistory">切片历史</span>
       </a>
+      <a class="sidebar__item" data-page="resources">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.resources">资源嗅探</span>
+      </a>
       <div class="sidebar__group sidebar__group--settings" id="sidebarSettingsGroup">
         <div class="sidebar__group-head">
           <a class="sidebar__item sidebar__item--settings-main" data-page="settings" href="#/settings">
@@ -89,6 +95,10 @@
           <a class="sidebar__item sidebar__item--sub" data-page="settings-dynamic">
             <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
             <span class="sidebar__item-label" data-i18n="nav.settingsDynamic">系统动态代理</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-proxy">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsProxy">代理嗅探</span>
           </a>
         </div>
       </div>
@@ -648,6 +658,92 @@
         </div>
       </section>
 
+      <!-- 资源嗅探 -->
+      <section class="page" id="page-resources">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.resources.title">资源嗅探</div>
+            <div class="page-desc" data-i18n="page.resources.desc">显示代理捕获的媒体资源，支持下载、解密与批量管理</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn--sm btn--ghost" onclick="resExport()" data-i18n="page.resources.export">📤 导出</button>
+            <button class="btn btn--sm btn--ghost btn--danger" id="btn-res-batch-delete" disabled onclick="resBatchDelete()" data-i18n="page.resources.batchDelete">🗑 批量删除</button>
+            <button class="btn btn--sm btn--danger" onclick="resClear()" data-i18n="page.resources.clear">清空全部</button>
+          </div>
+        </div>
+
+        <!-- 代理状态 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-size:12px;color:var(--text-dim)" data-i18n="page.resources.proxyStatus">代理状态：</span>
+            <span id="res-proxy-status" class="badge badge--secondary">—</span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:8px" data-i18n="page.resources.hint">启用系统代理并浏览网页，捕获的媒体资源将实时显示在此列表</span>
+          </div>
+        </div>
+
+        <!-- 类型过滤 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="res-type-tab btn btn--sm active" data-type="all" onclick="resFilterByType('all')" data-i18n="page.resources.filterAll">全部</button>
+            <button class="res-type-tab btn btn--sm" data-type="video" onclick="resFilterByType('video')" data-i18n="page.resources.filterVideo">视频</button>
+            <button class="res-type-tab btn btn--sm" data-type="audio" onclick="resFilterByType('audio')" data-i18n="page.resources.filterAudio">音频</button>
+            <button class="res-type-tab btn btn--sm" data-type="image" onclick="resFilterByType('image')" data-i18n="page.resources.filterImage">图片</button>
+            <button class="res-type-tab btn btn--sm" data-type="pdf" onclick="resFilterByType('pdf')" data-i18n="page.resources.filterPdf">PDF</button>
+            <button class="res-type-tab btn btn--sm" data-type="doc" onclick="resFilterByType('doc')" data-i18n="page.resources.filterDoc">文档</button>
+            <span id="res-count" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
+          </div>
+        </div>
+
+        <!-- 资源列表 -->
+        <div class="card">
+          <div class="table-wrap">
+            <table class="accounts-table resources-table">
+              <thead>
+                <tr>
+                  <th style="width:32px">
+                    <input type="checkbox" onchange="resSelectAll(this)" />
+                  </th>
+                  <th data-i18n="page.resources.colType">类型</th>
+                  <th data-i18n="page.resources.colInfo">资源信息</th>
+                  <th style="width:80px" data-i18n="page.resources.colSize">大小</th>
+                  <th style="width:80px" data-i18n="page.resources.colStatus">状态</th>
+                  <th style="min-width:200px" data-i18n="page.resources.colActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="res-table-body">
+              </tbody>
+            </table>
+            <div id="res-empty" class="empty-state" style="padding:40px;text-align:center;display:none">
+              <div class="empty-icon">🕵️</div>
+              <div class="empty-title" data-i18n="page.resources.emptyTitle">暂无捕获资源</div>
+              <div class="empty-desc" data-i18n="page.resources.emptyDesc">开启系统代理并浏览网页，捕获的媒体资源将实时显示在此</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 资源预览模态框 -->
+        <div class="modal-overlay" id="modalResPreview" style="display:none">
+          <div class="modal" style="max-width:900px;width:95vw">
+            <div class="modal-header">
+              <span class="modal-title" id="resPreviewTitle" data-i18n="page.resources.previewTitle">资源预览</span>
+              <button class="modal-close" onclick="resPreviewClose()" title="关闭">×</button>
+            </div>
+            <div class="modal-body" style="padding:0;text-align:center">
+              <!-- 图片预览 -->
+              <img id="resPreviewImg" style="max-width:100%;max-height:70vh;display:none" />
+              <!-- 视频/音频预览 -->
+              <div id="resPreviewMediaWrap" style="display:none">
+                <video id="resPreviewVideo" class="video-js vjs-big-play-centered vjs-fluid" controls preload="auto" style="width:100%;max-height:70vh"></video>
+              </div>
+              <!-- 加载中 -->
+              <div id="resPreviewLoading" style="padding:40px">
+                <span data-i18n="page.resources.previewLoading">加载中…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 配置中心：内容由 templates/pages/settings-*.html 注入各 mount 节点 -->
       <section class="page" id="page-settings"><div id="tpl-page-settings"></div></section>
       <section class="page" id="page-settings-notify"><div id="tpl-page-settings-notify"></div></section>
@@ -655,6 +751,7 @@
       <section class="page" id="page-settings-download"><div id="tpl-page-settings-download"></div></section>
       <section class="page" id="page-settings-ai"><div id="tpl-page-settings-ai"></div></section>
       <section class="page" id="page-settings-dynamic"><div id="tpl-page-settings-dynamic"></div></section>
+      <section class="page" id="page-settings-proxy"><div id="tpl-page-settings-proxy"></div></section>
     </main>
   </div>
 </div>

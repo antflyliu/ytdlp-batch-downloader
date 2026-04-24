@@ -5,42 +5,42 @@ import { api } from '../api.js';
 
 /** Get proxy sniffer status */
 export async function getStatus() {
-  return api('GET', '/api/proxy/status');
+  return api('GET', '/proxy/status');
 }
 
 /** Enable the proxy sniffer */
 export async function enable() {
-  return api('POST', '/api/proxy/enable');
+  return api('POST', '/proxy/enable');
 }
 
 /** Disable the proxy sniffer */
 export async function disable() {
-  return api('POST', '/api/proxy/disable');
+  return api('POST', '/proxy/disable');
 }
 
 /** Get proxy sniffer config */
 export async function getConfig() {
-  return api('GET', '/api/proxy/config');
+  return api('GET', '/proxy/config');
 }
 
 /** Update proxy sniffer config */
 export async function updateConfig(cfg) {
-  return api('POST', '/api/proxy/config', cfg);
+  return api('POST', '/proxy/config', cfg);
 }
 
 /** Trigger a URL capture download */
 export async function downloadCapture(url, outputPath = '') {
-  return api('POST', '/api/proxy/download', { url, output_path: outputPath });
+  return api('POST', '/proxy/download', { url, output_path: outputPath });
 }
 
 /** Open or unset system HTTP proxy */
 export async function setSystemProxy(action) {
-  return api('POST', '/api/proxy/system-proxy', { action });
+  return api('POST', '/proxy/system-proxy', { action });
 }
 
 /** Install the CA certificate */
 export async function installCert() {
-  return api('POST', '/api/proxy/cert/install');
+  return api('POST', '/proxy/cert/install');
 }
 
 /** Refresh status and render into the page DOM */

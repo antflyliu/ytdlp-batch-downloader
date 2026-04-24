@@ -9,12 +9,14 @@ const PAGE_TO_NAV_I18N = {
   'proxy-pools': 'nav.proxyPools',
   'dynamic-providers': 'nav.dynamicProviders',
   'clip-history': 'nav.clipHistory',
+  resources: 'nav.resources',
   settings: 'nav.settings',
   'settings-notify': 'nav.settingsNotify',
   'settings-api': 'nav.settingsApi',
   'settings-download': 'nav.settingsDownload',
   'settings-ai': 'nav.settingsAi',
   'settings-dynamic': 'nav.settingsDynamic',
+  'settings-proxy': 'nav.settingsProxy',
 };
 
 /**
@@ -69,12 +71,14 @@ export function initRouter() {
     'proxy-pools': () => showPage('proxy-pools'),
     'dynamic-providers': () => showPage('dynamic-providers'),
     'clip-history': () => showPage('clip-history'),
+    resources: () => showPage('resources'),
     settings: () => showPage('settings'),
     'settings-notify': () => showPage('settings-notify'),
     'settings-api': () => showPage('settings-api'),
     'settings-download': () => showPage('settings-download'),
     'settings-ai': () => showPage('settings-ai'),
     'settings-dynamic': () => showPage('settings-dynamic'),
+    'settings-proxy': () => showPage('settings-proxy'),
   });
 }
 
@@ -114,6 +118,11 @@ function showPage(name) {
 
   // Call page-specific init if exists (avoids re-initing same page)
   if (Router._activePage !== name) {
+    // Cleanup previous page
+    if (Router._activePage !== null) {
+      const prevCleanup = window[`destroy_${Router._activePage.replace(/-/g, '_')}_page`];
+      if (typeof prevCleanup === 'function') prevCleanup();
+    }
     Router._activePage = name;
     const initFn = window[`init_${name.replace(/-/g, '_')}_page`];
     if (typeof initFn === 'function') initFn();

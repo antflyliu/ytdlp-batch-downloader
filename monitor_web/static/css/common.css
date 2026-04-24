@@ -34,6 +34,12 @@
   border: 1px solid var(--border);
 }
 .btn--ghost:hover { background: var(--surface2); color: var(--text); }
+.btn--danger.btn--ghost {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+.btn--danger.btn--ghost:hover { background: var(--error-dim); color: var(--error); }
 .btn--sm { padding: 4px 12px; font-size: 12px; }
 .btn--icon {
   width: 36px; height: 36px; padding: 0;
@@ -46,6 +52,27 @@
   font-size: 16px;
 }
 .btn--icon:hover { background: var(--surface3); color: var(--text); }
+
+/* Resource type filter tabs */
+.res-type-tab {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: var(--r-sm);
+  transition: all 150ms ease-out;
+}
+.res-type-tab:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.res-type-tab.active {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
 
 /* ── Tags (BEM) ─────────────────────────────────────────────────────── */
 .tag {
