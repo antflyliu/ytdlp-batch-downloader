@@ -1161,6 +1161,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             # AI 视频切片配置
             "llm_provider", "llm_api_key", "llm_model", "llm_base_url",
             "llm_min_score", "llm_category",
+            "clip_embed_thumbnail", "clip_embed_subtitle", "clip_adapt_aspect_ratio",
+            "clip_thumbnail_quality",
             "auto_clip_enabled", "auto_clip_notify_enabled",
         ]:
             if key in body:
