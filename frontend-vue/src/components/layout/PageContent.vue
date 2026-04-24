@@ -1,7 +1,7 @@
 <template>
-<div class="w-full h-full p-4">
-  <RouterView />
-</div>
+  <div class="page-content">
+    <RouterView />
+  </div>
 </template>
 
 <script setup lang="ts">

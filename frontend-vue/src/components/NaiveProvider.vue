@@ -3,6 +3,7 @@
     <NDialogProvider>
       <NNotificationProvider>
         <NMessageProvider>
+          <NaiveProviderBridge />
           <slot></slot>
         </NMessageProvider>
       </NNotificationProvider>
@@ -11,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import {onMounted} from "vue"
+import {defineComponent, onMounted} from "vue"
 import {
   NLoadingBarProvider,
   NDialogProvider,
@@ -23,18 +24,22 @@ import {
   useNotification,
 } from "naive-ui"
 
-function registerNaiveTools() {
-  const loadingBar = useLoadingBar()
-  const dialog = useDialog()
-  const message = useMessage()
-  const notification = useNotification()
-  window.$loadingBar = loadingBar
-  window.$dialog = dialog
-  window.$message = message
-  window.$notification = notification
-}
+const NaiveProviderBridge = defineComponent({
+  name: 'NaiveProviderBridge',
+  setup() {
+    const loadingBar = useLoadingBar()
+    const dialog = useDialog()
+    const message = useMessage()
+    const notification = useNotification()
 
-onMounted(() => {
-  registerNaiveTools()
+    onMounted(() => {
+      window.$loadingBar = loadingBar
+      window.$dialog = dialog
+      window.$message = message
+      window.$notification = notification
+    })
+
+    return () => null
+  },
 })
 </script>
