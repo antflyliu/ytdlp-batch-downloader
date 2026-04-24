@@ -26,9 +26,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 屏蔽 urllib3 不安全警告（使用代理时 SSL 证书由代理侧管理）
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# SSL 验证默认启用（verify=True）。若需本地代理/自签名证书调试，可设置环境变量:
+#   LLM_SSL_VERIFY=false
+_SSL_VERIFY = os.environ.get("LLM_SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+if not _SSL_VERIFY:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    logger.warning("LLM SSL 验证已禁用 (LLM_SSL_VERIFY=false)")
 
 # Prompt 中唯一占位符（避免 str.format 与 JSON 示例里的 { } 冲突）
 PROMPT_INPUT_PLACEHOLDER = "__INPUT_DATA__"
@@ -91,7 +95,7 @@ class QwenProvider(LLMProvider):
             json=payload,
             timeout=kwargs.get("timeout", 120),
             proxies=self._proxies(),
-            verify=False,
+            verify=_SSL_VERIFY,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -122,7 +126,7 @@ class OpenAIProvider(LLMProvider):
         http_client = None
         if proxy:
             import httpx
-            http_client = httpx.Client(proxy=proxy, verify=False)
+            http_client = httpx.Client(proxy=proxy, verify=_SSL_VERIFY)
         self._client = OpenAI(api_key=self.api_key, base_url=self.base_url, http_client=http_client)
 
     def chat(self, messages: list[dict], model: str, **kwargs) -> str:
@@ -167,7 +171,7 @@ class OllamaProvider(LLMProvider):
             json=payload,
             timeout=kwargs.get("timeout", 300),
             proxies=self._proxies(),
-            verify=False,
+            verify=_SSL_VERIFY,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -212,7 +216,7 @@ class GroqProvider(LLMProvider):
             json=payload,
             timeout=kwargs.get("timeout", 60),
             proxies=self._proxies(),
-            verify=False,
+            verify=_SSL_VERIFY,
             allow_redirects=True,
         )
         resp.raise_for_status()

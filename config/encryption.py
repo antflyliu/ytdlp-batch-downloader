@@ -16,6 +16,16 @@ from cryptography.fernet import Fernet
 
 _SECRET_FIELD_NAMES = frozenset(["password", "auth_secret", "api_key", "secret", "token"])
 
+
+def _is_secret_field(field_name: str) -> bool:
+    """检查字段名是否为敏感字段（子串匹配，避免复合名如 llm_api_key 漏检）。
+
+    对 llm_api_key → 匹配 "api_key"，telegram_bot_token → 匹配 "token" 等。
+    """
+    lower = field_name.lower()
+    return any(name in lower for name in _SECRET_FIELD_NAMES)
+
+
 _GLOBAL_WEBHOOK_KEYS = (
     "global_feishu_url",
     "global_dingtalk_url",
@@ -136,13 +146,13 @@ def _encrypt_config_secrets(cfg: dict) -> dict:
         return cfg
     result = {}
     for k, v in cfg.items():
-        if isinstance(v, str) and k.lower() in _SECRET_FIELD_NAMES:
+        if isinstance(v, str) and _is_secret_field(k):
             result[k] = _encrypt_config_value(v)
         elif isinstance(v, dict):
             result[k] = _encrypt_config_secrets(v)
         elif isinstance(v, list):
             result[k] = [
-                _encrypt_config_value(item) if isinstance(item, str) and k.lower() in _SECRET_FIELD_NAMES else item
+                _encrypt_config_value(item) if isinstance(item, str) and _is_secret_field(k) else item
                 for item in v
             ]
         else:
@@ -156,7 +166,7 @@ def _decrypt_config_secrets(cfg: dict) -> dict:
         return cfg
     result = {}
     for k, v in cfg.items():
-        if isinstance(v, str) and (v.startswith("enc:") or k.lower() in _SECRET_FIELD_NAMES):
+        if isinstance(v, str) and (v.startswith("enc:") or _is_secret_field(k)):
             result[k] = _decrypt_config_value(v)
         elif isinstance(v, dict):
             result[k] = _decrypt_config_secrets(v)
@@ -177,7 +187,7 @@ def _merge_masked_config_secrets(new_cfg, old_cfg):
             if (
                 isinstance(v, str)
                 and v == "***"
-                and k.lower() in _SECRET_FIELD_NAMES
+                and _is_secret_field(k)
                 and old_v is not None
             ):
                 result[k] = old_v

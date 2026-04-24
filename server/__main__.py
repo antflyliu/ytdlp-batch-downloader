@@ -637,7 +637,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     pass  # fallback to super() below
             elif not path.startswith('/api/'):
                 # Try Vue dist first, fallback to super() if not found
-                vue_file = os.path.join(vue_dist, path.lstrip('/'))
+                vue_file = os.path.normpath(os.path.join(vue_dist, path.lstrip('/')))
+                vue_dist_norm = os.path.normpath(vue_dist)
+                # Security: prevent path traversal outside vue_dist
+                if os.path.commonpath([vue_file, vue_dist_norm]) != vue_dist_norm:
+                    self.send_response(403)
+                    self.send_header("Content-Type", "text/plain")
+                    self.end_headers()
+                    self.wfile.write(b"Forbidden")
+                    return
                 if os.path.isfile(vue_file):
                     try:
                         with open(vue_file, 'rb') as f:
