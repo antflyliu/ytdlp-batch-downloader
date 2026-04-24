@@ -56,10 +56,25 @@ def _start_go_proxy():
 
 
 def _stop_go_proxy():
-    """停止 Go 代理子进程。"""
+    """停止 Go 代理子进程，同时清除系统代理设置。"""
     try:
         mgr = get_proxy_manager()
         if mgr.is_running:
+            # 先清除系统代理（Windows 注册表），避免退出后残留指向已死进程的代理
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{mgr.proxy_port}/api/proxy-unset",
+                    data=b"",
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                _log.info("System proxy unset")
+            except Exception as ue:
+                _log.warning("Failed to unset system proxy: %s", ue)
+            # 再停止 Go 子进程
             mgr.stop()
             _log.info("Go proxy stopped")
     except Exception as e:
@@ -103,6 +118,51 @@ def _save_config(cfg: dict) -> None:
     _db.save_config(cfg)
 
 
+# ── Toggle Switch（Terracotta 品牌滑动开关）─────────────────────────────────
+
+class _ToggleSwitch(tk.Frame):
+    """Terracotta 滑动开关，仿 iOS 风格"""
+
+    def __init__(self, parent, var: tk.BooleanVar, on_change=None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.var = var
+        self.on_change = on_change
+        self._on_color = "#c96442"
+        self._off_color = "#d1cfc5"
+        self._track_color = self._on_color if var.get() else self._off_color
+
+        self._canvas = tk.Canvas(self, width=40, height=22,
+                                  bg=self["bg"], highlightthickness=0)
+        self._canvas.pack()
+        # 轨道（左右圆角矩形）
+        h2 = 22
+        self._t_left  = self._canvas.create_oval(0, 0, h2, h2, fill=self._on_color, outline="")
+        self._t_right = self._canvas.create_oval(40 - h2, 0, 40, h2, fill=self._on_color, outline="")
+        self._t_mid   = self._canvas.create_rectangle(11, 0, 29, h2, fill=self._on_color, outline="")
+        # 圆钮
+        self._knob = self._canvas.create_oval(4, 3, 18, 17, fill="#faf9f5", outline="")
+        self._draw()
+
+        self._canvas.bind("<Button-1>", self._toggle)
+        self._canvas.bind("<Enter>", lambda _: self._canvas.configure(cursor="hand2"))
+        self._canvas.bind("<Leave>", lambda _: self._canvas.configure(cursor=""))
+
+    def _draw(self, _animate=True):
+        is_on = self.var.get()
+        color = self._on_color if is_on else self._off_color
+        self._canvas.itemconfigure(self._t_left,  fill=color)
+        self._canvas.itemconfigure(self._t_right, fill=color)
+        self._canvas.itemconfigure(self._t_mid,   fill=color)
+        cx = 33 if is_on else 7
+        self._canvas.coords(self._knob, cx - 7, 3, cx + 7, 17)
+
+    def _toggle(self, _e=None):
+        self.var.set(not self.var.get())
+        self._draw()
+        if self.on_change:
+            self.on_change()
+
+
 # ── 添加/编辑账户弹窗 ──────────────────────────────────────────────────────
 
 class AccountDialog(tk.Toplevel):
@@ -113,284 +173,309 @@ class AccountDialog(tk.Toplevel):
         self._build_ui()
 
     def _build_ui(self):
-        c = _COLORS
-        self.configure(bg=c["bg"])
+        # Claude Design System — warm parchment palette
+        self.configure(bg="#f5f4ed")
         self.title("编辑监控账户" if self.account else "添加监控账户")
-        self.geometry("540x540")
+        self.geometry("640x720")
         self.resizable(False, False)
         self.grab_set()
 
-        frame = tk.Frame(self, bg=c["bg"])
-        frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=16)
-        frame.columnconfigure(1, weight=1)
+        # 居中窗口
+        self.update_idletasks()
+        pw = self.winfo_reqwidth()
+        ph = self.winfo_reqheight()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        try:
+            self.geometry(f"640x720+{(sw - 640)//2}+{(sh - 720)//2}")
+        except Exception:
+            pass
 
-        # 基本信息行
-        basic_fields = [
-            ("账户名称",       "name",        0, "显示名称，如'综艺Show'"),
-            ("频道 URL",       "channel_url", 2, "@C-HitShow / UCxxxx / 完整URL"),
-            ("API Key 环境变量", "api_key_env", 4, "如 YOUTUBE_Data_API_V3"),
-        ]
-        self._vars = {}
+        # ── Canvas + Scrollbar（内容过长时滚动） ────────────────────────────
+        container = tk.Frame(self, bg="#f5f4ed")
+        container.pack(fill=tk.BOTH, expand=True)
 
-        for label_text, key, row, hint in basic_fields:
-            tk.Label(frame, text=label_text, bg=c["bg"], fg=c["text_secondary"],
-                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=(8, 0))
-            var = tk.StringVar(value=self.account.get(key, "") if self.account else "")
-            self._vars[key] = var
-            entry = tk.Entry(frame, textvariable=var, bg=c["surface2"], fg=c["text"],
-                           insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                           font=("Segoe UI", 9),
-                           highlightbackground=c["border"], highlightthickness=1)
-            entry.grid(row=row, column=1, sticky=tk.EW, padx=(8, 0), pady=(8, 0))
-            # hint 放在下一行，不与 entry 重叠
-            tk.Label(frame, text=hint, bg=c["bg"], fg=c["text_muted"],
-                    font=("Segoe UI", 7)).grid(row=row+1, column=1, sticky=tk.W, padx=(8, 0))
+        canvas = tk.Canvas(container, bg="#f5f4ed", highlightthickness=0,
+                           confine=True)
+        vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # 分隔
-        sep = tk.Frame(frame, bg=c["border"], height=1)
-        sep.grid(row=6, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+        scroll_frame = tk.Frame(canvas, bg="#f5f4ed")
+        canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor=tk.NW)
 
-        # 扫描参数行
-        scan_fields = [
-            ("获取模式",        "fetch_mode",    7, "",           "playlist"),
-            ("每次获取条数",    "fetch_limit",   9, "建议 5~20",  "5"),
-            ("扫描间隔(分钟)",  "scan_interval", 11, "建议 5~30", "5"),
-        ]
-        for label_text, key, row, hint, default in scan_fields:
-            tk.Label(frame, text=label_text, bg=c["bg"], fg=c["text_secondary"],
-                     font=("Segoe UI", 9)).grid(row=row, column=0, sticky=tk.W, pady=(8, 0))
-            var = tk.StringVar(value=self.account.get(key, "") if self.account else default)
-            self._vars[key] = var
-            if key == "fetch_mode":
-                combo = ttk.Combobox(frame, textvariable=var, font=("Segoe UI", 9),
-                                     values=["playlist", "search"], state="readonly", width=16)
-                combo.grid(row=row, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
-            else:
-                entry = tk.Entry(frame, textvariable=var, bg=c["surface2"], fg=c["text"],
-                               insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                               font=("Segoe UI", 9), width=10,
-                               highlightbackground=c["border"], highlightthickness=1)
-                entry.grid(row=row, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
-            # hint 放在下一行，不与 entry/combo 重叠
+        def _on_frame_configure(_):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        scroll_frame.bind("<Configure>", _on_frame_configure)
+
+        def _on_canvas_configure(e):
+            canvas.itemconfig(canvas_window, width=e.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-e.delta / 120), "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+
+        # ── 共享样式工厂 ──────────────────────────────────────────────────
+        self._vars: dict = {}
+
+        def _entry(parent, var, hint="", show="", width=None, focus_color="#3898ec"):
+            """Warm Sand 输入框 + Focus Blue 焦点环"""
+            bg = "#e8e6dc"
+            fg = "#141413"
+            bdr = "#f0eee6"
+            wcfg = {} if width is None else {"width": width}
+            ent = tk.Entry(
+                parent, textvariable=var,
+                bg=bg, fg=fg,
+                insertbackground=focus_color,
+                relief=tk.FLAT, bd=0,
+                font=("Segoe UI", 10),
+                highlightbackground=bdr, highlightthickness=1,
+                highlightcolor=focus_color,
+                **wcfg,
+            )
+            ent.bind("<FocusIn>", lambda e: ent.configure(highlightcolor=focus_color, highlightthickness=2))
+            ent.bind("<FocusOut>", lambda e: ent.configure(highlightcolor=bdr, highlightthickness=1))
             if hint:
-                tk.Label(frame, text=hint, bg=c["bg"], fg=c["text_muted"],
-                        font=("Segoe UI", 7)).grid(row=row+1, column=1, sticky=tk.W, padx=(8, 0))
+                tk.Label(parent, text=hint, bg="#f5f4ed", fg="#87867f",
+                         font=("Segoe UI", 8)).pack(anchor=tk.W, pady=(1, 0))
+            return ent
 
-        # 分隔
-        sep2 = tk.Frame(frame, bg=c["border"], height=1)
-        sep2.grid(row=12, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+        def _card(parent, title="", title_color="#c96442", pady_inner=(12, 10)):
+            """Ivory 圆角卡片，cream 边框，仿 8px radius"""
+            outer = tk.Frame(parent, bg="#f0eee6", padx=1, pady=1)
+            inner = tk.Frame(outer, bg="#faf9f5", padx=20, pady=0)
+            inner.pack(fill=tk.X)
+            if title:
+                tk.Label(inner, text=title, bg="#faf9f5", fg=title_color,
+                         font=("Segoe UI", 10, "bold"),
+                         anchor=tk.W).pack(anchor=tk.W, pady=(pady_inner[0], 8))
+            return outer, inner
 
-        # 通知设置行
-        tk.Label(frame, text="通知平台", bg=c["bg"], fg=c["text_secondary"],
-                 font=("Segoe UI", 9)).grid(row=13, column=0, sticky=tk.W, pady=(8, 0))
+        def _row(inner, label, var, hint="", show="", width=None):
+            """标签 + 输入框一行"""
+            row_f = tk.Frame(inner, bg="#faf9f5")
+            row_f.pack(fill=tk.X, pady=6)
+            tk.Label(row_f, text=label, bg="#faf9f5", fg="#5e5d59",
+                     font=("Segoe UI", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+            entry_area = tk.Frame(row_f, bg="#faf9f5")
+            entry_area.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            ent = _entry(entry_area, var, hint, show, width)
+            ent.pack(fill=tk.X)
+            return row_f
 
-        self._vars["notify_platform"] = tk.StringVar(
-            value=(self.account.get("notify_platform", "feishu") if self.account else "feishu")
+        def _pill_btns(parent, options, var, active_color):
+            """平台切换胶囊按钮行"""
+            row_f = tk.Frame(parent, bg="#faf9f5")
+            row_f.pack(fill=tk.X, pady=(0, 4))
+            tk.Label(row_f, text="通知平台", bg="#faf9f5", fg="#5e5d59",
+                     font=("Segoe UI", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+            pills_f = tk.Frame(row_f, bg="#faf9f5")
+            pills_f.pack(side=tk.LEFT)
+            for plat, label, color in options:
+                is_sel = (var.get() == plat)
+                btn = tk.Label(
+                    pills_f, text=label,
+                    bg=color if is_sel else "#e8e6dc",
+                    fg="#ffffff" if is_sel else "#4d4c48",
+                    font=("Segoe UI", 9),
+                    padx=10, pady=3,
+                    cursor="hand2",
+                )
+                btn.pack(side=tk.LEFT, padx=(0, 6))
+                btn.bind("<Button-1>", lambda e, p=plat, b=btn, col=color: self._select_platform_pill(p, b, col))
+                self._vars[f"_plat_btn_{plat}"] = btn
+            return row_f
+
+        def _section_sep(parent):
+            tk.Frame(parent, bg="#f5f4ed", height=10).pack(fill=tk.X)
+
+        # ── 窗口标题栏 ────────────────────────────────────────────────────
+        title_bar = tk.Frame(scroll_frame, bg="#f5f4ed", padx=20, pady=(20, 0))
+        title_bar.pack(fill=tk.X)
+        accent = tk.Frame(title_bar, bg="#c96442", width=4, height=24)
+        accent.pack(side=tk.LEFT, fill=tk.Y, pady=2)
+        tk.Label(title_bar, text="添加监控账户" if not self.account else "编辑监控账户",
+                 bg="#f5f4ed", fg="#141413",
+                 font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT, padx=(12, 0))
+
+        # ══════════════════════════════════════════════════════════════════
+        # 卡片 1 — 基本信息
+        # ══════════════════════════════════════════════════════════════════
+        outer1, inner1 = _card(scroll_frame, "基本信息")
+
+        # 账户名称
+        var_name = tk.StringVar(value=self.account.get("name", "") if self.account else "")
+        self._vars["name"] = var_name
+        _row(inner1, "账户名称", var_name, "显示名称，如'综艺Show'")
+
+        # 频道 URL
+        var_ch = tk.StringVar(value=self.account.get("channel_url", "") if self.account else "")
+        self._vars["channel_url"] = var_ch
+        _row(inner1, "频道 URL", var_ch, "@C-HitShow / UCxxxx / 完整URL")
+
+        # API Key 环境变量
+        var_api = tk.StringVar(value=self.account.get("api_key_env", "") if self.account else "")
+        self._vars["api_key_env"] = var_api
+        _row(inner1, "API Key 环境变量", var_api, "如 YOUTUBE_Data_API_V3")
+
+        outer1.pack(fill=tk.X, padx=20, pady=(0, 0))
+        _section_sep(scroll_frame)
+
+        # ══════════════════════════════════════════════════════════════════
+        # 卡片 2 — 扫描参数
+        # ══════════════════════════════════════════════════════════════════
+        outer2, inner2 = _card(scroll_frame, "扫描参数")
+
+        # 获取模式
+        var_mode = tk.StringVar(
+            value=self.account.get("fetch_mode", "playlist") if self.account else "playlist"
         )
-        platform_frame = tk.Frame(frame, bg=c["bg"])
-        platform_frame.grid(row=13, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
-        for plat, label, color in [
-            ("feishu",   "飞书",      "#7B68EE"),
+        self._vars["fetch_mode"] = var_mode
+        mode_row = tk.Frame(inner2, bg="#faf9f5")
+        mode_row.pack(fill=tk.X, pady=6)
+        tk.Label(mode_row, text="获取模式", bg="#faf9f5", fg="#5e5d59",
+                 font=("Segoe UI", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        combo = ttk.Combobox(mode_row, textvariable=var_mode,
+                              font=("Segoe UI", 9),
+                              values=["playlist", "search"],
+                              state="readonly", width=14)
+        combo.pack(side=tk.LEFT)
+
+        # 每次获取条数
+        var_limit = tk.StringVar(value=self.account.get("fetch_limit", "") if self.account else "5")
+        self._vars["fetch_limit"] = var_limit
+        _row(inner2, "每次获取条数", var_limit, "建议 5~20", width=8)
+
+        # 扫描间隔
+        var_int = tk.StringVar(value=self.account.get("scan_interval", "") if self.account else "5")
+        self._vars["scan_interval"] = var_int
+        _row(inner2, "扫描间隔（分钟）", var_int, "建议 5~30", width=8)
+
+        outer2.pack(fill=tk.X, padx=20, pady=(0, 0))
+        _section_sep(scroll_frame)
+
+        # ══════════════════════════════════════════════════════════════════
+        # 卡片 3 — 通知设置
+        # ══════════════════════════════════════════════════════════════════
+        outer3, inner3 = _card(scroll_frame, "通知设置")
+
+        # 通知平台
+        var_plat = tk.StringVar(
+            value=self.account.get("notify_platform", "feishu") if self.account else "feishu"
+        )
+        self._vars["notify_platform"] = var_plat
+        _pill_btns(inner3, [
+            ("feishu",   "飞书",      "#c96442"),
             ("dingtalk", "钉钉",      "#1677FF"),
             ("wecom",    "企微",      "#52C41A"),
             ("telegram", "Telegram",  "#26A5E4"),
-        ]:
-            btn = tk.Label(platform_frame, text=label, bg=c["surface2"], fg=c["text"],
-                          font=("Segoe UI", 8), padx=10, pady=4, cursor="hand2",
-                          relief=tk.FLAT,
-                          highlightbackground=c["border"], highlightthickness=1)
-            btn.pack(side=tk.LEFT, padx=(0, 6))
-            btn.bind("<Button-1>", lambda e, p=plat: self._select_platform(p))
-            self._vars[f"_plat_btn_{plat}"] = btn
+        ], var_plat, "#c96442")
 
-        tk.Label(frame, text="Webhook URL", bg=c["bg"], fg=c["text_secondary"],
-                 font=("Segoe UI", 9)).grid(row=14, column=0, sticky=tk.W, pady=(8, 0))
-        self._vars["webhook_url"] = tk.StringVar(
-            value=self.account.get("webhook_url", "") if self.account else "")
-        webhook_entry = tk.Entry(frame, textvariable=self._vars["webhook_url"],
-                              bg=c["surface2"], fg=c["text"],
-                              insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                              font=("Segoe UI", 9),
-                              highlightbackground=c["border"], highlightthickness=1)
-        webhook_entry.grid(row=14, column=1, sticky=tk.EW, padx=(8, 0), pady=(8, 0))
-        tk.Label(frame, text="留空则使用全局配置",
-                bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
-               ).grid(row=15, column=1, sticky=tk.W, padx=(8, 0))
+        # 通用字段 — Webhook URL（非 Telegram）
+        var_webhook = tk.StringVar(value=self.account.get("webhook_url", "") if self.account else "")
+        self._vars["webhook_url"] = var_webhook
+        self._webhook_row = _row(inner3, "Webhook URL", var_webhook, "留空则使用全局配置")
 
-        # Telegram Bot Token
-        self._telegram_token_frame = tk.Frame(frame, bg=c["bg"])
-        tk.Label(self._telegram_token_frame, text="Bot Token", bg=c["bg"],
-                 fg="#26A5E4", font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(8, 0))
-        self._vars["telegram_bot_token"] = tk.StringVar(
-            value=(self.account.get("telegram_bot_token", "") if self.account else ""))
-        tg_entry = tk.Entry(
-            self._telegram_token_frame,
-            textvariable=self._vars["telegram_bot_token"],
-            bg=c["surface2"], fg=c["text"],
-            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-            font=("Segoe UI", 9), show="*",
-            highlightbackground=c["border"], highlightthickness=1,
-            highlightcolor="#3898ec",
-        )
-        tg_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(8, 0))
-        self._telegram_token_frame.columnconfigure(1, weight=1)
-        tk.Label(self._telegram_token_frame,
-            text="留空则使用全局 Token；支持名者的加密钥",
-            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7),
-            wraplength=420, justify=tk.LEFT,
-        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 8))
+        # Telegram 专属
+        self._tg_group = tk.Frame(inner3, bg="#faf9f5")
+        var_tg_token = tk.StringVar(value=self.account.get("telegram_bot_token", "") if self.account else "")
+        self._vars["telegram_bot_token"] = var_tg_token
+        _row(self._tg_group, "Bot Token", var_tg_token, "留空则使用全局 Token；支持加密密钥", show="*")
 
-        # Telegram Chat ID
-        self._telegram_chatid_frame = tk.Frame(frame, bg=c["bg"])
-        tk.Label(self._telegram_chatid_frame, text="Chat ID", bg=c["bg"],
-                 fg="#26A5E4", font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
-        self._vars["telegram_chat_id"] = tk.StringVar(
-            value=(self.account.get("telegram_chat_id", "") if self.account else ""))
-        tgchat_entry = tk.Entry(
-            self._telegram_chatid_frame,
-            textvariable=self._vars["telegram_chat_id"],
-            bg=c["surface2"], fg=c["text"],
-            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-            font=("Segoe UI", 9),
-            highlightbackground=c["border"], highlightthickness=1,
-            highlightcolor="#3898ec",
-        )
-        tgchat_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(0, 4))
-        self._telegram_chatid_frame.columnconfigure(1, weight=1)
-        tk.Label(self._telegram_chatid_frame,
-            text="留空则使用全局 Chat ID",
-            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7),
-            wraplength=420, justify=tk.LEFT,
-        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 8))
+        var_tg_chat = tk.StringVar(value=self.account.get("telegram_chat_id", "") if self.account else "")
+        self._vars["telegram_chat_id"] = var_tg_chat
+        _row(self._tg_group, "Chat ID", var_tg_chat, "留空则使用全局 Chat ID")
 
-        # 钉钉加签（仅钉钉平台显示；与 Web 端一致的语义说明，焦点环色见 DESIGN.md Focus Blue）
-        self._dingtalk_sign_frame = tk.Frame(frame, bg="#1677FF", padx=2, pady=2)
-        _dt_inner = tk.Frame(self._dingtalk_sign_frame, bg=c["bg"])
-        _dt_inner.grid(row=0, column=0, sticky=tk.NSEW)
-        self._dingtalk_sign_frame.columnconfigure(0, weight=1)
-        tk.Label(_dt_inner, text="钉钉加签密钥", bg=c["bg"], fg="#1677FF",
-                 font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=tk.W, pady=(6, 0))
-        self._vars["dingtalk_sign_secret"] = tk.StringVar(
-            value=(self.account.get("dingtalk_sign_secret", "") if self.account else "")
-        )
-        dsec_entry = tk.Entry(
-            _dt_inner, textvariable=self._vars["dingtalk_sign_secret"],
-            bg=c["surface2"], fg=c["text"],
-            insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-            font=("Segoe UI", 9), show="*",
-            highlightbackground=c["border"], highlightthickness=1,
-            highlightcolor="#3898ec",
-        )
-        dsec_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(6, 0))
-        _dt_inner.columnconfigure(1, weight=1)
-        tk.Label(
-            _dt_inner,
-            text="加签时填 SEC，须与上方账户 Webhook 同一机器人；仅用全局钉钉 Webhook 时请留空",
-            bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7), wraplength=420, justify=tk.LEFT,
-        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(4, 6))
-        self._dingtalk_sign_frame.grid(row=18, column=0, columnspan=2, sticky=tk.EW)
+        # 钉钉加签
+        self._dingtalk_group = tk.Frame(inner3, bg="#faf9f5")
+        dt_outer, dt_inner = _card(self._dingtalk_group, "钉钉加签配置", "#1677FF", pady_inner=(0, 4))
+        var_dt = tk.StringVar(value=self.account.get("dingtalk_sign_secret", "") if self.account else "")
+        self._vars["dingtalk_sign_secret"] = var_dt
+        _row(dt_inner, "加签密钥（SEC）", var_dt,
+             "须与上方账户 Webhook 同一机器人；仅用全局钉钉 Webhook 时留空", show="*")
+        dt_outer.pack(fill=tk.X)
 
-        # 飞书模板配置（仅飞书平台显示）
-        self._feishu_template_group = tk.Frame(frame, bg=c["bg"])
-
-        tk.Label(self._feishu_template_group, text="飞书发送方式", bg=c["bg"],
-                 fg=c["text_secondary"], font=("Segoe UI", 9)).grid(
-                     row=0, column=0, sticky=tk.W, pady=(8, 0))
+        # 飞书模板
+        self._feishu_group = tk.Frame(inner3, bg="#faf9f5")
+        feishu_outer, feishu_inner = _card(self._feishu_group, "飞书模板", "#c96442", pady_inner=(0, 4))
         self._feishu_mode_labels = {"Markdown 卡片（推荐）": "card_json", "飞书模板卡片": "template"}
         self._feishu_mode_reverse = {v: k for k, v in self._feishu_mode_labels.items()}
         raw_mode = self.account.get("feishu_message_mode", "card_json") if self.account else "card_json"
-        self._vars["feishu_message_mode"] = tk.StringVar(
-            value=self._feishu_mode_reverse.get(raw_mode, "Markdown 卡片（推荐）")
-        )
-        mode_combo = ttk.Combobox(self._feishu_template_group, textvariable=self._vars["feishu_message_mode"],
-                                   font=("Segoe UI", 9),
-                                   values=list(self._feishu_mode_labels.keys()),
-                                   state="readonly", width=18)
-        mode_combo.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
+        var_fm = tk.StringVar(value=self._feishu_mode_reverse.get(raw_mode, "Markdown 卡片（推荐）"))
+        self._vars["feishu_message_mode"] = var_fm
+        mode_row2 = tk.Frame(feishu_inner, bg="#faf9f5")
+        mode_row2.pack(fill=tk.X, pady=6)
+        tk.Label(mode_row2, text="发送方式", bg="#faf9f5", fg="#5e5d59",
+                 font=("Segoe UI", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        ttk.Combobox(mode_row2, textvariable=var_fm, font=("Segoe UI", 9),
+                     values=list(self._feishu_mode_labels.keys()),
+                     state="readonly", width=18).pack(side=tk.LEFT)
+        var_ftid = tk.StringVar(value=self.account.get("feishu_template_id", "") if self.account else "")
+        self._vars["feishu_template_id"] = var_ftid
+        _row(feishu_inner, "详情模板 ID", var_ftid, "飞书卡片模板 ID")
+        var_fsid = tk.StringVar(value=self.account.get("feishu_scan_template_id", "") if self.account else "")
+        self._vars["feishu_scan_template_id"] = var_fsid
+        _row(feishu_inner, "扫描确认模板", var_fsid, "扫描确认卡片模板 ID（可为空）")
+        feishu_outer.pack(fill=tk.X)
 
-        tk.Label(self._feishu_template_group, text="详情模板 ID", bg=c["bg"],
-                 fg=c["text_secondary"], font=("Segoe UI", 9)).grid(
-                     row=1, column=0, sticky=tk.W, pady=(8, 0))
-        self._vars["feishu_template_id"] = tk.StringVar(
-            value=(self.account.get("feishu_template_id", "") if self.account else "")
-        )
-        tpl_entry = tk.Entry(self._feishu_template_group, textvariable=self._vars["feishu_template_id"],
-                             bg=c["surface2"], fg=c["text"],
-                             insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                             font=("Segoe UI", 9), width=28,
-                             highlightbackground=c["border"], highlightthickness=1)
-        tpl_entry.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
-        tk.Label(self._feishu_template_group, text="飞书卡片模板 ID",
-                bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
-               ).grid(row=2, column=1, sticky=tk.W, padx=(8, 0))
+        self._feishu_group.pack(fill=tk.X)
+        self._dingtalk_group.pack(fill=tk.X)
+        self._tg_group.pack(fill=tk.X)
 
-        tk.Label(self._feishu_template_group, text="扫描确认模板", bg=c["bg"],
-                 fg=c["text_secondary"], font=("Segoe UI", 9)).grid(
-                     row=3, column=0, sticky=tk.W, pady=(8, 0))
-        self._vars["feishu_scan_template_id"] = tk.StringVar(
-            value=(self.account.get("feishu_scan_template_id", "") if self.account else "")
-        )
-        scan_entry = tk.Entry(self._feishu_template_group, textvariable=self._vars["feishu_scan_template_id"],
-                               bg=c["surface2"], fg=c["text"],
-                               insertbackground=c["accent"], relief=tk.FLAT, bd=0,
-                               font=("Segoe UI", 9), width=28,
-                               highlightbackground=c["border"], highlightthickness=1)
-        scan_entry.grid(row=3, column=1, sticky=tk.W, padx=(8, 0), pady=(8, 0))
-        tk.Label(self._feishu_template_group, text="扫描确认卡片模板 ID（可为空）",
-                bg=c["bg"], fg=c["text_muted"], font=("Segoe UI", 7)
-               ).grid(row=4, column=1, sticky=tk.W, padx=(8, 0))
+        outer3.pack(fill=tk.X, padx=20, pady=(0, 0))
+        _section_sep(scroll_frame)
 
-        self._feishu_template_group.grid(row=19, column=0, columnspan=2, sticky=tk.W)
+        # ══════════════════════════════════════════════════════════════════
+        # 卡片 4 — 开关选项
+        # ══════════════════════════════════════════════════════════════════
+        outer4, inner4 = _card(scroll_frame, "开关选项")
 
-        # 启用/通知复选框
-        self._vars["enabled"] = tk.BooleanVar(
-            value=bool(self.account.get("enabled", 1)) if self.account else True)
-        self._vars["notify_enabled"] = tk.BooleanVar(
-            value=bool(self.account.get("notify_enabled", 1)) if self.account else True)
+        var_en = tk.BooleanVar(value=bool(self.account.get("enabled", 1)) if self.account else True)
+        self._vars["enabled"] = var_en
+        var_ne = tk.BooleanVar(value=bool(self.account.get("notify_enabled", 1)) if self.account else True)
+        self._vars["notify_enabled"] = var_ne
 
-        for key, label_text in [("enabled", "启用监控"), ("notify_enabled", "发送通知")]:
-            cb = tk.Checkbutton(frame, text=label_text, variable=self._vars[key],
-                              bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
-                              activebackground=c["bg"], font=("Segoe UI", 9))
-            cb.grid(row=20 if key == "enabled" else 21, column=0, columnspan=2,
-                    sticky=tk.W, pady=(8, 0))
+        for key, label_text, desc in [
+            ("enabled",       "启用监控",   "账户将参与定时扫描"),
+            ("notify_enabled", "发送通知",  "扫描结果推送至通知平台"),
+        ]:
+            sw_row = tk.Frame(inner4, bg="#faf9f5")
+            sw_row.pack(fill=tk.X, pady=4)
+            tk.Label(sw_row, text=label_text, bg="#faf9f5", fg="#141413",
+                     font=("Segoe UI", 10), width=14, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Label(sw_row, text=desc, bg="#faf9f5", fg="#87867f",
+                     font=("Segoe UI", 8)).pack(side=tk.LEFT)
+            # Terracotta 滑动开关
+            _ToggleSwitch(sw_row, self._vars[key]).pack(side=tk.RIGHT)
 
-        # 分隔
-        sep3 = tk.Frame(frame, bg=c["border"], height=1)
-        sep3.grid(row=22, column=0, columnspan=2, sticky=tk.EW, pady=(4, 4))
+        outer4.pack(fill=tk.X, padx=20, pady=(0, 0))
+        _section_sep(scroll_frame)
 
-        # 下载代理设置
-        tk.Label(frame, text="下载代理设置", bg=c["bg"], fg=c["accent"],
-                 font=("Segoe UI", 9, "bold")).grid(
-                     row=23, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        # ══════════════════════════════════════════════════════════════════
+        # 卡片 5 — 代理设置
+        # ══════════════════════════════════════════════════════════════════
+        outer5, inner5 = _card(scroll_frame, "下载代理")
 
-        self._vars["proxy_enabled"] = tk.BooleanVar(
-            value=bool(self.account.get("proxy_enabled", 0)) if self.account else False)
+        var_pe = tk.BooleanVar(value=bool(self.account.get("proxy_enabled", 0)) if self.account else False)
+        self._vars["proxy_enabled"] = var_pe
 
-        def _toggle_proxy_section(*args):
-            show = self._vars["proxy_enabled"].get()
+        def _toggle_proxy():
+            show = var_pe.get()
             if hasattr(self, "_proxy_pool_row"):
-                if show:
-                    self._proxy_pool_row.grid()
-                else:
-                    self._proxy_pool_row.grid_remove()
+                self._proxy_pool_row.pack_forget() if not show else self._proxy_pool_row.pack(fill=tk.X, pady=4)
 
-        proxy_cb = tk.Checkbutton(frame, text="启用代理下载（防止下载时 IP 被限流）",
-                                  variable=self._vars["proxy_enabled"],
-                                  bg=c["bg"], fg=c["text"], selectcolor=c["accent"],
-                                  activebackground=c["bg"], font=("Segoe UI", 9))
-        proxy_cb.grid(row=24, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
-        self._vars["proxy_enabled"].trace_add("write", _toggle_proxy_section)
+        sw_row5 = tk.Frame(inner5, bg="#faf9f5")
+        sw_row5.pack(fill=tk.X, pady=4)
+        tk.Label(sw_row5, text="启用代理下载", bg="#faf9f5", fg="#141413",
+                 font=("Segoe UI", 10), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(sw_row5, text="防止下载时 IP 被限流", bg="#faf9f5", fg="#87867f",
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        _ToggleSwitch(sw_row5, var_pe, on_change=_toggle_proxy).pack(side=tk.RIGHT)
 
         # 代理池选择
-        self._vars["proxy_pool_id"] = tk.IntVar(
-            value=self.account.get("proxy_pool_id") or 0 if self.account else 0)
-
-        self._proxy_pool_row = tk.Frame(frame, bg=c["bg"])
-        tk.Label(self._proxy_pool_row, text="选择代理池", bg=c["bg"], fg=c["text_secondary"],
-                 font=("Segoe UI", 9)).grid(row=0, column=0, sticky=tk.W, pady=(4, 0))
-
-        # 动态加载代理池列表
         pools = _db.list_proxy_pools()
         pool_choices = ["（不使用）"] + [f"{p['id']}: {p['name']}" for p in pools]
         pool_id_val = self.account.get("proxy_pool_id") or 0 if self.account else 0
@@ -400,26 +485,35 @@ class AccountDialog(tk.Toplevel):
         )
         if pool_display not in pool_choices:
             pool_display = "（不使用）"
-        self._vars["_proxy_pool_display"] = tk.StringVar(value=pool_display)
+        var_pd = tk.StringVar(value=pool_display)
+        self._vars["_proxy_pool_display"] = var_pd
 
-        proxy_combo = ttk.Combobox(self._proxy_pool_row,
-                                   textvariable=self._vars["_proxy_pool_display"],
-                                   font=("Segoe UI", 9),
-                                   values=pool_choices,
-                                   state="readonly", width=24)
-        proxy_combo.grid(row=0, column=1, sticky=tk.W, padx=(8, 0), pady=(4, 0))
+        self._proxy_pool_row = tk.Frame(inner5, bg="#faf9f5")
+        proxy_row = tk.Frame(self._proxy_pool_row, bg="#faf9f5")
+        proxy_row.pack(fill=tk.X, pady=6)
+        tk.Label(proxy_row, text="选择代理池", bg="#faf9f5", fg="#5e5d59",
+                 font=("Segoe UI", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        ttk.Combobox(proxy_row, textvariable=var_pd, font=("Segoe UI", 9),
+                     values=pool_choices, state="readonly", width=24).pack(side=tk.LEFT)
+        if not var_pe.get():
+            self._proxy_pool_row.pack_forget()
+        else:
+            self._proxy_pool_row.pack(fill=tk.X, pady=4)
 
-        # 初始状态
-        if not self._vars["proxy_enabled"].get():
-            self._proxy_pool_row.grid_remove()
-        self._proxy_pool_row.grid(row=25, column=0, columnspan=2, sticky=tk.W)
+        outer5.pack(fill=tk.X, padx=20, pady=(0, 0))
+        tk.Frame(scroll_frame, bg="#f5f4ed", height=8).pack(fill=tk.X)
 
-        # 按钮
-        btn_frame = tk.Frame(self, bg=c["bg"])
-        btn_frame.pack(fill=tk.X, padx=24, pady=8)
-        btn_frame.columnconfigure(0, weight=1)
+        # ══════════════════════════════════════════════════════════════════
+        # 底部按钮
+        # ══════════════════════════════════════════════════════════════════
+        btn_bar = tk.Frame(scroll_frame, bg="#f5f4ed", padx=20, pady=(0, 20))
+        btn_bar.pack(fill=tk.X)
+        btn_bar.columnconfigure(0, weight=1)
 
-        def do_save():
+        def _do_cancel():
+            self.destroy()
+
+        def _do_save():
             name = self._vars["name"].get().strip()
             channel_url = self._vars["channel_url"].get().strip()
             api_key_env = self._vars["api_key_env"].get().strip()
@@ -434,19 +528,16 @@ class AccountDialog(tk.Toplevel):
                 return
             mode_display = self._vars["feishu_message_mode"].get()
             mode_raw = self._feishu_mode_labels.get(mode_display, "card_json")
-
-            # 解析代理池 ID（从下拉显示文本提取）
             proxy_pool_id_val = 0
             if self._vars["proxy_enabled"].get():
-                pool_display = self._vars["_proxy_pool_display"].get()
-                if pool_display and pool_display != "（不使用）":
-                    parts = pool_display.split(": ", 1)
+                pdisp = self._vars["_proxy_pool_display"].get()
+                if pdisp and pdisp != "（不使用）":
+                    parts = pdisp.split(": ", 1)
                     if len(parts) == 2:
                         try:
                             proxy_pool_id_val = int(parts[0])
                         except ValueError:
                             proxy_pool_id_val = 0
-
             self.result = {
                 "name": name,
                 "channel_url": channel_url,
@@ -469,24 +560,34 @@ class AccountDialog(tk.Toplevel):
             }
             self.destroy()
 
-        cancel_btn = tk.Label(btn_frame, text="取消", bg=c["surface2"], fg=c["text"],
-                              font=("Segoe UI", 9), padx=16, pady=6, cursor="hand2")
-        cancel_btn.grid(row=0, column=0)
-        cancel_btn.bind("<Button-1>", lambda e: self.destroy())
+        cancel_lbl = tk.Label(
+            btn_bar, text="取消",
+            bg="#e8e6dc", fg="#4d4c48",
+            font=("Segoe UI", 10, "bold"),
+            padx=24, pady=8,
+            cursor="hand2",
+        )
+        cancel_lbl.grid(row=0, column=0)
+        cancel_lbl.bind("<Button-1>", lambda e: _do_cancel())
+        cancel_lbl.bind("<Enter>", lambda _: cancel_lbl.configure(bg="#f0eee6"))
+        cancel_lbl.bind("<Leave>", lambda _: cancel_lbl.configure(bg="#e8e6dc"))
 
-        save_btn = tk.Label(btn_frame, text="保存", bg=c["accent"], fg="#ffffff",
-                            font=("Segoe UI", 9, "bold"), padx=16, pady=6, cursor="hand2")
-        save_btn.grid(row=0, column=1, padx=(8, 0))
-        save_btn.bind("<Button-1>", lambda e: do_save())
-        save_btn.bind("<Enter>", lambda e: save_btn.configure(bg=c["accent_hover"]))
-        save_btn.bind("<Leave>", lambda e: save_btn.configure(bg=c["accent"]))
+        save_lbl = tk.Label(
+            btn_bar, text="保存",
+            bg="#c96442", fg="#faf9f5",
+            font=("Segoe UI", 10, "bold"),
+            padx=28, pady=8,
+            cursor="hand2",
+        )
+        save_lbl.grid(row=0, column=1, padx=(8, 0))
+        save_lbl.bind("<Button-1>", lambda e: _do_save())
+        save_lbl.bind("<Enter>", lambda _: save_lbl.configure(bg="#b53333"))
+        save_lbl.bind("<Leave>", lambda _: save_lbl.configure(bg="#c96442"))
 
-        # 高亮当前平台
         self._update_platform_ui()
 
-    def _select_platform(self, platform: str):
+    def _select_platform_pill(self, platform, btn, active_color):
         self._vars["notify_platform"].set(platform)
-        # 平台切换时清空其他平台的专属字段，防止数据混淆
         if platform == "telegram":
             self._vars["webhook_url"].set("")
         else:
@@ -495,39 +596,55 @@ class AccountDialog(tk.Toplevel):
         self._update_platform_ui()
 
     def _update_platform_ui(self):
-        c = _COLORS
         selected = self._vars["notify_platform"].get()
-        plat_colors = {"feishu": "#7B68EE", "dingtalk": "#1677FF", "wecom": "#52C41A", "telegram": "#26A5E4"}
-        for plat, label, color in [("feishu", "飞书", "#7B68EE"), ("dingtalk", "钉钉", "#1677FF"), ("wecom", "企微", "#52C41A"), ("telegram", "Telegram", "#26A5E4")]:
+        plat_palette = {
+            "feishu":   "#c96442",
+            "dingtalk": "#1677FF",
+            "wecom":    "#52C41A",
+            "telegram": "#26A5E4",
+        }
+        # 更新胶囊按钮颜色
+        for plat, label, color in [
+            ("feishu",   "飞书",      "#c96442"),
+            ("dingtalk", "钉钉",      "#1677FF"),
+            ("wecom",    "企微",      "#52C41A"),
+            ("telegram", "Telegram",  "#26A5E4"),
+        ]:
             btn = self._vars.get(f"_plat_btn_{plat}")
             if btn:
                 is_sel = (plat == selected)
                 btn.configure(
-                    bg=color if is_sel else c["surface2"],
-                    fg="#ffffff" if is_sel else c["text"],
+                    bg=color if is_sel else "#e8e6dc",
+                    fg="#ffffff" if is_sel else "#4d4c48",
                 )
-        # 飞书模板配置仅在飞书平台显示
-        if hasattr(self, "_feishu_template_group"):
+
+        # 飞书模板组（仅飞书平台）
+        if hasattr(self, "_feishu_group"):
             if selected == "feishu":
-                self._feishu_template_group.grid()
+                self._feishu_group.pack(fill=tk.X)
             else:
-                self._feishu_template_group.grid_remove()
-        if hasattr(self, "_dingtalk_sign_frame"):
+                self._feishu_group.pack_forget()
+
+        # 钉钉加签组（仅钉钉平台）
+        if hasattr(self, "_dingtalk_group"):
             if selected == "dingtalk":
-                self._dingtalk_sign_frame.grid()
+                self._dingtalk_group.pack(fill=tk.X)
             else:
-                self._dingtalk_sign_frame.grid_remove()
-        # Telegram 专属字段仅在 Telegram 平台显示
-        if hasattr(self, "_telegram_token_frame"):
+                self._dingtalk_group.pack_forget()
+
+        # Telegram 专属（仅 Telegram 平台）
+        if hasattr(self, "_tg_group"):
             if selected == "telegram":
-                self._telegram_token_frame.grid()
+                self._tg_group.pack(fill=tk.X)
             else:
-                self._telegram_token_frame.grid_remove()
-        if hasattr(self, "_telegram_chatid_frame"):
-            if selected == "telegram":
-                self._telegram_chatid_frame.grid()
+                self._tg_group.pack_forget()
+
+        # Webhook 行（非 Telegram 时显示）
+        if hasattr(self, "_webhook_row"):
+            if selected != "telegram":
+                self._webhook_row.pack(fill=tk.X, pady=6)
             else:
-                self._telegram_chatid_frame.grid_remove()
+                self._webhook_row.pack_forget()
 
 
 # ── 全局设置弹窗 ──────────────────────────────────────────────────────────
@@ -1230,8 +1347,6 @@ def run_standalone(force_restart: bool = False, port: int = 5000):
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
         time.sleep(0.8)
-        # 启动 Go MitM 代理（后台线程，不阻塞）
-        threading.Thread(target=_start_go_proxy, daemon=True).start()
     else:
         print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
         print("   如需加载最新代码，请执行: python monitor_ui.py --force-restart")
@@ -1361,8 +1476,6 @@ def run_standalone_webview(force_restart: bool = False,
     else:
         _log.info(f"HTTP 服务已在运行: http://127.0.0.1:{port}")
 
-    # 启动 Go MitM 代理（后台线程，不阻塞）
-    threading.Thread(target=_start_go_proxy, daemon=True).start()
 
     # 4. 清理函数（供窗口关闭回调使用）
     def _cleanup():
@@ -1425,7 +1538,7 @@ def run_standalone_webview(force_restart: bool = False,
     # 7. 启动 pywebview（阻塞，debug=True 便于诊断 WebView2 问题）
     _log.info("启动 WebView2 事件循环...")
     import webview
-    webview.start(debug=False)
+    webview.start(debug=True)
 
     # 8. 如果 webview.start() 返回（同步模式），执行清理
     _cleanup()
