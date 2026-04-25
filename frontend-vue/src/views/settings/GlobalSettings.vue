@@ -1,17 +1,17 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.hubTitle') }}</div>
       <div class="page-desc">{{ t('settings.notifyDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="180">
-      <NCard class="mb-4" :title="t('settings.notifyChannel')">
+      <NCard :title="t('settings.notifyChannel')">
         <NFormItem :label="t('settings.feishuWebhook')" path="feishu_webhook">
           <NInput v-model:value="form.feishu_webhook" :placeholder="t('settings.feishuHint')" />
         </NFormItem>
@@ -94,32 +94,3 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-</style>

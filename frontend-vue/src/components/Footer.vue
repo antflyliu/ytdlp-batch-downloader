@@ -13,11 +13,11 @@
           <div>
             <div class="flex flex-row items-end">
               <div class="text-4xl font-bold">{{ store.appInfo.AppName }}</div>
-              <div class="text-xs pl-5 text-slate-400">
+              <div class="text-xs pl-5 text-dim">
                 Version {{ store.appInfo.Version }}
               </div>
             </div>
-            <div class="text-slate-400 w-80 pt-2 pb-4">
+            <div class="text-dim w-80 pt-2 pb-4">
               {{ t('footer.description') }}
             </div>
           </div>
@@ -27,14 +27,14 @@
         </div>
       </div>
       <div class="flex flex-col">
-        <div class="text-2xl font-bold text-emerald-600">
+        <div class="text-2xl font-bold var(--accent)">
           {{ t('footer.support') }}
         </div>
-        <div class="grid grid-cols-5 gap-2 text-sm m-4 text-slate-400">
+        <div class="grid grid-cols-5 gap-2 text-sm m-4 text-dim">
           <span v-for="item in t('footer.application').split(',')">{{ item }}</span>
         </div>
       </div>
-      <div class="flex w-full text-sm justify-between pt-8 text-slate-400">
+      <div class="flex w-full text-sm justify-between pt-8 text-dim">
         <div>{{ store.appInfo.Copyright }}</div>
         <div class="flex">
           <button class="pl-4" @click="toWebsite('https://s.gowas.cn/d/4089')">{{ t('footer.forum') }}</button>

@@ -8,7 +8,7 @@
     </div>
 
     <!-- Filter toolbar -->
-    <div class="filter-bar mb-4 flex gap-3 flex-wrap">
+    <div class="filter-bar" style="margin-bottom:16px">
       <NSelect
         v-model:value="filterAccountId"
         :options="accountOptions"
@@ -38,7 +38,7 @@
     </div>
 
     <!-- Loading state -->
-    <div v-if="loading" class="text-sm text-gray-500 py-4">
+    <div v-if="loading" class="text-sm text-dim" style="padding:16px 0">
       {{ t('clipHistory.loading') }}
     </div>
 
@@ -182,7 +182,7 @@ const columns = computed(() => [
         'a',
         {
           href: 'javascript:void(0)',
-          class: 'text-blue-500 underline cursor-pointer text-sm',
+          style: 'color:var(--accent);text-decoration:underline;cursor:pointer;font-size:13px',
           onClick: () => { detailId.value = row.id },
         },
         t('clip.btnDetail')
@@ -248,22 +248,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
+/* Page-specific styles only — page-header/page-title inherit from layout.css */
 </style>

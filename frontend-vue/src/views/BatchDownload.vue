@@ -34,8 +34,8 @@
         <button
           v-for="fmt in formatOptions"
           :key="fmt.value"
-          class="bd-pill"
-          :class="{ active: selectedFormat === fmt.value }"
+          class="pill"
+          :class="{ 'pill--active': selectedFormat === fmt.value }"
           @click="switchFormat(fmt.value)"
         >
           {{ t(fmt.labelKey) }}
@@ -197,8 +197,8 @@
         <button
           v-for="f in filterOptions"
           :key="f.value"
-          class="bd-filter-chip"
-          :class="{ active: recentFilter === f.value }"
+          class="chip"
+          :class="{ 'chip--active': recentFilter === f.value }"
           @click="setFilter(f.value)"
         >
           {{ t(f.labelKey) }}
@@ -881,35 +881,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-  flex-shrink: 0;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* Pills */
+/* Pills row */
 .bd-pills { display: flex; gap: 6px; margin-bottom: 12px; }
-.bd-pill {
-  padding: 4px 12px; border-radius: var(--r-full); font-size: 12px;
-  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
-  cursor: pointer; transition: all 150ms;
-}
-.bd-pill:hover { border-color: var(--accent); color: var(--accent); }
-.bd-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Dropzone */
 .bd-dropzone {
@@ -936,13 +909,6 @@ onUnmounted(() => {
 
 /* Filter row */
 .bd-filter-row { display: flex; gap: 6px; margin: 10px 0 6px; flex-wrap: wrap; }
-.bd-filter-chip {
-  padding: 3px 10px; border-radius: var(--r-full); font-size: 11px;
-  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
-  cursor: pointer; transition: all 150ms;
-}
-.bd-filter-chip:hover { border-color: var(--accent); color: var(--accent); }
-.bd-filter-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Recent tasks */
 .bd-recent-grid { display: grid; gap: 8px; margin-top: 10px; }

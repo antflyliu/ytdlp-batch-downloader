@@ -5,14 +5,15 @@
     </span>
     <NPopover trigger="hover">
       <template #trigger>
-        <NIcon size="18" class="ml-1 text-gray-500">
+        <NIcon size="18" class="ml-1 text-dim">
           <HelpCircleOutline/>
         </NIcon>
       </template>
       <div class="flex flex-col">
         <div class="flex items-center justify-start p-1.5">
           <n-icon size="28"
-                  class="text-emerald-600 dark:text-emerald-400 bg-emerald-500/20 dark:bg-emerald-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-emerald-500/40 transition-colors">
+                  style="color:var(--accent);background:rgba(201,100,66,0.12)"
+                  class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]">
             <DownloadOutline/>
           </n-icon>
           <span class="ml-1">{{ t("index.direct_download") }}</span>
@@ -20,7 +21,8 @@
 
         <div class="flex items-center justify-start p-1.5">
           <n-icon size="28"
-                  class="text-red-500 dark:text-red-300 bg-red-500/20 dark:bg-red-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-red-500/40 transition-colors">
+                  style="color:var(--error);background:rgba(220,80,60,0.12)"
+                  class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(220,80,60,0.2)]">
             <CloseOutline/>
           </n-icon>
           <span class="ml-1">{{ t("index.cancel_down") }}</span>
@@ -29,7 +31,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-blue-600 dark:text-blue-300 bg-blue-500/20 dark:bg-blue-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-blue-500/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <LinkOutline/>
           </n-icon>
@@ -39,7 +42,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-blue-500 dark:text-blue-200 bg-blue-400/20 dark:bg-blue-400/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-blue-400/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <GlobeOutline/>
           </n-icon>
@@ -49,7 +53,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-orange-400 dark:text-red-300 bg-orange-500/20 dark:bg-orange-200/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-orange-200/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,128,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,128,66,0.2)]"
           >
             <LockOpenSharp/>
           </n-icon>
@@ -59,7 +64,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-sky-400 dark:text-sky-200 bg-sky-500/20 dark:bg-sky-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-sky-500/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <CopyOutline/>
           </n-icon>
@@ -69,7 +75,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-red-500 dark:text-red-300 bg-red-500/20 dark:bg-red-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-red-500/40 transition-colors"
+              style="color:var(--error);background:rgba(220,80,60,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(220,80,60,0.2)]"
           >
             <TrashOutline/>
           </n-icon>
@@ -79,7 +86,8 @@
         <div class="flex items-center justify-start p-1.5">
           <n-icon
               size="28"
-              class="text-sky-500 dark:text-sky-300 bg-sky-500/20 dark:bg-sky-200/30 rounded-full flex items-center justify-center p-2 cursor-pointer hover:bg-sky-200/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-2 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <GridSharp/>
           </n-icon>

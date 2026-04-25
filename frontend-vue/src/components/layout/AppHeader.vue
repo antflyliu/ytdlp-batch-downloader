@@ -6,7 +6,7 @@
     <div class="header-right">
       <!-- Language switch -->
       <button class="btn btn--ghost btn--sm" @click="toggleLocale">
-        {{ locale === 'zh' ? 'EN' : '中文' }}
+        {{ t('menu.locale') }}
       </button>
     </div>
   </header>

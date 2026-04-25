@@ -1,7 +1,7 @@
 <template>
-  <div class="resource-index p-4">
+  <div class="resource-index">
     <!-- Filter pills -->
-    <div class="filter-bar mb-4 flex gap-2">
+    <div class="filter-bar" style="margin-bottom:16px">
       <NButtonGroup>
         <NButton
           v-for="f in filters"
@@ -15,7 +15,7 @@
     </div>
 
     <!-- Resource count -->
-    <div class="text-sm text-gray-500 mb-2">
+    <div class="text-sm text-dim" style="margin-bottom:8px">
       {{ filteredResources.length }} {{ t('filter.items', { count: filteredResources.length }) }}
     </div>
 
@@ -88,7 +88,8 @@ const columns = computed(() => [
       return h('a', {
         href: 'javascript:void(0)',
         onClick: () => canPreview ? handlePreview(row) : null,
-        class: canPreview ? 'text-blue-500 underline cursor-pointer' : 'text-gray-400',
+        class: canPreview ? 'text-link' : 'text-dim',
+        style: { cursor: canPreview ? 'pointer' : 'default', textDecoration: canPreview ? 'underline' : 'none' }
       }, row.Url)
     }
   },

@@ -1,36 +1,36 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.dynamicTitle') }}</div>
       <div class="page-desc">{{ t('settings.dynamicDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="200">
       <!-- System Default Dynamic Proxy -->
-      <NCard class="mb-4" :title="t('config.dynProxySection')">
+      <NCard :title="t('config.dynProxySection')">
         <NFormItem :label="t('config.dynProxyEnable')" path="dyn_proxy_enable">
           <NSwitch v-model:value="form.dyn_proxy_enable" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.dynProxyEnableDesc') }}
         </div>
 
         <NFormItem :label="t('config.dynProxyNewAccount')" path="dyn_proxy_new_account">
           <NSwitch v-model:value="form.dyn_proxy_new_account" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.dynProxyNewAccountDesc') }}
         </div>
 
         <NFormItem :label="t('config.dynProxyExistingAccount')" path="dyn_proxy_existing_account">
           <NSwitch v-model:value="form.dyn_proxy_existing_account" />
         </NFormItem>
-        <div class="text-xs text-red-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div style="color:var(--error);padding-left:200px" class="text-xs -mt-2 mb-3">
           {{ t('config.dynProxyExistingAccountWarn') }}
         </div>
 
@@ -44,7 +44,7 @@
       </NCard>
 
       <!-- Risk Control -->
-      <NCard class="mb-4" :title="t('config.riskControlSection')">
+      <NCard :title="t('config.riskControlSection')">
         <NFormItem :label="t('config.riskFreeProxyAuto')" path="risk_free_proxy_auto">
           <NSwitch v-model:value="form.risk_free_proxy_auto" />
         </NFormItem>
@@ -56,14 +56,14 @@
         <NFormItem :label="t('config.riskCookieNoFreeProxy')" path="risk_cookie_no_free_proxy">
           <NSwitch v-model:value="form.risk_cookie_no_free_proxy" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.riskCookieNoFreeProxyDesc') }}
         </div>
 
         <NFormItem :label="t('config.riskAutoDirectFallback')" path="risk_auto_direct_fallback">
           <NSwitch v-model:value="form.risk_auto_direct_fallback" />
         </NFormItem>
-        <div class="text-xs text-red-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div style="color:var(--error);padding-left:200px" class="text-xs -mt-2 mb-3">
           {{ t('config.riskAutoDirectFallbackWarn') }}
         </div>
 
@@ -74,7 +74,7 @@
         <NFormItem :label="t('config.maskProxyLogs')" path="mask_proxy_logs">
           <NSwitch v-model:value="form.mask_proxy_logs" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.maskProxyLogsDesc') }}
         </div>
 
@@ -85,14 +85,14 @@
             style="width: 320px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 200px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.proxyProtocolOrderDesc') }}
         </div>
       </NCard>
 
       <!-- Dynamic Provider -->
-      <NCard class="mb-4" :title="t('config.dynProviderManageTitle')">
-        <div class="text-sm text-gray-600 mb-3">
+      <NCard :title="t('config.dynProviderManageTitle')">
+        <div class="text-sm mb-3" style="color:var(--text-dim)">
           {{ t('config.dynProviderManageDesc') }}
         </div>
         <NButton @click="goToProviders">
@@ -188,31 +188,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
 </style>

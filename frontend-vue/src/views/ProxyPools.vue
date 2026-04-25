@@ -4,7 +4,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">{{ t('proxyPools.title') }}</div>
-        <div class="page-desc text-sm text-gray-500">{{ t('proxyPools.desc') }}</div>
+        <div class="page-desc">{{ t('proxyPools.desc') }}</div>
       </div>
     </div>
 
@@ -17,9 +17,6 @@
         </div>
         <div class="actions">
           <NButton type="primary" @click="openAddModal">
-            <template #icon>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v20M2 12h20" stroke="currentColor" stroke-width="2.5" fill="none"/></svg>
-            </template>
             {{ t('proxyPools.addNode') }}
           </NButton>
           <NButton quaternary @click="openDemoModal">
@@ -48,16 +45,17 @@
           :pagination="{ pageSize: 20 }"
           :virtual="true"
           :row-key="(row: ProxyPoolNode) => String(row.id)"
+          :scroll-x="800"
           striped
         />
       </div>
 
       <!-- Empty state -->
       <div v-else class="empty-state">
-        <div class="empty-icon" aria-hidden="true">—</div>
-        <div class="empty-title">{{ t('proxyPools.emptyTitle') }}</div>
-        <div class="empty-desc">{{ t('proxyPools.emptyDesc') }}</div>
-        <NButton type="primary" @click="openAddModal">
+        <div class="empty-state__icon" aria-hidden="true">—</div>
+        <div class="empty-state__title">{{ t('proxyPools.emptyTitle') }}</div>
+        <div class="empty-state__desc">{{ t('proxyPools.emptyDesc') }}</div>
+        <NButton type="primary" style="margin-top:12px" @click="openAddModal">
           {{ t('proxyPools.addFirst') }}
         </NButton>
       </div>
@@ -366,96 +364,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.card {
-  background: var(--surface2);
-  border-radius: var(--r-md);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-}
-.card-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  font-weight: 500;
-}
-.card-title-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  flex-shrink: 0;
-}
 .card-proxy-pool-meta {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--border-cream);
   font-size: 12px;
   color: var(--text-muted);
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.28);
 }
 .pp-demo-note {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.table-wrap {
-  overflow-x: auto;
-}
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  gap: 12px;
-  text-align: center;
-}
-.empty-icon {
-  font-size: 32px;
-  color: var(--text-muted);
-  opacity: 0.4;
-}
-.empty-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-}
-.empty-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  max-width: 360px;
-}
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
 }
 .modal-footer {
   display: flex;
@@ -481,13 +403,13 @@ onMounted(() => {
   flex-shrink: 0;
 }
 .proxy-dot.on {
-  background: #52c41a;
+  background: var(--success);
 }
 .proxy-dot.off {
-  background: #d9d9d9;
+  background: var(--border);
 }
 .proxy-pool-status__on {
-  color: #52c41a;
+  color: var(--success);
   font-size: 13px;
 }
 .proxy-pool-status__off {

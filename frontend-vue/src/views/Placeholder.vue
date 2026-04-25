@@ -7,8 +7,8 @@
       </div>
     </div>
     <div class="empty-state">
-      <div class="empty-icon">🚧</div>
-      <div class="empty-title">{{ t('common.underConstruction') }}</div>
+      <div class="empty-state__icon" aria-hidden="true">—</div>
+      <div class="empty-state__title">{{ t('common.underConstruction') }}</div>
     </div>
   </div>
 </template>
@@ -34,30 +34,3 @@ const pageName = computed(() => {
 })
 </script>
 
-<style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-.empty-state {
-  text-align: center;
-  padding: 48px 24px;
-  color: var(--text-muted);
-}
-.empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
-.empty-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
-</style>

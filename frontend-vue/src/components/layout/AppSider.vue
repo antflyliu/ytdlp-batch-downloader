@@ -72,7 +72,7 @@
       <!-- Language toggle -->
       <button class="sidebar__item" @click="toggleLocale">
         <span class="sidebar__item-icon" v-html="langIcon"></span>
-        <span class="sidebar__item-label">{{ locale === 'zh' ? 'EN' : '中文' }}</span>
+        <span class="sidebar__item-label">{{ t('menu.locale') }}</span>
       </button>
 
       <!-- Collapse toggle -->

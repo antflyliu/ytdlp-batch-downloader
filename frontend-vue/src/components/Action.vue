@@ -2,7 +2,8 @@
   <div style="--wails-draggable:no-drag" class="grid grid-cols-3 gap-1.5">
     <n-icon
         size="30"
-        class="text-emerald-600 dark:text-emerald-400 bg-emerald-500/20 dark:bg-emerald-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-emerald-500/40 transition-colors"
+        style="color:var(--accent);background:rgba(201,100,66,0.12)"
+        class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
         @click="action('down')"
     >
       <DownloadOutline/>
@@ -10,7 +11,8 @@
 
     <n-icon
         size="28"
-        class="text-red-500 dark:text-red-300 bg-red-500/20 dark:bg-red-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-red-500/40 transition-colors"
+        style="color:var(--error);background:rgba(220,80,60,0.12)"
+        class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(220,80,60,0.2)]"
         @click="action('delete')"
     >
       <TrashOutline/>
@@ -18,7 +20,7 @@
 
     <NPopover placement="bottom" trigger="hover">
       <template #trigger>
-        <NIcon size="30" class="text-sky-500 dark:text-sky-300 bg-sky-500/20 dark:bg-sky-200/30 rounded-full flex items-center justify-center p-2 cursor-pointer hover:bg-sky-200/40 transition-colors">
+        <NIcon size="30" style="color:var(--accent);background:rgba(201,100,66,0.12)" class="rounded-full flex items-center justify-center p-2 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]">
           <GridSharp/>
         </NIcon>
       </template>
@@ -26,7 +28,8 @@
         <div class="flex items-center justify-start p-1.5 cursor-pointer" v-if="row.Status === 'running' || row.Status === 'pending'" @click="action('cancel')">
           <n-icon
               size="28"
-              class="text-red-500 dark:text-red-300 bg-red-500/20 dark:bg-red-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-red-500/40 transition-colors"
+              style="color:var(--error);background:rgba(220,80,60,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(220,80,60,0.2)]"
           >
             <CloseOutline/>
           </n-icon>
@@ -36,7 +39,8 @@
         <div class="flex items-center justify-start p-1.5 cursor-pointer" @click="action('copy')">
           <n-icon
               size="28"
-              class="text-blue-300 dark:text-blue-300 bg-blue-300/20 dark:bg-blue-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-blue-300/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <LinkOutline/>
           </n-icon>
@@ -46,7 +50,8 @@
         <div class="flex items-center justify-start p-1.5 cursor-pointer" v-if="row.Classify !== 'live' && row.Classify !== 'm3u8'" @click="action('open')">
           <n-icon
               size="28"
-              class="text-blue-500 dark:text-blue-200 bg-blue-400/20 dark:bg-blue-400/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-blue-400/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <GlobeOutline/>
           </n-icon>
@@ -56,7 +61,8 @@
         <div class="flex items-center justify-start p-1.5 cursor-pointer" v-if="row.DecodeKey" @click="action('decode')">
           <n-icon
               size="28"
-              class="text-orange-400 dark:text-red-300 bg-orange-500/20 dark:bg-orange-200/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-orange-200/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,128,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,128,66,0.2)]"
           >
             <LockOpenSharp/>
           </n-icon>
@@ -66,7 +72,8 @@
         <div class="flex items-center justify-start p-1.5 cursor-pointer" @click="action('json')">
           <n-icon
               size="28"
-              class="text-sky-400 dark:text-sky-200 bg-sky-500/20 dark:bg-sky-500/30 rounded-full flex items-center justify-center p-1.5 cursor-pointer hover:bg-sky-500/40 transition-colors"
+              style="color:var(--accent);background:rgba(201,100,66,0.12)"
+              class="rounded-full flex items-center justify-center p-1.5 cursor-pointer transition-colors hover:bg-[rgba(201,100,66,0.2)]"
           >
             <CopyOutline/>
           </n-icon>

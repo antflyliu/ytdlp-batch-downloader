@@ -1,55 +1,55 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.downloadSettingsTitle') }}</div>
       <div class="page-desc">{{ t('settings.downloadDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="180">
-      <NCard class="mb-4" :title="t('settings.saveDirectory')">
+      <NCard :title="t('settings.saveDirectory')">
         <NFormItem :label="t('config.downloadPath')" path="download_path">
           <NInput
             v-model:value="form.download_path"
             :placeholder="t('settings.downloadPathPlaceholder')"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.downloadPathHint') }}
         </div>
 
         <NFormItem :label="t('config.enableAria2Enable')" path="enable_aria2">
           <NSwitch v-model:value="form.enable_aria2" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.enableAria2Hint') }}
         </div>
       </NCard>
 
-      <NCard class="mb-4" :title="t('settings.cookiesFile')">
+      <NCard :title="t('settings.cookiesFile')">
         <NFormItem :label="t('settings.cookiesFile')" path="cookies_file">
           <NInput
             v-model:value="form.cookies_file"
             :placeholder="t('settings.cookiesFilePlaceholder')"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           <span v-html="t('config.cookiesFileHint')"></span>
         </div>
       </NCard>
 
-      <NCard class="mb-4" :title="t('settings.subLangs')">
+      <NCard :title="t('settings.subLangs')">
         <NFormItem :label="t('settings.subLangs')" path="sub_langs">
           <NInput
             v-model:value="form.sub_langs"
             placeholder="en,zh-Hans,zh-Hant"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.subLangsHint') }}
         </div>
       </NCard>
@@ -108,33 +108,3 @@ onMounted(() => {
   loadConfig()
 })
 </script>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-</style>

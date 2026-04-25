@@ -9,7 +9,7 @@
   >
     <div v-if="loading">
       <NSpin size="medium" />
-      <div class="text-sm text-gray-500 mt-2">{{ t('clip.pageLoading') }}</div>
+      <div class="text-sm text-dim mt-2">{{ t('clip.pageLoading') }}</div>
     </div>
 
     <div v-else-if="detail">
@@ -28,7 +28,7 @@
       <!-- Clips section -->
       <div class="section mb-6">
         <div class="section-title mb-3">{{ t('clipDetail.clips') }} ({{ detail.clips?.length || 0 }})</div>
-        <div v-if="!detail.clips?.length" class="text-sm text-gray-400">
+        <div v-if="!detail.clips?.length" class="text-sm text-dim">
           {{ t('clipDetail.noClips') }}
         </div>
         <div v-else class="clip-list">
@@ -41,7 +41,7 @@
               <span class="clip-score">
                 <NTag type="success" size="small">{{ t('clip.scoreLabel') }}: {{ clip.score }}</NTag>
               </span>
-              <span class="clip-duration text-sm text-gray-500 ml-3">
+              <span class="clip-duration text-sm text-dim ml-3">
                 {{ formatDuration(clip.duration) }}
               </span>
             </div>
@@ -59,7 +59,7 @@
       <!-- Collections section -->
       <div class="section">
         <div class="section-title mb-3">{{ t('clipDetail.collections') }} ({{ detail.collections?.length || 0 }})</div>
-        <div v-if="!detail.collections?.length" class="text-sm text-gray-400">
+        <div v-if="!detail.collections?.length" class="text-sm text-dim">
           {{ t('clipDetail.noCollections') }}
         </div>
         <NDataTable
@@ -73,8 +73,8 @@
       </div>
     </div>
 
-    <div v-else class="text-red-500">
-      {{ t('clip.loadTaskFailed') }}
+    <div v-else :style="{ color: 'var(--error)' }">
+      {{ t('batch.loadTaskFailed') }}
     </div>
 
     <template #footer>
@@ -146,12 +146,12 @@ const playClip = (url: string) => {
 
 const collectionColumns = [
   {
-    title: 'ID',
+    title: t('clipHistory.tableId'),
     key: 'id',
     width: 80,
   },
   {
-    title: 'Name',
+    title: t('clipHistory.tableName'),
     key: 'name',
     ellipsis: true,
   },

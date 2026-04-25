@@ -1,18 +1,18 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.aiTitle') }}</div>
       <div class="page-desc">{{ t('settings.aiDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="180">
       <!-- LLM Provider -->
-      <NCard class="mb-4" :title="t('config.llmProvider')">
+      <NCard :title="t('config.llmProvider')">
         <NFormItem :label="t('config.llmProvider')" path="llm_provider">
           <NSelect
             v-model:value="form.llm_provider"
@@ -46,7 +46,7 @@
       </NCard>
 
       <!-- Clip Settings -->
-      <NCard class="mb-4" :title="t('settings.aiTitle')">
+      <NCard :title="t('settings.aiTitle')">
         <NFormItem :label="t('config.llmCategory')" path="llm_category">
           <NSelect
             v-model:value="form.llm_category"
@@ -54,7 +54,7 @@
             style="width: 240px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.llmCategoryHint') }}
         </div>
 
@@ -66,13 +66,13 @@
             style="width: 120px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.llmMinScoreHint') }}
         </div>
       </NCard>
 
       <!-- Clip Enhance -->
-      <NCard class="mb-4" :title="t('config.clipEnhanceFeatures')">
+      <NCard :title="t('config.clipEnhanceFeatures')">
         <NFormItem :label="t('config.clipEmbedThumbnail')" path="clip_embed_thumbnail">
           <NSwitch v-model:value="form.clip_embed_thumbnail" />
         </NFormItem>
@@ -168,32 +168,3 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-</style>

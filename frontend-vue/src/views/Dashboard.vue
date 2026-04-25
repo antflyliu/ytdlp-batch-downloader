@@ -56,8 +56,8 @@
             </div>
           </template>
           <template v-else-if="events.length === 0">
-            <div class="empty-state" style="padding: 24px">
-              <div class="empty-title" style="font-size: 13px">{{ t('dashboard.noRecords') }}</div>
+            <div class="empty-state">
+              <div class="empty-state__title">{{ t('dashboard.noRecords') }}</div>
             </div>
           </template>
           <template v-else>
@@ -252,64 +252,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-}
-.card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.card-title-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-.card-body {
-  padding: 16px 20px;
-}
-
 /* Stats grid */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 12px;
-  padding: 16px 20px;
+  padding: 20px 22px;
 }
 @media (max-width: 900px) {
   .stats-grid {
@@ -400,26 +348,5 @@ onUnmounted(() => {
 }
 .log-msg--info {
   color: var(--accent);
-}
-
-/* Empty state */
-.empty-state {
-  text-align: center;
-  padding: 24px;
-  color: var(--text-muted);
-}
-.empty-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: var(--text);
-}
-
-.text-dim {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.text-xs {
-  font-size: 11px;
 }
 </style>

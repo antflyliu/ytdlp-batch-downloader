@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">{{ t('settings.hubTitle') || t('nav.settings') }}</div>
+        <div class="page-title">{{ t('settings.hubTitle') }}</div>
         <div class="page-desc">{{ t('settings.hubDesc') }}</div>
       </div>
     </div>
@@ -75,7 +75,7 @@
 
       <!-- Dynamic Proxy -->
       <RouterLink to="/settings-hub/dynamic" class="settings-card">
-        <div class="settings-card__icon" style="color: var(--proxy-text, #2dd4bf)">
+        <div class="settings-card__icon" style="color: var(--accent)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/>
             <path d="M2 12h20"/>
@@ -130,25 +130,6 @@ const { t } = useI18n()
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

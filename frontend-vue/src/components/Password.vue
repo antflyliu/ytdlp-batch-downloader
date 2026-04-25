@@ -12,7 +12,7 @@
       class="rounded-lg"
   >
     <div>
-      <div class="text-red-500 text-base">
+      <div :style="{ color: 'var(--error)', fontSize: '16px' }">
         {{ t("components.password_tip") }}
       </div>
       <div class="mt-3">

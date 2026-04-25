@@ -1,10 +1,10 @@
 <template>
   <div class="dynamic-providers-page">
     <!-- Page Header -->
-    <div class="page-header mb-4 flex justify-between items-center">
+    <div class="page-header">
       <div>
-        <div class="text-lg font-semibold">{{ t('dynProviders.title') }}</div>
-        <div class="text-sm text-gray-500">{{ t('dynProviders.desc') }}</div>
+        <div class="page-title">{{ t('dynProviders.title') }}</div>
+        <div class="text-sm text-dim">{{ t('dynProviders.desc') }}</div>
       </div>
       <NButton type="primary" @click="openAddProvider">
         {{ t('dynProviders.addProvider') }}
@@ -12,40 +12,42 @@
     </div>
 
     <!-- Scheduler Status Card -->
-    <NCard class="mb-4" size="small">
-      <div class="flex gap-4 flex-wrap">
-        <div style="flex:1 1 280px">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs uppercase tracking-wider text-gray-400">Provider Scheduler</span>
-            <NTag :type="schedulerRunning ? 'success' : 'warning'" size="small" round>
-              {{ schedulerRunning ? t('provider.schedulerRunning') : t('provider.schedulerNotStarted') }}
-            </NTag>
+    <div class="card">
+      <div class="card-body">
+        <div style="display:flex; gap:16px; flex-wrap:wrap">
+          <div style="flex:1 1 280px">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
+              <span class="text-xs text-dim">Provider Scheduler</span>
+              <NTag :type="schedulerRunning ? 'success' : 'warning'" size="small" round>
+                {{ schedulerRunning ? t('provider.schedulerRunning') : t('provider.schedulerNotStarted') }}
+              </NTag>
+            </div>
+            <div class="text-sm text-dim" style="margin-bottom:4px">
+              {{ schedulerRunning ? t('provider.schedulerRunningHint') : t('provider.schedulerHint') }}
+            </div>
+            <div class="text-xs text-dim">
+              {{ schedulerRunning ? nextRunText : '' }}
+            </div>
           </div>
-          <div class="text-sm text-gray-500 mb-1">
-            {{ schedulerRunning ? t('provider.schedulerRunningHint') : t('provider.schedulerHint') }}
-          </div>
-          <div class="text-xs text-gray-400">
-            {{ schedulerRunning ? nextRunText : '' }}
-          </div>
-        </div>
-        <div class="flex flex-col gap-2 justify-center flex-shrink-0">
-          <div class="flex gap-2 flex-wrap">
-            <NButton size="small" @click="toggleScheduler" :type="schedulerRunning ? 'warning' : 'success'" ghost>
-              {{ schedulerRunning ? t('provider.btnStopDynScheduler') : t('provider.btnStartDynScheduler') }}
+          <div style="display:flex; flex-direction:column; gap:8px; justify-content:center; flex-shrink:0">
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+              <NButton size="small" @click="toggleScheduler" :type="schedulerRunning ? 'warning' : 'success'" ghost>
+                {{ schedulerRunning ? t('provider.btnStopDynScheduler') : t('provider.btnStartDynScheduler') }}
+              </NButton>
+              <NButton size="small" ghost @click="reloadJobs" :loading="reloading">
+                {{ t('dynProviders.reloadDynamicProxyJobs') }}
+              </NButton>
+              <NButton size="small" ghost @click="refreshAll" :loading="refreshingAll">
+                {{ t('dynProviders.refreshAllListApisNow') }}
+              </NButton>
+            </div>
+            <NButton size="small" ghost @click="healthCheckAll" :loading="checkingAll">
+              {{ t('dynProviders.healthCheckAll') }}
             </NButton>
-            <NButton size="small" ghost @click="reloadJobs" :loading="reloading">
-              {{ t('dynProviders.reloadDynamicProxyJobs') }}
-            </NButton>
-            <NButton size="small" ghost @click="refreshAll" :loading="refreshingAll">
-              {{ t('dynProviders.refreshAllListApisNow') }}
-            </NButton>
           </div>
-          <NButton size="small" ghost @click="healthCheckAll" :loading="checkingAll">
-            {{ t('dynProviders.healthCheckAll') }}
-          </NButton>
         </div>
       </div>
-    </NCard>
+    </div>
 
     <!-- Collapsible: Logs + Help -->
     <NSpace vertical size="medium" class="mb-4">
@@ -53,13 +55,13 @@
       <NCollapse>
         <NCollapseItem :title="t('dynProviders.recentExec')" name="logs">
           <template #header-extra>
-            <span class="text-xs text-gray-400">{{ t('dynProviders.execHint') }}</span>
+            <span class="text-xs text-dim">{{ t('dynProviders.execHint') }}</span>
           </template>
           <div class="flex items-center gap-2 mb-3">
-            <span class="text-sm text-gray-500">{{ t('dynProviders.logTypeLabel') }}</span>
+            <span class="text-sm text-dim">{{ t('dynProviders.logTypeLabel') }}</span>
             <NSelect v-model:value="logFilter" :options="logFilterOptions" size="small" style="width:180px" />
           </div>
-          <div v-if="filteredLogs.length === 0" class="text-sm text-gray-400 py-4 text-center">
+          <div v-if="filteredLogs.length === 0" class="text-sm text-dim py-4 text-center">
             {{ t('provider.noLogsYet') }}
           </div>
           <div v-else class="dyn-log-list" style="max-height:240px;overflow-y:auto">
@@ -75,10 +77,10 @@
                   {{ log.status }}
                 </NTag>
               </div>
-              <div class="text-xs text-gray-400 mt-1">
+              <div class="text-xs text-dim mt-1">
                 {{ log.job_type === 'refresh' ? `raw ${log.raw_count || 0} / valid ${log.valid_count || 0}` : (log.message || 'completed') }}
               </div>
-              <div class="text-xs text-gray-500 mt-1">{{ log.started_at }}</div>
+              <div class="text-xs text-dim mt-1">{{ log.started_at }}</div>
             </div>
           </div>
         </NCollapseItem>
@@ -110,23 +112,24 @@
             size="small"
             style="max-width:300px"
           />
-          <span class="text-xs text-gray-400">{{ summaryText }}</span>
+          <span class="text-xs text-dim">{{ summaryText }}</span>
         </div>
       </div>
 
       <!-- Empty State -->
-      <div v-if="!loading && providers.length === 0 && !searchQuery" class="text-center py-10">
-        <div class="text-lg font-medium text-gray-600">{{ t('dynProviders.emptyTitle') }}</div>
-        <div class="text-sm text-gray-400 mt-1">{{ t('dynProviders.emptyDesc') }}</div>
-        <div class="text-sm text-gray-400 mt-1">{{ t('dynProviders.addFirstNote') }}</div>
+      <div v-if="!loading && providers.length === 0 && !searchQuery" class="empty-state">
+        <div class="empty-state__icon" aria-hidden="true">+</div>
+        <div class="empty-state__title">{{ t('dynProviders.emptyTitle') }}</div>
+        <div class="empty-state__desc">{{ t('dynProviders.emptyDesc') }}</div>
+        <div class="empty-state__desc">{{ t('dynProviders.addFirstNote') }}</div>
         <NButton type="primary" size="small" class="mt-3" @click="openAddProvider">
           {{ t('dynProviders.addFirst') }}
         </NButton>
       </div>
 
       <!-- No Match -->
-      <div v-else-if="!loading && filteredProviders.length === 0 && searchQuery" class="text-center py-6">
-        <div class="text-sm text-gray-400">{{ t('provider.noMatchProviders') }}</div>
+      <div v-else-if="!loading && filteredProviders.length === 0 && searchQuery" class="empty-state">
+        <div class="empty-state__title">{{ t('provider.noMatchProviders') }}</div>
       </div>
 
       <!-- Table -->
@@ -187,126 +190,142 @@
         <NDivider>{{ t('dynProviders.gatewayConfig') }}</NDivider>
 
         <!-- Rotating Gateway Config -->
-        <div v-show="form.adapter_type === 'rotating_gateway'" class="config-section">
-          <NGrid :cols="2" :x-gap="12">
-            <NFormItemGi :label="t('dynProviders.gatewayHost')" required>
-              <NInput v-model:value="form.config.gateway_host" :placeholder="t('dynProviders.gatewayHost')" />
-            </NFormItemGi>
-            <NFormItemGi :label="t('dynProviders.port')" required>
-              <NInputNumber v-model:value="form.config.gateway_port" :min="1" :max="65535" size="small" style="width:100%" />
-            </NFormItemGi>
-          </NGrid>
-          <NGrid :cols="2" :x-gap="12">
-            <NFormItemGi :label="t('dynProviders.protocol')">
-              <NSelect v-model:value="form.config.protocol" :options="protocolOptions" />
-            </NFormItemGi>
-            <NFormItemGi :label="t('dynProviders.username')">
-              <NInput v-model:value="form.config.username" />
-            </NFormItemGi>
-          </NGrid>
-          <NFormItem :label="t('dynProviders.password')">
-            <NInput v-model:value="form.config.password" type="password" show-password-on="mousedown" />
-          </NFormItem>
-        </div>
-
-        <!-- Local Gateway Config -->
-        <div v-show="form.adapter_type === 'local_gateway'" class="config-section">
-          <NFormItem :label="t('dynProviders.localProxyUrl')" required>
-            <NInput v-model:value="form.config.local_proxy_url" :placeholder="t('dynProviders.localProxyUrlHint')" />
-          </NFormItem>
-        </div>
-
-        <!-- List API / Public Feed Config -->
-        <div v-show="form.adapter_type === 'list_api' || form.adapter_type === 'public_feed'" class="config-section">
-          <NGrid :cols="2" :x-gap="12">
-            <NFormItemGi :label="t('dynProviders.apiUrl')" required>
-              <NInput v-model:value="form.config.base_url" :placeholder="t('dynProviders.apiUrl')" />
-            </NFormItemGi>
-            <NFormItemGi :label="t('dynProviders.listAdapter')">
-              <NSelect
-                v-model:value="form.config.adapter_name"
-                :options="listAdapterOptions"
-                :placeholder="t('dynProviders.listAdapterHint')"
-                clearable
-              />
-            </NFormItemGi>
-          </NGrid>
-          <NGrid :cols="2" :x-gap="12">
-            <NFormItemGi :label="t('dynProviders.pageSize')">
-              <NInputNumber v-model:value="form.config.limit" :min="1" :max="1000" size="small" style="width:100%" />
-            </NFormItemGi>
-            <NFormItemGi :label="t('dynProviders.countryFilter')">
-              <NInput v-model:value="form.config.country" />
-            </NFormItemGi>
-          </NGrid>
-          <NGrid :cols="2" :x-gap="12">
-            <NFormItemGi :label="t('dynProviders.itemsPath')">
-              <NInput v-model:value="form.config.items_path" />
-            </NFormItemGi>
-            <NFormItemGi :label="t('dynProviders.protocolFilter')">
-              <NInput v-model:value="form.config.protocol" />
-            </NFormItemGi>
-          </NGrid>
-          <!-- API Auth -->
-          <NFormItem :label="t('dynProviders.apiAuth')">
-            <NSwitch v-model:value="form.config.has_auth" />
-          </NFormItem>
-          <div v-if="form.config.has_auth">
-            <NGrid :cols="2" :x-gap="12">
-              <NFormItemGi :label="t('dynProviders.authUsername')">
-                <NInput v-model:value="form.config.auth_username" />
-              </NFormItemGi>
-              <NFormItemGi :label="t('dynProviders.authPassword')">
-                <NInput v-model:value="form.config.auth_password" type="password" show-password-on="mousedown" />
-              </NFormItemGi>
-            </NGrid>
-          </div>
-          <!-- Advanced Field Mapping -->
-          <NCollapse>
-            <NCollapseItem :title="t('dynProviders.advMapping')" name="adv">
+        <NCollapse>
+          <NCollapseItem :title="t('dynProviders.rotatingGateway')" name="rotating">
+            <div v-show="form.adapter_type === 'rotating_gateway'" class="config-section">
               <NGrid :cols="2" :x-gap="12">
-                <NFormItemGi :label="t('dynProviders.hostField')">
-                  <NInput v-model:value="form.config.field_mapping.host" placeholder="ip" />
+                <NFormItemGi :label="t('dynProviders.gatewayHost')" required>
+                  <NInput v-model:value="form.config.gateway_host" :placeholder="t('dynProviders.gatewayHost')" />
                 </NFormItemGi>
-                <NFormItemGi :label="t('dynProviders.portField')">
-                  <NInput v-model:value="form.config.field_mapping.port" placeholder="port" />
+                <NFormItemGi :label="t('dynProviders.port')" required>
+                  <NInputNumber v-model:value="form.config.gateway_port" :min="1" :max="65535" size="small" style="width:100%" />
                 </NFormItemGi>
               </NGrid>
-              <NFormItem :label="t('dynProviders.protocolField')">
-                <NInput v-model:value="form.config.field_mapping.protocol" placeholder="protocols" />
+              <NGrid :cols="2" :x-gap="12">
+                <NFormItemGi :label="t('dynProviders.protocol')">
+                  <NSelect v-model:value="form.config.protocol" :options="protocolOptions" />
+                </NFormItemGi>
+                <NFormItemGi :label="t('dynProviders.username')">
+                  <NInput v-model:value="form.config.username" />
+                </NFormItemGi>
+              </NGrid>
+              <NFormItem :label="t('dynProviders.password')">
+                <NInput v-model:value="form.config.password" type="password" show-password-on="mousedown" />
               </NFormItem>
-            </NCollapseItem>
-          </NCollapse>
-        </div>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- Local Gateway Config -->
+        <NCollapse>
+          <NCollapseItem :title="t('dynProviders.localGateway')" name="local">
+            <div v-show="form.adapter_type === 'local_gateway'" class="config-section">
+              <NFormItem :label="t('dynProviders.localProxyUrl')" required>
+                <NInput v-model:value="form.config.local_proxy_url" :placeholder="t('dynProviders.localProxyUrlHint')" />
+              </NFormItem>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
+
+        <!-- List API / Public Feed Config -->
+        <NCollapse>
+          <NCollapseItem :title="t('dynProviders.listApi')" name="listapi">
+            <div v-show="form.adapter_type === 'list_api' || form.adapter_type === 'public_feed'" class="config-section">
+              <NGrid :cols="2" :x-gap="12">
+                <NFormItemGi :label="t('dynProviders.apiUrl')" required>
+                  <NInput v-model:value="form.config.base_url" :placeholder="t('dynProviders.apiUrl')" />
+                </NFormItemGi>
+                <NFormItemGi :label="t('dynProviders.listAdapter')">
+                  <NSelect
+                    v-model:value="form.config.adapter_name"
+                    :options="listAdapterOptions"
+                    :placeholder="t('dynProviders.listAdapterHint')"
+                    clearable
+                  />
+                </NFormItemGi>
+              </NGrid>
+              <NGrid :cols="2" :x-gap="12">
+                <NFormItemGi :label="t('dynProviders.pageSize')">
+                  <NInputNumber v-model:value="form.config.limit" :min="1" :max="1000" size="small" style="width:100%" />
+                </NFormItemGi>
+                <NFormItemGi :label="t('dynProviders.countryFilter')">
+                  <NInput v-model:value="form.config.country" />
+                </NFormItemGi>
+              </NGrid>
+              <NGrid :cols="2" :x-gap="12">
+                <NFormItemGi :label="t('dynProviders.itemsPath')">
+                  <NInput v-model:value="form.config.items_path" />
+                </NFormItemGi>
+                <NFormItemGi :label="t('dynProviders.protocolFilter')">
+                  <NInput v-model:value="form.config.protocol" />
+                </NFormItemGi>
+              </NGrid>
+              <!-- API Auth -->
+              <NFormItem :label="t('dynProviders.apiAuth')">
+                <NSwitch v-model:value="form.config.has_auth" />
+              </NFormItem>
+              <div v-if="form.config.has_auth">
+                <NGrid :cols="2" :x-gap="12">
+                  <NFormItemGi :label="t('dynProviders.authUsername')">
+                    <NInput v-model:value="form.config.auth_username" />
+                  </NFormItemGi>
+                  <NFormItemGi :label="t('dynProviders.authPassword')">
+                    <NInput v-model:value="form.config.auth_password" type="password" show-password-on="mousedown" />
+                  </NFormItemGi>
+                </NGrid>
+              </div>
+              <!-- Advanced Field Mapping -->
+              <NCollapse>
+                <NCollapseItem :title="t('dynProviders.advMapping')" name="adv">
+                  <NGrid :cols="2" :x-gap="12">
+                    <NFormItemGi :label="t('dynProviders.hostField')">
+                      <NInput v-model:value="form.config.field_mapping.host" placeholder="ip" />
+                    </NFormItemGi>
+                    <NFormItemGi :label="t('dynProviders.portField')">
+                      <NInput v-model:value="form.config.field_mapping.port" placeholder="port" />
+                    </NFormItemGi>
+                  </NGrid>
+                  <NFormItem :label="t('dynProviders.protocolField')">
+                    <NInput v-model:value="form.config.field_mapping.protocol" placeholder="protocols" />
+                  </NFormItem>
+                </NCollapseItem>
+              </NCollapse>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
 
         <!-- Feature Support -->
         <NDivider>{{ t('dynProviders.featureSupport') }}</NDivider>
-        <NGrid :cols="2" :x-gap="12">
-          <NFormItemGi>
-            <NSpace align="center">
-              <NSwitch v-model:value="form.supports_auto_download" />
-              <span class="text-sm">{{ t('dynProviders.supportsAutoDl') }}</span>
-            </NSpace>
-          </NFormItemGi>
-          <NFormItemGi>
-            <NSpace align="center">
-              <NSwitch v-model:value="form.supports_cookies" />
-              <span class="text-sm">{{ t('dynProviders.supportsCookie') }}</span>
-            </NSpace>
-          </NFormItemGi>
-          <NFormItemGi>
-            <NSpace align="center">
-              <NSwitch v-model:value="form.supports_country_filter" />
-              <span class="text-sm">{{ t('dynProviders.supportsCountry') }}</span>
-            </NSpace>
-          </NFormItemGi>
-          <NFormItemGi>
-            <NSpace align="center">
-              <NSwitch v-model:value="form.supports_sticky_session" />
-              <span class="text-sm">{{ t('dynProviders.supportsSticky') }}</span>
-            </NSpace>
-          </NFormItemGi>
-        </NGrid>
+        <NCollapse>
+          <NCollapseItem :title="t('dynProviders.featureSupport')" name="features">
+            <NGrid :cols="2" :x-gap="12">
+              <NFormItemGi>
+                <NSpace align="center">
+                  <NSwitch v-model:value="form.supports_auto_download" />
+                  <span class="text-sm">{{ t('dynProviders.supportsAutoDl') }}</span>
+                </NSpace>
+              </NFormItemGi>
+              <NFormItemGi>
+                <NSpace align="center">
+                  <NSwitch v-model:value="form.supports_cookies" />
+                  <span class="text-sm">{{ t('dynProviders.supportsCookie') }}</span>
+                </NSpace>
+              </NFormItemGi>
+              <NFormItemGi>
+                <NSpace align="center">
+                  <NSwitch v-model:value="form.supports_country_filter" />
+                  <span class="text-sm">{{ t('dynProviders.supportsCountry') }}</span>
+                </NSpace>
+              </NFormItemGi>
+              <NFormItemGi>
+                <NSpace align="center">
+                  <NSwitch v-model:value="form.supports_sticky_session" />
+                  <span class="text-sm">{{ t('dynProviders.supportsSticky') }}</span>
+                </NSpace>
+              </NFormItemGi>
+            </NGrid>
+          </NCollapseItem>
+        </NCollapse>
 
         <!-- Notes -->
         <NFormItem :label="t('dynProviders.notes')">
@@ -328,7 +347,7 @@
     <NDrawer v-model:show="showDetailDrawer" :width="420" placement="right">
       <NDrawerContent :title="detailProvider?.name || ''" closable>
         <template v-if="detailLoading">
-          <div class="flex justify-center py-8">
+          <div style="display:flex; justify-content:center; padding:32px 0">
             <NSpin size="medium" />
           </div>
         </template>
@@ -336,7 +355,7 @@
           <NSpace vertical size="medium">
             <!-- Summary Card -->
             <NCard size="small">
-              <div class="text-sm text-gray-500 mb-1">
+              <div class="text-sm text-dim mb-1">
                 {{ detailProvider.adapter_type }} · Priority {{ detailProvider.priority }} · Refresh {{ detailProvider.refresh_interval_minutes || 0 }} min
               </div>
               <NTag v-if="detailProvider.billing_tier === 'paid'" type="warning" size="small">{{ t('provider.paidChip') }}</NTag>
@@ -347,36 +366,36 @@
             <!-- Metrics -->
             <NGrid :cols="3" :x-gap="8">
               <NCard size="small">
-                <div class="text-xs text-gray-400">{{ t('provider.latestRaw') }}</div>
+                <div class="text-xs text-dim">{{ t('provider.latestRaw') }}</div>
                 <div class="text-lg font-semibold">{{ detailMetrics?.raw_count ?? '—' }}</div>
               </NCard>
               <NCard size="small">
-                <div class="text-xs text-gray-400">{{ t('provider.latestValid') }}</div>
+                <div class="text-xs text-dim">{{ t('provider.latestValid') }}</div>
                 <div class="text-lg font-semibold">{{ detailMetrics?.valid_count ?? '—' }}</div>
               </NCard>
               <NCard size="small">
-                <div class="text-xs text-gray-400">{{ t('provider.latestStatus') }}</div>
+                <div class="text-xs text-dim">{{ t('provider.latestStatus') }}</div>
                 <NTag :type="healthType(detailProvider.last_health_status)" size="tiny">{{ detailProvider.last_health_status || 'unknown' }}</NTag>
               </NCard>
             </NGrid>
 
             <!-- Candidate Preview -->
             <NCard v-if="candidatePreview" size="small">
-              <div class="text-xs text-gray-400 mb-1">{{ t('provider.candidatePreview') }}</div>
+              <div class="text-xs text-dim mb-1">{{ t('provider.candidatePreview') }}</div>
               <div class="text-sm">
                 Total {{ candidatePreview.total_count || 0 }} ·
                 healthy {{ candidatePreview.status_counts?.healthy || 0 }} ·
                 degraded {{ candidatePreview.status_counts?.degraded || 0 }} ·
                 down {{ candidatePreview.status_counts?.down || 0 }}
               </div>
-              <div v-if="candidatePreview.top_candidate" class="text-xs text-gray-500 mt-1">
+              <div v-if="candidatePreview.top_candidate" class="text-xs text-dim mt-1">
                 {{ t('provider.topCandidate') }}: {{ candidatePreview.top_candidate.masked_proxy_endpoint || '—' }}
               </div>
             </NCard>
 
             <!-- Error -->
             <NCard v-if="detailProvider.last_error_message" size="small">
-              <div class="text-xs text-red-500">{{ t('provider.recentError') }}</div>
+              <div class="text-xs" style="color:var(--error)">{{ t('provider.recentError') }}</div>
               <div class="text-sm mt-1">{{ detailProvider.last_error_message }}</div>
             </NCard>
 
@@ -389,19 +408,19 @@
 
             <!-- Recent Exec History -->
             <NCard size="small" :title="t('provider.recentExecHistory')">
-              <div v-if="detailLogs.length === 0" class="text-sm text-gray-400">{{ t('provider.noExecHistory') }}</div>
+              <div v-if="detailLogs.length === 0" class="text-sm text-dim">{{ t('provider.noExecHistory') }}</div>
               <NSpace v-else vertical size="small">
                 <div
                   v-for="(log, idx) in detailLogs"
                   :key="idx"
                   class="p-2 rounded"
-                  :class="log.status === 'success' ? 'bg-green-50' : 'bg-red-50'"
+                  :style="{ background: log.status === 'success' ? 'var(--success-dim)' : 'var(--error-dim)' }"
                 >
                   <div class="flex items-center justify-between">
                     <span class="text-sm font-medium">{{ log.job_type }}</span>
                     <NTag size="tiny" :type="log.status === 'success' ? 'success' : 'error'" round>{{ log.status }}</NTag>
                   </div>
-                  <div class="text-xs text-gray-500 mt-1">
+                  <div class="text-xs text-dim mt-1">
                     raw {{ log.raw_count || 0 }} / valid {{ log.valid_count || 0 }} · {{ log.started_at }}
                   </div>
                 </div>
@@ -410,7 +429,9 @@
           </NSpace>
         </template>
         <template v-else>
-          <div class="text-center text-gray-400 py-8">{{ t('provider.providerDetailNotFound') }}</div>
+          <div class="empty-state">
+            <div class="empty-state__title">{{ t('provider.providerDetailNotFound') }}</div>
+          </div>
         </template>
       </NDrawerContent>
     </NDrawer>
@@ -1050,7 +1071,7 @@ const columns = computed(() => [
     width: 120,
     render: (row: DynamicProvider) => {
       const status = row.last_health_status || ''
-      const dotColor = status === 'healthy' ? '#22c55e' : status === 'degraded' ? '#eab308' : status === 'down' ? '#ef4444' : '#9ca3af'
+      const dotColor = status === 'healthy' ? 'var(--success)' : status === 'degraded' ? 'var(--warning)' : status === 'down' ? 'var(--error)' : 'var(--text-dim)'
       const label = status === 'healthy' ? t('provider.healthOk')
         : status === 'degraded' ? t('provider.healthDegraded')
         : status === 'down' ? t('provider.healthDown')
@@ -1062,7 +1083,7 @@ const columns = computed(() => [
       if (row.is_in_cooldown) children.push(h(NTag, { type: 'error', size: 'tiny' }, () => t('provider.cooldownBadge')))
       if (row.last_error_message) {
         children.push(h('div', {
-          style: 'font-size:10px;color:#ef4444;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
+          style: 'font-size:10px;color:var(--error);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
           title: row.last_error_message
         }, row.last_error_message))
       }
@@ -1125,8 +1146,8 @@ onMounted(() => {
 }
 .dyn-log-row {
   padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
 }
 .dyn-log-row--ok {
   background: rgba(34, 197, 94, 0.04);

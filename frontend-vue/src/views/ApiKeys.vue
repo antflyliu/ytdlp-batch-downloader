@@ -6,9 +6,6 @@
         <div class="page-desc">{{ t('apiKeys.desc') }}</div>
       </div>
       <NButton type="primary" size="small" @click="openAdd">
-        <template #icon>
-          <span style="font-size: 13px">+</span>
-        </template>
         {{ t('apiKeys.addKey') }}
       </NButton>
     </div>
@@ -386,24 +383,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
 .hint-text {
   font-size: 12px;
   color: var(--text-dim);

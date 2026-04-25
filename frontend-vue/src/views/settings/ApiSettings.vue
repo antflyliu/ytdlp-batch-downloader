@@ -1,18 +1,18 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.apiTitle') }}</div>
       <div class="page-desc">{{ t('settings.apiDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="180">
       <!-- Default API Key -->
-      <NCard class="mb-4" :title="t('settings.defaultApiKey')">
+      <NCard :title="t('settings.defaultApiKey')">
         <NFormItem :label="t('settings.defaultApiKey')" path="default_api_key">
           <NSelect
             v-model:value="form.default_api_key"
@@ -22,13 +22,13 @@
             style="width: 320px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.defaultApiKeyHint') }}
         </div>
       </NCard>
 
       <!-- Quota -->
-      <NCard class="mb-4" :title="t('settings.apiQuota')">
+      <NCard :title="t('settings.apiQuota')">
         <NFormItem :label="t('config.quotaBudget')" path="quota_budget">
           <NInputNumber
             v-model:value="form.quota_budget"
@@ -36,7 +36,7 @@
             style="width: 200px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           <span v-html="t('config.quotaBudgetHint')"></span>
         </div>
 
@@ -57,17 +57,17 @@
             :placeholder="'80,90,100'"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.quotaAlertThresholdsHint') }}
         </div>
       </NCard>
 
       <!-- Channel Meta Health -->
-      <NCard class="mb-4" :title="t('config.channelMetaHealth')">
+      <NCard :title="t('config.channelMetaHealth')">
         <NFormItem :label="t('config.channelMetaHealth')" path="channel_meta_health_enable">
           <NSwitch v-model:value="form.channel_meta_health_enable" />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.channelMetaHealthEnable') }}
         </div>
 
@@ -88,13 +88,13 @@
             style="width: 200px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           <span v-html="t('config.channelMetaTTLHint')"></span>
         </div>
       </NCard>
 
       <!-- Scan Behavior -->
-      <NCard class="mb-4" :title="t('settings.scanBehavior')">
+      <NCard :title="t('settings.scanBehavior')">
         <NFormItem :label="t('config.notifyOnScanError')" path="notify_on_scan_error">
           <NSwitch v-model:value="form.notify_on_scan_error" />
         </NFormItem>
@@ -115,7 +115,7 @@
             style="width: 200px"
           />
         </NFormItem>
-        <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
           {{ t('config.scanJitterHint') }}
         </div>
       </NCard>
@@ -206,31 +206,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
 </style>

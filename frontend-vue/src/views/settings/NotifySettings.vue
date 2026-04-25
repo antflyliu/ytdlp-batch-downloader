@@ -1,17 +1,17 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('settings.notifyTitle') }}</div>
       <div class="page-desc">{{ t('settings.notifyDesc') }}</div>
     </div>
 
     <NForm ref="formRef" :model="form" label-placement="left" label-width="160">
-      <NCard class="mb-4" title="飞书 / Feishu">
+      <NCard title="飞书 / Feishu">
         <NFormItem :label="t('settings.feishuWebhook')" path="feishu_webhook">
           <NInput
             v-model:value="form.feishu_webhook"
@@ -20,7 +20,7 @@
         </NFormItem>
       </NCard>
 
-      <NCard class="mb-4" title="钉钉 / DingTalk">
+      <NCard title="钉钉 / DingTalk">
         <NFormItem :label="t('settings.dingtalkWebhook')" path="dingtalk_webhook">
           <NInput v-model:value="form.dingtalk_webhook" />
         </NFormItem>
@@ -32,13 +32,13 @@
         </NFormItem>
       </NCard>
 
-      <NCard class="mb-4" title="企业微信 / WeCom">
+      <NCard title="企业微信 / WeCom">
         <NFormItem :label="t('settings.wecomWebhook')" path="wecom_webhook">
           <NInput v-model:value="form.wecom_webhook" />
         </NFormItem>
       </NCard>
 
-      <NCard class="mb-4" title="Telegram">
+      <NCard title="Telegram">
         <NFormItem :label="t('settings.telegramBotToken')" path="telegram_bot_token">
           <NInput
             v-model:value="form.telegram_bot_token"
@@ -132,32 +132,3 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-</style>

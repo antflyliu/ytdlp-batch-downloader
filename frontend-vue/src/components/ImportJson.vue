@@ -75,7 +75,7 @@ const handleImport = () => {
     showModal.value = false
     fileContent.value = null
   } catch {
-    message.error(t('importJson.invalidJson'))
+    $message.error(t('importJson.invalidJson'))
   }
 }
 
