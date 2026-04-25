@@ -109,7 +109,7 @@ def _verify_authenticode(path: str) -> bool:
                 ("pwszURLReference", ctypes.c_wchar_p),
                 ("dwProvFlags", ctypes.c_ulong),
                 ("dwUIContext", ctypes.c_ulong),
-            }
+            ]
 
         file_info = WINTRUST_FILE_INFO(
             cbStruct=ctypes.sizeof(WINTRUST_FILE_INFO),

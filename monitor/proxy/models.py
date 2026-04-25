@@ -63,10 +63,6 @@ class ProxyEndpoint:
 
 @dataclass
 class ProxyRouteResult:
-
-
-@dataclass
-class ProxyRouteResult:
     """Result of proxy routing decision."""
     resolved_mode: str = "direct"
     proxy: str | None = None
