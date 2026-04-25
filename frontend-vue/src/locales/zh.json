@@ -116,7 +116,7 @@
     "insert_tail": "添入尾部",
     "insert_tail_tip": "拦截到新数据是否添加到列表尾部",
     "upstream_proxy": "上游代理",
-    "upstream_proxy_tip": "用于结合其他代理工具，格式: http://username:password@your.proxy.server:port",
+    "upstream_proxy_tip": "用于结合其他代理工具，格式: http://username\\:password@your.proxy.server\\:port",
     "download_proxy": "下载代理",
     "download_proxy_tip": "下载操作时是否使用上游代理",
     "user_agent_tip": "如不清楚请保持默认",
@@ -252,6 +252,8 @@
     "localTimezone": "本地时区",
     "hubProxyDesc": "mitmproxy 子进程管理 — 捕获 HTTPS 流量",
     "proxySnifferDefaultOff": "默认关闭，开启后可在资源嗅探页面捕获 HTTPS 流量中的媒体资源",
+    "systemProxyEnabled": "系统代理已开启",
+    "systemProxyDisabled": "系统代理已关闭",
     "defaultApiKey": "默认 API Key",
     "maskProxyLogs": "日志中掩码代理地址",
     "dynProviderManageDesc": "添加、编辑和测试动态代理提供方",
@@ -526,7 +528,8 @@
     "statusDone": "已完成",
     "tableStatus": "状态",
     "tableCreated": "创建时间",
-    "tableCollection": "合集"
+    "tableCollection": "合集",
+    "tableName": "名称"
   },
   "resources": {
     "filterDoc": "文档",
@@ -650,7 +653,7 @@
     "scanning": "扫描中...",
     "btnDelete": "删除",
     "notifyEnabled": "已开启通知",
-    "botTokenPlaceholder": "123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ",
+    "botTokenPlaceholder": "123456789\\:ABCdefGhIJKlmNoPQRsTUVwxYZ",
     "feishuScanTemplateId": "扫描确认模板 ID",
     "downloadModeHint": "决定何时使用固定代理、何时回退动态代理",
     "platWecom": "企业微信",
@@ -714,7 +717,10 @@
     "recentSection": "最近任务",
     "subEnabled": "下载字幕",
     "recentHint": "可恢复查看运行中任务，或打开最近完成/取消的任务结果。",
-    "subLang": "字幕语言"
+    "subLang": "字幕语言",
+    "fillCookie": "填写路径",
+    "recentRefresh": "↻ 刷新",
+    "view": "查看"
   },
   "apiKeysUi": {
     "deleteConfirmTitle": "确定删除「{name}」？",

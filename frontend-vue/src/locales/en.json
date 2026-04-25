@@ -116,7 +116,7 @@
     "insert_tail": "Insert tail",
     "insert_tail_tip": "Intercept whether new data is added to the end of the list",
     "upstream_proxy": "Upstream Proxy",
-    "upstream_proxy_tip": "For combining with other proxy tools, format: http://username:password@your.proxy.server:port",
+    "upstream_proxy_tip": "For combining with other proxy tools, format: http://username\\:password@your.proxy.server\\:port",
     "download_proxy": "Download Proxy",
     "download_proxy_tip": "Whether to use upstream proxy for downloads",
     "user_agent_tip": "Keep default if unsure",
@@ -252,6 +252,8 @@
     "localTimezone": "Local timezone",
     "hubProxyDesc": "mitmproxy subprocess management — capture HTTPS traffic",
     "proxySnifferDefaultOff": "Off by default. Enable to capture HTTPS media traffic in the Resource Sniffer page.",
+    "systemProxyEnabled": "System proxy enabled",
+    "systemProxyDisabled": "System proxy disabled",
     "defaultApiKey": "Default API Key",
     "maskProxyLogs": "Mask proxy endpoints in logs",
     "dynProviderManageDesc": "Add, edit, and test paid/free providers",
@@ -526,7 +528,8 @@
     "statusDone": "Done",
     "tableStatus": "Status",
     "tableCreated": "Created",
-    "tableCollection": "Collection"
+    "tableCollection": "Collection",
+    "tableName": "Name"
   },
   "resources": {
     "filterDoc": "Doc",
@@ -650,7 +653,7 @@
     "scanning": "Scanning...",
     "btnDelete": "Delete",
     "notifyEnabled": "Notify",
-    "botTokenPlaceholder": "123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ",
+    "botTokenPlaceholder": "123456789\\:ABCdefGhIJKlmNoPQRsTUVwxYZ",
     "feishuScanTemplateId": "Scan Confirm Template ID",
     "downloadModeHint": "Decides when to use fixed proxy, when to fallback to dynamic proxy",
     "platWecom": "WeCom",
@@ -714,7 +717,10 @@
     "recentSection": "Recent tasks",
     "subEnabled": "Download subtitles",
     "recentHint": "Resume running tasks or open recent completed/cancelled results.",
-    "subLang": "Subtitle languages"
+    "subLang": "Subtitle languages",
+    "fillCookie": "Set path",
+    "recentRefresh": "↻ Refresh",
+    "view": "Open"
   },
   "apiKeysUi": {
     "deleteConfirmTitle": "Delete “{name}”?",

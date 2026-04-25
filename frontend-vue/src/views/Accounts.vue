@@ -1,5 +1,5 @@
 <template>
-  <div class="accounts-page p-4">
+  <div class="accounts-page">
     <!-- Page Header -->
     <div class="page-header">
       <div>
@@ -57,10 +57,10 @@
 
       <!-- Empty State -->
       <div v-else class="empty-state">
-        <div class="empty-icon">—</div>
-        <div class="empty-title">{{ t('channels.emptyTitle') }}</div>
-        <div class="empty-desc">{{ t('channels.emptyDesc') }}</div>
-        <NButton type="primary" @click="openAddModal">
+        <div class="empty-state__icon">—</div>
+        <div class="empty-state__title">{{ t('channels.emptyTitle') }}</div>
+        <div class="empty-state__desc">{{ t('channels.emptyDesc') }}</div>
+        <NButton type="primary" style="margin-top:12px" @click="openAddModal">
           {{ t('channels.addFirst') }}
         </NButton>
       </div>
@@ -71,11 +71,10 @@
       v-model:show="showAccountModal"
       preset="card"
       :title="editingAccount ? t('account.titleEdit') : t('account.modalTitleAdd')"
-      style="width: 680px; max-height: 85vh;"
+      style="width: 680px"
       :mask-closable="false"
     >
-      <NScrollbar style="max-height: 65vh;">
-        <NForm
+      <NForm
           :model="formData"
           label-placement="left"
           label-width="140"
@@ -98,7 +97,7 @@
                 :placeholder="t('account.channelUrlPlaceholder')"
               />
               <template #feedback>
-                <span class="text-xs text-gray-500">{{ t('account.channelUrlHint') }}</span>
+                <span class="text-xs text-dim">{{ t('account.channelUrlHint') }}</span>
               </template>
             </NFormItem>
 
@@ -111,7 +110,7 @@
                 clearable
               />
               <template #feedback>
-                <span class="text-xs text-gray-500">{{ t('account.apiKeyHint') }}</span>
+                <span class="text-xs text-dim">{{ t('account.apiKeyHint') }}</span>
               </template>
             </NFormItem>
 
@@ -179,7 +178,7 @@
                   :placeholder="t('account.feishuWebhook')"
                 />
                 <template #feedback>
-                  <span class="text-xs text-gray-500">{{ t('account.webhookHintDefault') }}</span>
+                  <span class="text-xs text-dim">{{ t('account.webhookHintDefault') }}</span>
                 </template>
               </NFormItem>
 
@@ -220,7 +219,7 @@
                   :placeholder="t('account.dingtalkSecretPlaceholder')"
                 />
                 <template #feedback>
-                  <span class="text-xs text-gray-500">{{ t('account.dingtalkSecretHint') }}</span>
+                  <span class="text-xs text-dim">{{ t('account.dingtalkSecretHint') }}</span>
                 </template>
               </NFormItem>
             </template>
@@ -243,7 +242,7 @@
                   :placeholder="t('account.botTokenPlaceholder')"
                 />
                 <template #feedback>
-                  <span class="text-xs text-gray-500">{{ t('account.webhookHintTelegram') }}</span>
+                  <span class="text-xs text-dim">{{ t('account.webhookHintTelegram') }}</span>
                 </template>
               </NFormItem>
             </template>
@@ -256,7 +255,7 @@
             <NFormItem :label="t('account.enableProxy')">
               <NSwitch v-model:value="formData.proxy_enabled" />
               <template #feedback>
-                <span class="text-xs text-gray-500 ml-2">{{ t('account.enableProxyHint') }}</span>
+                <span class="text-xs text-dim" style="margin-left:8px">{{ t('account.enableProxyHint') }}</span>
               </template>
             </NFormItem>
 
@@ -268,7 +267,7 @@
                 clearable
               />
               <template #feedback>
-                <span class="text-xs text-gray-500">{{ t('account.proxyPoolHint') }}</span>
+                <span class="text-xs text-dim">{{ t('account.proxyPoolHint') }}</span>
               </template>
             </NFormItem>
 
@@ -278,7 +277,7 @@
                 :options="downloadModeOptions"
               />
               <template #feedback>
-                <span class="text-xs text-gray-500 ml-2">{{ t('account.downloadModeHint') }}</span>
+                <span class="text-xs text-dim" style="margin-left:8px">{{ t('account.downloadModeHint') }}</span>
               </template>
             </NFormItem>
 
@@ -297,10 +296,9 @@
             </div>
           </div>
         </NForm>
-      </NScrollbar>
 
       <template #footer>
-        <div class="flex justify-end gap-2">
+        <div style="display:flex; justify-content:flex-end; gap:8px">
           <NButton @click="showAccountModal = false">
             {{ t('common.cancel') }}
           </NButton>
@@ -324,7 +322,7 @@
         <NCheckbox v-model:checked="scanAutoDownload">
           {{ t('scanConfirm.autoDl') }}
         </NCheckbox>
-        <div class="text-xs text-gray-500 mt-1">{{ t('scanConfirm.autoDlHint') }}</div>
+        <div class="text-xs text-dim" style="margin-top:4px">{{ t('scanConfirm.autoDlHint') }}</div>
       </div>
       <template #action>
         <NButton @click="showScanModal = false">{{ t('common.cancel') }}</NButton>
@@ -368,7 +366,6 @@ import {
   NFormItem,
   NTag,
   NIcon,
-  NScrollbar,
   NCheckbox,
   useMessage,
 } from 'naive-ui'
@@ -605,7 +602,7 @@ const tableColumns: DataTableColumn<Account>[] = [
     title: t('channels.tableActions'),
     key: 'actions',
     width: 220,
-    render: (row) => h('div', { class: 'flex gap-1' }, [
+    render: (row) => h('div', { style: 'display:flex;gap:4px' }, [
       h(NButton, {
         size: 'small',
         tertiary: true,
@@ -742,14 +739,17 @@ const confirmScanNow = async () => {
   scanning.value = true
   try {
     const res = await accountsApi.scan(accountId, scanAutoDownload.value)
-    if (res.code === 0) {
-      message.error(res.message)
-    } else {
+    // Backend returns {ok: true} on success, {error: "..."} on error
+    if (res.data?.error) {
+      message.error(res.data.error)
+    } else if (res.data?.ok) {
       message.success(t('account.scanTriggered') + (scanAutoDownload.value ? ' ' + t('account.autoDownloadIncluded') : ''))
       showScanModal.value = false
     }
-  } catch (e) {
-    message.error(t('account.networkError'))
+  } catch (e: any) {
+    // Axios wraps the response; for 4xx/5xx the backend sends {error: "..."} in res.data
+    const errorMsg = e?.response?.data?.error || e?.message || t('account.networkError')
+    message.error(errorMsg)
   } finally {
     scanning.value = false
     ;(window as any).__scanTargetAccountId = null
@@ -762,9 +762,9 @@ const previewRouting = async () => {
   try {
     const res = await accountsApi.routingPreview(formData.value.id)
     routingResult.value = res.data
-    if (routingResult.value?.resolved_proxy_source === 'failed') routingColor.value = '#f87171'
-    else if (routingResult.value?.resolved_proxy_source === 'direct') routingColor.value = '#fbbf24'
-    else routingColor.value = '#34d399'
+    if (routingResult.value?.resolved_proxy_source === 'failed') routingColor.value = 'var(--error)'
+    else if (routingResult.value?.resolved_proxy_source === 'direct') routingColor.value = 'var(--warning)'
+    else routingColor.value = 'var(--success)'
   } catch (e) {
     message.error(t('account.loadFailed'))
   } finally {
@@ -805,92 +805,20 @@ onMounted(async () => {
 
 <style scoped>
 .accounts-page {
-  height: 100%;
-  overflow-y: auto;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 0 0 16px;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-.card {
-  background: var(--surface);
-  border-radius: var(--r-md);
-  padding: 16px;
-}
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-}
-.card-title-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: var(--accent-dim);
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-}
-.actions {
-  display: flex;
-  gap: 8px;
+  height: auto !important;
+  overflow: visible !important;
 }
 .card-account-search {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+  padding: 0 22px;
 }
 .account-count {
   font-size: 12px;
   color: var(--text-muted);
   margin-left: auto;
-}
-.table-wrap {
-  overflow-x: auto;
-}
-.empty-state {
-  text-align: center;
-  padding: 48px 24px;
-}
-.empty-icon {
-  font-size: 40px;
-  margin-bottom: 12px;
-  color: var(--text-muted);
-}
-.empty-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-.empty-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 16px;
 }
 .form-section {
   border-bottom: 1px solid var(--border);

@@ -11,10 +11,10 @@ const request = axios.create({
 request.interceptors.request.use(config => {
   const token = (window as any).__MONITOR_API_TOKEN__ || ''
   if (token) {
-    // For GET, add as query param; for POST, add as header
-    if (config.method === 'get') {
-      config.params = { ...config.params, api_token: token }
-    } else {
+    // Always add as query param — works for both GET and POST
+    config.params = { ...config.params, api_token: token }
+    // For POST/PUT/DELETE, also add as Authorization header
+    if (['post', 'put', 'delete'].includes(config.method?.toLowerCase() || '')) {
       config.headers.Authorization = `Bearer ${token}`
     }
   }

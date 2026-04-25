@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50" v-if="isLoading">
+  <div class="fixed inset-0 flex items-center justify-center z-50" :style="{ background: 'var(--overlay-bg)' }" v-if="isLoading">
     <div class="flex flex-col items-center">
       <svg class="animate-spin h-10 w-10 text-white mb-4" xmlns="http://www.w3.org/2000/svg" fill="none"
            viewBox="0 0 24 24">

@@ -1,17 +1,17 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink to="/settings-hub" class="back-link mb-4">
+    <RouterLink to="/settings-hub" class="back-link">
       {{ t('settings.backToSettings') }}
     </RouterLink>
 
-    <div class="page-header mb-6">
+    <div class="page-header">
       <div class="page-title">{{ t('nav.settingsProxy') }}</div>
       <div class="page-desc">{{ t('settings.hubProxyDesc') }}</div>
     </div>
 
     <!-- Proxy status card -->
-    <NCard class="mb-4">
+    <NCard>
       <div class="flex items-center gap-6">
         <!-- Status indicator -->
         <div class="flex items-center gap-3">
@@ -23,7 +23,7 @@
             <div class="text-sm font-semibold" style="color: var(--text)">
               {{ status.running ? t('settings.proxyRunning') : t('settings.proxyStopped') }}
             </div>
-            <div v-if="status.running && status.port" class="text-xs text-gray-500">
+            <div v-if="status.running && status.port" class="text-xs text-dim">
               {{ t('settings.proxyPort') }}: {{ status.port }}
             </div>
           </div>
@@ -55,13 +55,13 @@
           </NButton>
         </div>
       </div>
-      <div v-if="!configForm.proxy_sniffer_enabled" class="text-xs text-gray-400 mt-2">
-        {{ t('settings.proxySnifferDefaultOff') || '默认关闭，手动开启后代理嗅探可用' }}
+      <div v-if="!configForm.proxy_sniffer_enabled" class="text-xs text-dim mt-2">
+        {{ t('settings.proxySnifferDefaultOff') }}
       </div>
     </NCard>
 
     <!-- System proxy -->
-    <NCard class="mb-4" :title="t('settings.systemHttpProxy')">
+    <NCard :title="t('settings.systemHttpProxy')">
       <NFormItem :label="t('settings.systemHttpProxy')" path="system_proxy">
         <NSwitch
           :value="status.system_proxy"
@@ -69,7 +69,7 @@
           @update:value="toggleSystemProxy"
         />
       </NFormItem>
-      <div class="text-xs text-gray-500 -mt-2 mb-3" style="padding-left: 180px">
+      <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
         {{ t('settings.systemProxyHint') }}
       </div>
 
@@ -89,7 +89,7 @@
     </NCard>
 
     <!-- Port config -->
-    <NCard class="mb-4" :title="t('settings.proxyPort')">
+    <NCard :title="t('settings.proxyPort')">
       <NFormItem :label="t('settings.proxyPort')" path="port">
         <NInputNumber
           v-model:value="configForm.proxy_sniffer_port"
@@ -159,10 +159,10 @@ const enableProxy = async () => {
   enabling.value = true
   try {
     await configApi.enableProxy()
-    message.success(t('settings.proxyEnabled') || '代理已启用')
+    message.success(t('settings.proxyEnabled'))
     await loadStatus()
   } catch {
-    message.error(t('settings.proxyEnableFailed') || '启用失败')
+    message.error(t('settings.proxyEnableFailed'))
   } finally {
     enabling.value = false
   }
@@ -172,10 +172,10 @@ const disableProxy = async () => {
   disabling.value = true
   try {
     await configApi.disableProxy()
-    message.success(t('settings.proxyDisabled') || '代理已禁用')
+    message.success(t('settings.proxyDisabled'))
     await loadStatus()
   } catch {
-    message.error(t('settings.proxyDisableFailed') || '禁用失败')
+    message.error(t('settings.proxyDisableFailed'))
   } finally {
     disabling.value = false
   }
@@ -190,14 +190,14 @@ const toggleEnabled = async (val: boolean) => {
     // Start or stop proxy accordingly
     if (val && !status.running) {
       await configApi.enableProxy()
-      message.success(t('settings.proxyEnabled') || '代理已启用')
+      message.success(t('settings.proxyEnabled'))
     } else if (!val && status.running) {
       await configApi.disableProxy()
-      message.success(t('settings.proxyDisabled') || '代理已禁用')
+      message.success(t('settings.proxyDisabled'))
     }
     await loadStatus()
   } catch {
-    message.error(t('settings.saveFailed') || '保存失败')
+    message.error(t('settings.saveFailed'))
   } finally {
     switchingEnabled.value = false
   }
@@ -206,9 +206,9 @@ const toggleEnabled = async (val: boolean) => {
 const toggleSystemProxy = async (val: boolean) => {
   switchingProxy.value = true
   try {
-    await configApi.setSystemProxy(val)
+    await configApi.setSystemProxy(val ? 'open' : 'unset')
     status.system_proxy = val
-    message.success(val ? '系统代理已开启' : '系统代理已关闭')
+    message.success(val ? t('settings.systemProxyEnabled') : t('settings.systemProxyDisabled'))
   } catch {
     message.error('操作失败')
   } finally {
@@ -220,10 +220,10 @@ const installCert = async () => {
   installingCert.value = true
   try {
     await configApi.installCert()
-    message.success(t('settings.caCertInstallSuccess') || '证书安装成功')
+    message.success(t('settings.caCertInstallSuccess'))
     await loadStatus()
   } catch {
-    message.error(t('settings.caCertInstallFailed') || '证书安装失败')
+    message.error(t('settings.caCertInstallFailed'))
   } finally {
     installingCert.value = false
   }
@@ -259,33 +259,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 13px;
-}
-.back-link:hover {
-  text-decoration: underline;
-}
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.page-title {
-  font-family: var(--font);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--text);
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
 .status-dot {
   width: 12px;
   height: 12px;
