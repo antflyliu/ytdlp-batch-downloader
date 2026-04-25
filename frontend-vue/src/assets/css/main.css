@@ -9,6 +9,29 @@
   min-height: 100vh;
 }
 
+/* ── Modal overlay fix ──────────────────────────────────────────────── */
+/* Lock body scroll when modal opens so sidebar doesn't squeeze */
+body:has(.n-modal) {
+  overflow: hidden !important;
+  scrollbar-gutter: stable;
+}
+
+/* ── Modal card footer: always visible, never pushed out ───────────────── */
+/* Naive UI NModal with preset="card" renders card as flex column.
+   Footer is a flex item — use flex-shrink:0 to keep it at natural height. */
+body .n-modal .n-card__footer,
+body .n-dialog .n-card__footer {
+  flex-shrink: 0 !important;
+  padding: 14px 24px !important;
+  border-top: 1px solid #f0eee6 !important;
+  background-color: #faf9f5 !important;
+}
+
+/* Modal overlay backdrop */
+body .n-modal-mask {
+  background-color: rgba(45, 42, 38, 0.32) !important;
+}
+
 .ellipsis-2 {
   display: -webkit-box;
   overflow: hidden;
