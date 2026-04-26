@@ -26,8 +26,44 @@ _LOG_DIR.mkdir(parents=True, exist_ok=True)
 _FORMAT = "%(asctime)s | %(levelname)-8s | %(name)-25s | %(message)s"
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
-# 禁用传播到根 logger（避免重复输出）
-_root_configured = False
+_shared_file_handler: logging.Handler | None = None
+
+
+def _is_locked_file_error(exc: OSError) -> bool:
+    return isinstance(exc, PermissionError) or getattr(exc, "winerror", None) == 32
+
+
+class WindowsSafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler variant that keeps writing if Windows blocks rollover."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            if self.shouldRollover(record):
+                try:
+                    self.doRollover()
+                except OSError as exc:
+                    if not _is_locked_file_error(exc):
+                        raise
+                    # Another process/thread still has the log open. Skip this
+                    # rollover attempt and append the record to the active file.
+            logging.FileHandler.emit(self, record)
+        except Exception:
+            self.handleError(record)
+
+
+def _get_shared_file_handler() -> logging.Handler:
+    global _shared_file_handler
+    if _shared_file_handler is None:
+        file_handler = WindowsSafeRotatingFileHandler(
+            _LOG_FILE,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATE_FMT))
+        _shared_file_handler = file_handler
+    return _shared_file_handler
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -35,34 +71,12 @@ def get_logger(name: str) -> logging.Logger:
     返回以 name 命名的 logger。
     首次调用时配置全局 file handler（所有模块共享）。
     """
-    global _root_configured
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
 
-    if not logger.handlers:
-        # 全局 file handler（只配置一次）
-        if not _root_configured:
-            file_handler = logging.handlers.RotatingFileHandler(
-                _LOG_FILE,
-                maxBytes=10 * 1024 * 1024,   # 10 MB
-                backupCount=5,
-                encoding="utf-8",
-            )
-            file_handler.setLevel(logging.DEBUG)
-            formatter = logging.Formatter(_FORMAT, datefmt=_DATE_FMT)
-            file_handler.setFormatter(formatter)
-            # 不加 root handler，只给子 logger 用
-            _root_configured = True
-
-        # 每个 logger 自己的 handler
-        fh = logging.handlers.RotatingFileHandler(
-            _LOG_FILE,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
-        )
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATE_FMT))
-        logger.addHandler(fh)
+    shared_handler = _get_shared_file_handler()
+    if shared_handler not in logger.handlers:
+        logger.addHandler(shared_handler)
 
     return logger

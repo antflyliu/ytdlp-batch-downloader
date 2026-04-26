@@ -344,6 +344,24 @@ class TestGlobalWebhookConfigEncryption(_WebhookConfigTestCase):
             self.assertNotEqual(raw_cfg["global_feishu_url"], plaintext)
             self.assertTrue(raw_cfg["global_feishu_url"].startswith("enc:"))
 
+    def test_load_config_migrates_encrypted_default_api_key_id(self):
+        import monitor.db as _db
+
+        with self._ctx():
+            _db.init_db()
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    **_db._config_default(),
+                    "default_api_key_id": "enc:legacy-id",
+                }, f, ensure_ascii=False, indent=2)
+
+            with patch("config.encryption._decrypt_config_value", return_value="7"):
+                loaded_cfg = _db.load_config()
+
+            self.assertEqual(loaded_cfg["default_api_key_id"], "7")
+            raw_cfg = self._read_raw_config()
+            self.assertEqual(raw_cfg["default_api_key_id"], "7")
+
 
 class TestSchedulerGlobalWebhookLoading(_WebhookConfigTestCase):
     def test_ensure_global_webhooks_uses_decrypted_values(self):

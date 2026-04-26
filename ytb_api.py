@@ -4,12 +4,23 @@ from datetime import datetime, timedelta
 from typing import Callable, Literal
 import pandas as pd
 import logging_config
+import httplib2
 from googleapiclient.discovery import build
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 """
 YouTube Data API 概览：https://developers.google.com/youtube/v3/getting-started?hl=zh-cn
 """
+
+_DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS = 15
+
+
+def _youtube_api_timeout_seconds() -> int:
+    try:
+        value = int(os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", _DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS))
+    except (TypeError, ValueError):
+        return _DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS
+    return value if value > 0 else _DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS
 
 
 class YouTubeDataCollector:
@@ -50,7 +61,12 @@ class YouTubeDataCollector:
             os.environ['HTTPS_PROXY'] = proxy
 
         self.api_key = api_key
-        self.youtube = build('youtube', 'v3', developerKey=api_key)
+        self.youtube = build(
+            'youtube',
+            'v3',
+            developerKey=api_key,
+            http=httplib2.Http(timeout=_youtube_api_timeout_seconds()),
+        )
         self.logger_callback = logger_callback
         self.view_threshold = view_threshold
         self.max_limit = max_limit
@@ -481,7 +497,9 @@ class YouTubeDataCollector:
                             exhausted_reason = "已取消（用户停止监控或调度器关闭）"
                             self.log_message(exhausted_reason)
                             break
-                        continue
+                        exhausted_reason = f"视频详情API错误: {str(e)}"
+                        self.log_message("停止本次 playlist 扫描，避免重复请求同一页")
+                        break
 
                     # ★ 收集够 max_limit 条就停止
                     if len(videos) >= self.max_limit:
@@ -509,7 +527,8 @@ class YouTubeDataCollector:
                         self.log_message(exhausted_reason)
                         break
                     exhausted_reason = f"API错误: {str(e)}"
-                    continue
+                    self.log_message("停止本次 playlist 扫描，避免重复请求同一页")
+                    break
 
             self.log_message(f"\n频道视频获取统计 (playlistItems.list 模式):")
             self.log_message(f"- 终止原因: {exhausted_reason}")
@@ -634,7 +653,9 @@ class YouTubeDataCollector:
                             exhausted_reason = "已取消（用户停止监控或调度器关闭）"
                             self.log_message(exhausted_reason)
                             break
-                        continue
+                        exhausted_reason = f"视频详情API错误: {str(e)}"
+                        self.log_message("停止本次 search 扫描，避免重复请求同一页")
+                        break
 
                     if len(videos) >= self.max_limit:
                         videos = videos[: self.max_limit]
@@ -663,7 +684,8 @@ class YouTubeDataCollector:
                         self.log_message(exhausted_reason)
                         break
                     exhausted_reason = f"API错误: {str(e)}"
-                    continue
+                    self.log_message("停止本次 search 扫描，避免重复请求同一页")
+                    break
 
             self.log_message(f"\n频道视频获取统计 (search.list 模式):")
             self.log_message(f"- 终止原因: {exhausted_reason}")

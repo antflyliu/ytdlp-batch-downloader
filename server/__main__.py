@@ -27,6 +27,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import monitor.db as _db
+from config.encryption import _decrypt_config_value as _decrypt_config_value
 from monitor.video_paths import resolve_downloaded_video_path
 import monitor.scheduler as _scheduler
 import monitor.provider_scheduler as _provider_scheduler
@@ -55,6 +56,50 @@ from server.middleware.rate_limit import (
 from server.middleware.auth import get_api_token, verify_bearer_token
 
 _WEB_BATCH_ACCOUNT_NAME = "Web 批量下载"
+_MASKED_SECRET_VALUE = "***"
+_CONFIG_RESPONSE_SECRET_KEYS = {
+    "global_dingtalk_sign_secret",
+    "global_telegram_token",
+    "llm_api_key",
+}
+_ACCOUNT_RESPONSE_SECRET_KEYS = {
+    "dingtalk_sign_secret",
+    "telegram_bot_token",
+}
+
+
+def _mask_present_secret(value):
+    return _MASKED_SECRET_VALUE if value else ""
+
+
+def _mask_config_for_response(cfg: dict) -> dict:
+    safe = dict(cfg or {})
+    for key in _CONFIG_RESPONSE_SECRET_KEYS:
+        safe[key] = _mask_present_secret(safe.get(key))
+    return safe
+
+
+def _preserve_masked_config_values(new_cfg: dict, old_cfg: dict) -> dict:
+    merged = dict(new_cfg or {})
+    old = old_cfg or {}
+    for key in _CONFIG_RESPONSE_SECRET_KEYS:
+        if merged.get(key) == _MASKED_SECRET_VALUE:
+            merged[key] = old.get(key, "")
+    return merged
+
+
+def _mask_account_for_response(account: dict) -> dict:
+    safe = dict(account or {})
+    for key in _ACCOUNT_RESPONSE_SECRET_KEYS:
+        safe[key] = _mask_present_secret(safe.get(key))
+    return safe
+
+
+def _resolve_masked_account_secret(account_id: int, field: str, submitted):
+    if submitted != _MASKED_SECRET_VALUE:
+        return submitted or None
+    account = _db.get_account(account_id) or {}
+    return account.get(field) or None
 
 
 def _get_client_ip() -> str:
@@ -1071,6 +1116,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_accounts(self):
         accounts = _db.list_accounts()
+        accounts = [_mask_account_for_response(a) for a in accounts]
         result = [{
             "id": a["id"],
             "name": a["name"],
@@ -1128,7 +1174,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json(result)
 
     def _api_config(self):
-        self._send_json(_db.load_config())
+        self._send_json(_mask_config_for_response(_db.load_config()))
 
     def _api_token_info(self):
         """GET /api/token — 返回当前 Bearer token（需认证）"""
@@ -1136,7 +1182,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json({"token": token})
 
     def _api_config_save(self, body):
-        cfg = _db.load_config()
+        old_cfg = _db.load_config()
+        cfg = dict(old_cfg)
         for key in [
             "global_feishu_url", "global_dingtalk_url", "global_dingtalk_sign_secret", "global_wecom_url",
             "global_telegram_token", "global_telegram_chat_id",
@@ -1164,9 +1211,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "clip_embed_thumbnail", "clip_embed_subtitle", "clip_adapt_aspect_ratio",
             "clip_thumbnail_quality",
             "auto_clip_enabled", "auto_clip_notify_enabled",
+            # 代理嗅探
+            "proxy_sniffer_enabled", "proxy_sniffer_port",
         ]:
             if key in body:
                 cfg[key] = body[key]
+        cfg = _preserve_masked_config_values(cfg, old_cfg)
         # 配额预警阈值：规范为升序唯一整数列表
         if "quota_alert_thresholds" in body and body["quota_alert_thresholds"] is not None:
             raw = body["quota_alert_thresholds"]
@@ -1191,6 +1241,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             cfg["quota_alert_thresholds"] = thr if thr else [80, 90, 100]
         default_key_id = cfg.get("default_api_key_id")
         if default_key_id:
+            # default_api_key_id may be encrypted (stored as enc:... due to "api_key" in field name)
+            if isinstance(default_key_id, str):
+                default_key_id = _decrypt_config_value(default_key_id)
+            try:
+                default_key_id = int(default_key_id)
+            except (ValueError, TypeError):
+                self._send_json({"error": f"无效的 default_api_key_id: {default_key_id}"}, 400)
+                return
             ak = _db.get_api_key(default_key_id)
             if not ak:
                 self._send_json({"error": f"指定的默认 API Key (id={default_key_id}) 不存在"}, 400)
@@ -1470,6 +1528,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 proxy_pool_id_param = int(proxy_pool_id_val) if proxy_pool_id_val else None
 
             if account_id:
+                telegram_bot_token = _resolve_masked_account_secret(
+                    int(account_id), "telegram_bot_token", body.get("telegram_bot_token")
+                )
+                dingtalk_sign_secret = _resolve_masked_account_secret(
+                    int(account_id), "dingtalk_sign_secret", body.get("dingtalk_sign_secret")
+                )
                 _db.update_account(
                     account_id=int(account_id),
                     name=body.get("name", "").strip(),
@@ -1482,8 +1546,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     notify_enabled=bool(body.get("notify_enabled")) if "notify_enabled" in body else None,
                     notify_platform=body.get("notify_platform"),
                     webhook_url=body.get("webhook_url") or None,
-                    telegram_bot_token=body.get("telegram_bot_token") or None,
-                    dingtalk_sign_secret=body.get("dingtalk_sign_secret") or None,
+                    telegram_bot_token=telegram_bot_token,
+                    dingtalk_sign_secret=dingtalk_sign_secret,
                     feishu_message_mode=body.get("feishu_message_mode"),
                     feishu_template_id=body.get("feishu_template_id") or None,
                     feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
@@ -1526,8 +1590,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
     def _api_account_scan(self, body):
         acc_id = int(body.get("account_id", 0))
         auto_dl = bool(body.get("auto_download", False))
-        _scheduler.trigger_scan(acc_id, auto_download=auto_dl)
-        self._send_json({"ok": True})
+        queued = _scheduler.trigger_scan_async(acc_id, auto_download=auto_dl)
+        self._send_json({"ok": True, "queued": queued, "already_running": not queued})
 
     def _api_account_delete(self, acc_id):
         try:
@@ -1705,7 +1769,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         for p in providers:
             cfg = p.get("config_json", {}) or {}
             preview = dict(cfg)
-            for sensitive in ("password", "auth_secret", "api_key"):
+            for sensitive in ("password", "auth_secret", "api_key", "local_proxy_url"):
                 if sensitive in preview:
                     preview[sensitive] = "***"
 

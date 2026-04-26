@@ -15,6 +15,7 @@ import apscheduler.triggers.interval
 
 import logging_config
 import monitor.db as _db
+from config.encryption import _decrypt_config_value as _decrypt_config_value
 from monitor.video_paths import resolve_downloaded_video_path
 import monitor.detector as _detector
 import monitor.fetcher as _fetcher
@@ -230,12 +231,21 @@ def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
     if not api_key:
         default_id = cfg.get("default_api_key_id")
         if default_id:
-            ak = _db.get_api_key(default_id)
-            if ak and ak.get("is_active"):
-                api_key = ak["key_value"]
-                api_key_record = ak
-                budget = ak.get("daily_quota", budget)
-                _log.info(f"使用系统默认 API Key: {ak['name']}")
+            # default_api_key_id may be encrypted (stored as enc:... due to "api_key" in field name)
+            if isinstance(default_id, str):
+                default_id = _decrypt_config_value(default_id)
+            try:
+                default_id = int(default_id)
+            except (ValueError, TypeError):
+                _log.warning(f"无效的 default_api_key_id: {default_id}，跳过系统默认 API Key")
+                default_id = None
+            if default_id is not None:
+                ak = _db.get_api_key(default_id)
+                if ak and ak.get("is_active"):
+                    api_key = ak["key_value"]
+                    api_key_record = ak
+                    budget = ak.get("daily_quota", budget)
+                    _log.info(f"使用系统默认 API Key: {ak['name']}")
 
     # 3. 兜底：旧环境变量方式（兼容）
     if not api_key:
@@ -521,6 +531,10 @@ _auto_download_on_scan: bool = False
 
 # 调度器关闭取消标志（由 stop() 设置，运行中的任务应周期性检查并提前退出）
 _scheduler_cancelled: bool = False
+
+# 手动“立即扫描”的后台任务锁，避免同一账户重复点击时并发扫描同一账号。
+_manual_scan_locks: dict[int, threading.Lock] = {}
+_manual_scan_locks_guard = threading.Lock()
 
 # ── per-account 下载池（替代全局 _auto_dl_pool）─────────────────────────
 _account_pools: dict[int, ThreadPoolExecutor] = {}   # account_id → 独立池
@@ -873,6 +887,39 @@ def trigger_scan(account_id: int, auto_download: bool = False) -> None:
     供 server/__main__.py 的 Web UI 端点调用。
     """
     _scan_account(account_id, auto_download=auto_download)
+
+
+def _get_manual_scan_lock(account_id: int) -> threading.Lock:
+    with _manual_scan_locks_guard:
+        lock = _manual_scan_locks.get(account_id)
+        if lock is None:
+            lock = threading.Lock()
+            _manual_scan_locks[account_id] = lock
+        return lock
+
+
+def trigger_scan_async(account_id: int, auto_download: bool = False) -> bool:
+    """
+    后台触发手动扫描，HTTP 调用可立即返回。
+    返回 False 表示该账户已有一次手动扫描正在执行。
+    """
+    lock = _get_manual_scan_lock(account_id)
+    if not lock.acquire(blocking=False):
+        _log.info(f"手动扫描已在执行，忽略重复触发: id={account_id}")
+        return False
+
+    def _run_manual_scan() -> None:
+        try:
+            _scan_account(account_id, auto_download=auto_download)
+        finally:
+            lock.release()
+
+    threading.Thread(
+        target=_run_manual_scan,
+        daemon=True,
+        name=f"manual-scan-{account_id}",
+    ).start()
+    return True
 
 
 def _scan_account(account_id: int, auto_download: bool = False, from_scheduler: bool = False) -> None:

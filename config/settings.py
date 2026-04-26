@@ -107,8 +107,6 @@ def _config_default() -> dict:
 
 def load_config() -> dict:
     """加载全局配置（支持 PyInstaller exe 和源码两种模式）"""
-    from config.encryption import _encrypt_webhook, _decrypt_webhook
-
     _cfg_path = get_config_path()
     _pkg_dir = get_pkg_dir()
 
@@ -128,10 +126,11 @@ def load_config() -> dict:
         return _config_default()
 
     raw_cfg = {**_config_default(), **raw_cfg}
-    encrypted_cfg = _encrypt_config_webhooks(raw_cfg)
+    runtime_cfg = _normalize_plain_config_ids(_decrypt_config_webhooks(raw_cfg))
+    encrypted_cfg = _encrypt_config_webhooks(runtime_cfg)
     if source_path and encrypted_cfg != raw_cfg:
         _write_config(source_path, encrypted_cfg)
-    return _decrypt_config_webhooks(raw_cfg)
+    return runtime_cfg
 
 
 def save_config(cfg: dict) -> None:
@@ -170,4 +169,15 @@ def _decrypt_config_webhooks(cfg: dict) -> dict:
     cfg = {**_config_default(), **cfg}
     for key in _GLOBAL_WEBHOOK_KEYS:
         cfg[key] = _dec(cfg.get(key)) or ""
+    return cfg
+
+
+def _normalize_plain_config_ids(cfg: dict) -> dict:
+    """Normalize non-secret id fields that older builds may have encrypted."""
+    from config.encryption import _decrypt_config_value
+
+    cfg = {**_config_default(), **cfg}
+    default_api_key_id = cfg.get("default_api_key_id")
+    if isinstance(default_api_key_id, str) and default_api_key_id.startswith("enc:"):
+        cfg["default_api_key_id"] = _decrypt_config_value(default_api_key_id)
     return cfg

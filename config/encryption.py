@@ -14,7 +14,14 @@ from cryptography.fernet import Fernet
 
 # ── Constants ──────────────────────────────────────────────────
 
-_SECRET_FIELD_NAMES = frozenset(["password", "auth_secret", "api_key", "secret", "token"])
+_SECRET_FIELD_NAMES = frozenset([
+    "password",
+    "auth_secret",
+    "api_key",
+    "proxy_url",
+    "secret",
+    "token",
+])
 
 
 def _is_secret_field(field_name: str) -> bool:
