@@ -76,3 +76,4 @@ scripts/test_*.py
 .omc/
 .omx/
 .superpowers/
+.cursor/
