@@ -102,6 +102,18 @@ def _resolve_masked_account_secret(account_id: int, field: str, submitted):
     return account.get(field) or None
 
 
+def _resolve_optional_account_secret(account_id: int, field: str, body: dict):
+    if field not in body:
+        return _db._UNSET
+    return _resolve_masked_account_secret(account_id, field, body.get(field))
+
+
+def _optional_nullable_body_value(body: dict, field: str):
+    if field not in body:
+        return _db._UNSET
+    return body.get(field) or None
+
+
 def _get_client_ip() -> str:
     """从请求中提取真实 IP（支持 X-Forwarded-For）"""
     return ""  # placeholder, overridden in handler
@@ -868,6 +880,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_account_add(body)
         elif path == "/api/accounts/scan":
             self._api_account_scan(body)
+        elif path.startswith("/api/accounts/") and path.endswith("/update"):
+            acc_id = path.split("/")[-2]
+            self._api_account_update(acc_id, body)
         elif path.startswith("/api/accounts/") and "/videos/batch-download" in path:
             acc_id = path.split("/")[3]
             self._api_account_videos_batch_download(acc_id, body)
@@ -1241,7 +1256,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             cfg["quota_alert_thresholds"] = thr if thr else [80, 90, 100]
         default_key_id = cfg.get("default_api_key_id")
         if default_key_id:
-            # default_api_key_id may be encrypted (stored as enc:... due to "api_key" in field name)
+            # default_api_key_id is encrypted at rest but remains an api_keys.id at runtime.
             if isinstance(default_key_id, str):
                 default_key_id = _decrypt_config_value(default_key_id)
             try:
@@ -1528,14 +1543,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 proxy_pool_id_param = int(proxy_pool_id_val) if proxy_pool_id_val else None
 
             if account_id:
-                telegram_bot_token = _resolve_masked_account_secret(
-                    int(account_id), "telegram_bot_token", body.get("telegram_bot_token")
-                )
-                dingtalk_sign_secret = _resolve_masked_account_secret(
-                    int(account_id), "dingtalk_sign_secret", body.get("dingtalk_sign_secret")
+                account_id = int(account_id)
+                api_key_id_update = api_key_id_param if "api_key_id" in body else _db._UNSET
+                proxy_pool_id_update = (
+                    proxy_pool_id_param if "proxy_pool_id" in body else _db._UNSET
                 )
                 _db.update_account(
-                    account_id=int(account_id),
+                    account_id=account_id,
                     name=body.get("name", "").strip(),
                     channel_url=channel_url,
                     api_key_env=body.get("api_key_env"),
@@ -1545,16 +1559,24 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     enabled=bool(body.get("enabled")) if "enabled" in body else None,
                     notify_enabled=bool(body.get("notify_enabled")) if "notify_enabled" in body else None,
                     notify_platform=body.get("notify_platform"),
-                    webhook_url=body.get("webhook_url") or None,
-                    telegram_bot_token=telegram_bot_token,
-                    dingtalk_sign_secret=dingtalk_sign_secret,
+                    webhook_url=_optional_nullable_body_value(body, "webhook_url"),
+                    telegram_bot_token=_resolve_optional_account_secret(
+                        account_id, "telegram_bot_token", body
+                    ),
+                    dingtalk_sign_secret=_resolve_optional_account_secret(
+                        account_id, "dingtalk_sign_secret", body
+                    ),
                     feishu_message_mode=body.get("feishu_message_mode"),
-                    feishu_template_id=body.get("feishu_template_id") or None,
-                    feishu_scan_template_id=body.get("feishu_scan_template_id") or None,
-                    api_key_id=api_key_id_param,
-                    proxy_pool_id=proxy_pool_id_param,
+                    feishu_template_id=_optional_nullable_body_value(body, "feishu_template_id"),
+                    feishu_scan_template_id=_optional_nullable_body_value(body, "feishu_scan_template_id"),
+                    api_key_id=api_key_id_update,
+                    proxy_pool_id=proxy_pool_id_update,
                     proxy_enabled=bool(body.get("proxy_enabled")) if "proxy_enabled" in body else None,
-                    download_proxy_mode=body.get("download_proxy_mode", "auto"),
+                    download_proxy_mode=(
+                        body.get("download_proxy_mode")
+                        if "download_proxy_mode" in body
+                        else _db._UNSET
+                    ),
                 )
                 if _scheduler.is_running():
                     _scheduler.reload_jobs()
@@ -1586,6 +1608,16 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except Exception:
             _log.error("账户操作异常", exc_info=True)
             self._send_json({"error": "操作失败，请查看服务器日志"}, 400)
+
+    def _api_account_update(self, acc_id, body):
+        try:
+            account_id = int(acc_id)
+        except (TypeError, ValueError):
+            self._send_json({"error": "账户 ID 无效"}, 400)
+            return
+        update_body = dict(body or {})
+        update_body["id"] = account_id
+        self._api_account_add(update_body)
 
     def _api_account_scan(self, body):
         acc_id = int(body.get("account_id", 0))
