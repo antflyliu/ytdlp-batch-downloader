@@ -53,6 +53,7 @@ package*.json
 .specstory/
 .vscode/
 logs/
+output/
 patch_provider_ui_obs.py
 
 # User data (sensitive)
