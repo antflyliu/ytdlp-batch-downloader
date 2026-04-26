@@ -231,7 +231,7 @@ def _resolve_api_key(account: dict) -> tuple[str | None, dict | None, int]:
     if not api_key:
         default_id = cfg.get("default_api_key_id")
         if default_id:
-            # default_api_key_id may be encrypted (stored as enc:... due to "api_key" in field name)
+            # default_api_key_id is encrypted at rest but remains an api_keys.id at runtime.
             if isinstance(default_id, str):
                 default_id = _decrypt_config_value(default_id)
             try:

@@ -126,11 +126,10 @@ def load_config() -> dict:
         return _config_default()
 
     raw_cfg = {**_config_default(), **raw_cfg}
-    runtime_cfg = _normalize_plain_config_ids(_decrypt_config_webhooks(raw_cfg))
-    encrypted_cfg = _encrypt_config_webhooks(runtime_cfg)
+    encrypted_cfg = _encrypt_config_references(_encrypt_config_webhooks(raw_cfg))
     if source_path and encrypted_cfg != raw_cfg:
         _write_config(source_path, encrypted_cfg)
-    return runtime_cfg
+    return _decrypt_config_references(_decrypt_config_webhooks(encrypted_cfg))
 
 
 def save_config(cfg: dict) -> None:
@@ -143,7 +142,7 @@ def save_config(cfg: dict) -> None:
     cfg["global_dingtalk_sign_secret"] = (
         normalize_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret")) or ""
     )
-    _write_config(_cfg_path, _encrypt_config_webhooks(cfg))
+    _write_config(_cfg_path, _encrypt_config_references(_encrypt_config_webhooks(cfg)))
     try:
         import monitor.quota as _quota
 
@@ -172,8 +171,19 @@ def _decrypt_config_webhooks(cfg: dict) -> dict:
     return cfg
 
 
-def _normalize_plain_config_ids(cfg: dict) -> dict:
-    """Normalize non-secret id fields that older builds may have encrypted."""
+def _encrypt_config_references(cfg: dict) -> dict:
+    """Encrypt sensitive-looking config references while keeping runtime semantics."""
+    from config.encryption import _encrypt_config_value
+
+    cfg = {**_config_default(), **cfg}
+    default_api_key_id = cfg.get("default_api_key_id")
+    if default_api_key_id not in (None, ""):
+        cfg["default_api_key_id"] = _encrypt_config_value(str(default_api_key_id))
+    return cfg
+
+
+def _decrypt_config_references(cfg: dict) -> dict:
+    """Decrypt config references that are stored encrypted at rest."""
     from config.encryption import _decrypt_config_value
 
     cfg = {**_config_default(), **cfg}

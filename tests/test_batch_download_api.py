@@ -344,7 +344,24 @@ class TestGlobalWebhookConfigEncryption(_WebhookConfigTestCase):
             self.assertNotEqual(raw_cfg["global_feishu_url"], plaintext)
             self.assertTrue(raw_cfg["global_feishu_url"].startswith("enc:"))
 
-    def test_load_config_migrates_encrypted_default_api_key_id(self):
+    def test_load_config_preserves_encrypted_default_api_key_id_at_rest(self):
+        import monitor.db as _db
+
+        with self._ctx():
+            _db.init_db()
+            cfg = _db._config_default()
+            cfg["default_api_key_id"] = "7"
+            _db.save_config(cfg)
+            raw_before = self._read_raw_config()
+            self.assertTrue(raw_before["default_api_key_id"].startswith("enc:"))
+
+            loaded_cfg = _db.load_config()
+
+            self.assertEqual(loaded_cfg["default_api_key_id"], "7")
+            raw_after = self._read_raw_config()
+            self.assertEqual(raw_after["default_api_key_id"], raw_before["default_api_key_id"])
+
+    def test_load_config_migrates_plaintext_default_api_key_id(self):
         import monitor.db as _db
 
         with self._ctx():
@@ -352,15 +369,15 @@ class TestGlobalWebhookConfigEncryption(_WebhookConfigTestCase):
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump({
                     **_db._config_default(),
-                    "default_api_key_id": "enc:legacy-id",
+                    "default_api_key_id": "7",
                 }, f, ensure_ascii=False, indent=2)
 
-            with patch("config.encryption._decrypt_config_value", return_value="7"):
-                loaded_cfg = _db.load_config()
+            loaded_cfg = _db.load_config()
 
             self.assertEqual(loaded_cfg["default_api_key_id"], "7")
             raw_cfg = self._read_raw_config()
-            self.assertEqual(raw_cfg["default_api_key_id"], "7")
+            self.assertNotEqual(raw_cfg["default_api_key_id"], "7")
+            self.assertTrue(raw_cfg["default_api_key_id"].startswith("enc:"))
 
 
 class TestSchedulerGlobalWebhookLoading(_WebhookConfigTestCase):
