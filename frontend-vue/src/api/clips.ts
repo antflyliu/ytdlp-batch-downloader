@@ -46,6 +46,12 @@ export interface ClipListResponse {
   items: ClipTask[]
 }
 
+export interface ClipCreateResponse {
+  ok?: boolean
+  task_id?: number
+  error?: string
+}
+
 export default {
   list(params?: { account_id?: number; status?: string; page?: number; limit?: number }) {
     return request<ClipListResponse>({
@@ -59,6 +65,14 @@ export default {
     return request<ClipTaskDetail>({
       url: `/api/clips/${id}`,
       method: 'get',
+    })
+  },
+
+  create(videoId: number) {
+    return request<ClipCreateResponse>({
+      url: '/api/clips',
+      method: 'post',
+      data: { video_id: videoId },
     })
   },
 }

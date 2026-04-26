@@ -50,7 +50,7 @@
           :bordered="false"
           :virtual-scroll="true"
           :row-key="(row: Account) => row.id"
-          :scroll-x="1400"
+          :scroll-x="1460"
           :max-height="600"
           striped
         />
@@ -315,6 +315,134 @@
       </template>
     </NModal>
 
+    <!-- Account Video Detail Modal -->
+    <NModal
+      v-model:show="showDetailModal"
+      :block-scroll="false"
+      preset="card"
+      :title="t('videoDetail.title')"
+      class="video-detail-modal"
+      style="width: min(1180px, 96vw)"
+      :mask-closable="false"
+    >
+      <div class="video-detail">
+        <div class="video-detail__header">
+          <div class="video-detail__identity">
+            <div class="video-detail__eyebrow">{{ t('videoDetail.monitorAccount') }}</div>
+            <div class="video-detail__account">{{ detailAccount?.name || '—' }}</div>
+            <div class="video-detail__channel">{{ detailAccount?.channel_url || '—' }}</div>
+          </div>
+          <div class="video-detail__actions">
+            <NTag size="small" :bordered="false">
+              {{ t('video.totalVideos', { n: detailTotal }) }}
+            </NTag>
+            <NCheckbox v-model:checked="detailDownloadSubtitles">
+              {{ detailDownloadSubtitles ? t('video.subtitleOn') : t('video.subtitleOff') }}
+            </NCheckbox>
+            <NButton
+              type="primary"
+              :disabled="detailSelectedRowKeys.length === 0"
+              :loading="detailDownloading"
+              @click="batchDownloadSelected"
+            >
+              {{ t('video.btnDownloadSelected', { n: detailSelectedRowKeys.length }) }}
+            </NButton>
+          </div>
+        </div>
+
+        <div class="video-detail__filters">
+          <NInput
+            v-model:value="detailFilters.title_kw"
+            :placeholder="t('videoDetail.searchTitle')"
+            clearable
+            @keyup.enter="searchDetailVideos"
+          />
+          <NInput
+            v-model:value="detailFilters.url_kw"
+            :placeholder="t('videoDetail.searchUrl')"
+            clearable
+            @keyup.enter="searchDetailVideos"
+          />
+          <NSelect
+            v-model:value="detailFilters.status"
+            :options="detailStatusOptions"
+            :placeholder="t('videoDetail.allStatus')"
+          />
+          <NSelect
+            v-model:value="detailFilters.sort_by"
+            :options="detailSortOptions"
+          />
+          <NSelect
+            v-model:value="detailFilters.sort_dir"
+            :options="detailSortDirOptions"
+          />
+          <NButton type="primary" tertiary @click="searchDetailVideos">
+            {{ t('videoDetail.search') }}
+          </NButton>
+          <NButton tertiary @click="resetDetailFilters">
+            {{ t('videoDetail.reset') }}
+          </NButton>
+          <NButton
+            v-if="detailFilters.status === 'failed'"
+            tertiary
+            type="warning"
+            :loading="detailRetrying"
+            :disabled="detailFailedCount === 0"
+            @click="retryFailedVideos"
+          >
+            {{ t('video.retryCount', { n: detailFailedCount }) }}
+          </NButton>
+        </div>
+
+        <div v-if="detailDownloadTask" class="detail-progress">
+          <div class="detail-progress__top">
+            <span>{{ detailDownloadStatusText }}</span>
+            <span>{{ detailDownloadPercent }}%</span>
+          </div>
+          <div class="detail-progress__track">
+            <div class="detail-progress__fill" :style="{ width: `${detailDownloadPercent}%` }"></div>
+          </div>
+          <div v-if="detailDownloadTask.current_video" class="detail-progress__current">
+            {{ detailDownloadTask.current_video }}
+          </div>
+        </div>
+
+        <NDataTable
+          :columns="detailColumns"
+          :data="detailRows"
+          :loading="detailLoading"
+          :bordered="false"
+          :row-key="(row: AccountVideo) => row.id"
+          :checked-row-keys="detailSelectedRowKeys"
+          :pagination="false"
+          :scroll-x="1180"
+          :max-height="520"
+          striped
+          remote
+          @update:checked-row-keys="handleDetailCheckedRowKeys"
+        />
+
+        <div class="video-detail__footer">
+          <span class="video-detail__selected">
+            {{ t('videoDetail.selectedCount', { n: detailSelectedRowKeys.length }) }}
+          </span>
+          <NPagination
+            v-if="!detailFilters.status"
+            :page="detailPage"
+            :page-size="detailPageSize"
+            :item-count="detailTotal"
+            :page-sizes="[20, 50, 100]"
+            show-size-picker
+            @update:page="handleDetailPageChange"
+            @update:page-size="handleDetailPageSizeChange"
+          />
+          <span v-else class="video-detail__status-page-hint">
+            {{ t('videoDetail.statusFilterPageHint') }}
+          </span>
+        </div>
+      </div>
+    </NModal>
+
     <!-- Scan Confirm Modal -->
     <NModal
       v-model:show="showScanModal"
@@ -360,8 +488,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, h, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import {
   NButton,
   NDataTable,
@@ -375,12 +504,15 @@ import {
   NTag,
   NIcon,
   NCheckbox,
+  NPagination,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumn } from 'naive-ui'
 import accountsApi from '@/api/accounts'
+import clipsApi from '@/api/clips'
 
 const { t } = useI18n()
+const router = useRouter()
 const message = useMessage()
 
 const MASKED_SECRET_VALUE = '***'
@@ -432,6 +564,35 @@ interface RoutingResult {
   warnings?: string[]
 }
 
+interface AccountVideo {
+  id: number
+  video_id?: string
+  title?: string
+  description?: string
+  url?: string
+  published_at?: string
+  upload_date?: string
+  duration_sec?: number | null
+  view_count?: number | null
+  like_count?: number | null
+  comment_count?: number | null
+  download_status?: string
+  retry_count?: number | null
+  failed_reason?: string | null
+  failed_at?: string | null
+}
+
+interface DownloadTask {
+  task_id: string
+  status: string
+  total: number
+  completed: number
+  success: number
+  failed: number
+  current_video?: string
+  error?: string | null
+}
+
 // ── State ───────────────────────────────────────────────────────────────
 const accounts = ref<Account[]>([])
 const apiKeys = ref<ApiKey[]>([])
@@ -442,18 +603,40 @@ const searchQuery = ref('')
 const showAccountModal = ref(false)
 const showScanModal = ref(false)
 const showDeleteModal = ref(false)
+const showDetailModal = ref(false)
 
 const editingAccount = ref<Account | null>(null)
 const deletingAccountId = ref<number | null>(null)
+const detailAccount = ref<Account | null>(null)
 
 const saving = ref(false)
 const scanning = ref(false)
 const deleting = ref(false)
 const routingLoading = ref(false)
+const detailLoading = ref(false)
+const detailDownloading = ref(false)
+const detailRetrying = ref(false)
 const scanAutoDownload = ref(true)
 
 const routingResult = ref<RoutingResult | null>(null)
 const routingColor = ref('inherit')
+const detailRows = ref<AccountVideo[]>([])
+const detailTotal = ref(0)
+const detailPage = ref(1)
+const detailPageSize = ref(20)
+const detailSelectedRowKeys = ref<number[]>([])
+const detailDownloadSubtitles = ref(false)
+const detailDownloadTask = ref<DownloadTask | null>(null)
+const detailClippingVideoIds = ref<number[]>([])
+const detailFilters = ref({
+  title_kw: '',
+  url_kw: '',
+  status: '',
+  sort_by: 'published_at',
+  sort_dir: 'desc',
+})
+
+let detailDownloadPollTimer: number | null = null
 
 // Default form data
 const defaultFormData = (): Account => ({
@@ -509,6 +692,26 @@ const downloadModeOptions = computed(() => [
   { value: 'direct_only', label: t('account.downloadModeDirectOnly') },
 ])
 
+const detailStatusOptions = computed(() => [
+  { value: '', label: t('videoDetail.allStatus') },
+  { value: 'downloaded', label: t('video.tagDownloaded') },
+  { value: 'downloading', label: t('video.tagDownloading') },
+  { value: 'failed', label: t('video.tagFailed') },
+  { value: 'pending', label: t('video.tagPending') },
+])
+
+const detailSortOptions = computed(() => [
+  { value: 'published_at', label: t('videoDetail.pubTime') },
+  { value: 'view_count', label: t('videoDetail.viewCount') },
+  { value: 'like_count', label: t('videoDetail.likeCount') },
+  { value: 'comment_count', label: t('videoDetail.commentCount') },
+])
+
+const detailSortDirOptions = computed(() => [
+  { value: 'desc', label: t('videoDetail.desc') },
+  { value: 'asc', label: t('videoDetail.asc') },
+])
+
 const apiKeyOptions = computed(() =>
   apiKeys.value.map(k => ({ label: `${k.name} (${k.key_value})`, value: k.id }))
 )
@@ -548,18 +751,41 @@ const syncSecretInputsFromAccount = (account: Account) => {
     : loadedDingtalkSecret
 }
 
-const buildAccountPayload = (): Account => {
-  const data = {
+const buildAccountPayload = (): Partial<Account> => {
+  const data: Partial<Account> = {
     ...formData.value,
-    telegram_bot_token: telegramBotTokenInput.value,
-    dingtalk_sign_secret: dingtalkSignSecretInput.value,
   }
-  if (hasSavedTelegramBotToken.value && !telegramBotTokenInput.value) {
-    data.telegram_bot_token = MASKED_SECRET_VALUE
+
+  delete data.status
+  delete data.webhook_url
+  delete data.telegram_bot_token
+  delete data.dingtalk_sign_secret
+  delete data.feishu_template_id
+  delete data.feishu_scan_template_id
+
+  const platform = formData.value.notify_platform
+
+  if (platform === 'telegram') {
+    const token = telegramBotTokenInput.value.trim()
+    if (token) data.telegram_bot_token = token
+  } else if (platform === 'dingtalk') {
+    data.webhook_url = formData.value.webhook_url || ''
+    const signSecret = dingtalkSignSecretInput.value.trim()
+    if (signSecret) data.dingtalk_sign_secret = signSecret
+  } else if (platform === 'feishu') {
+    data.webhook_url = formData.value.webhook_url || ''
+    if (formData.value.feishu_message_mode === 'template') {
+      data.feishu_template_id = formData.value.feishu_template_id || ''
+      data.feishu_scan_template_id = formData.value.feishu_scan_template_id || ''
+    }
+  } else if (platform === 'wecom') {
+    data.webhook_url = formData.value.webhook_url || ''
   }
-  if (hasSavedDingtalkSignSecret.value && !dingtalkSignSecretInput.value) {
-    data.dingtalk_sign_secret = MASKED_SECRET_VALUE
+
+  if (!data.proxy_enabled) {
+    data.proxy_pool_id = null
   }
+
   return data
 }
 
@@ -585,6 +811,25 @@ const filteredAccounts = computed(() => {
   return accounts.value.filter(a =>
     a.name.toLowerCase().includes(q) || a.channel_url.toLowerCase().includes(q)
   )
+})
+
+const detailFailedCount = computed(() =>
+  detailRows.value.filter(v => v.download_status === 'failed').length
+)
+
+const detailDownloadPercent = computed(() => {
+  const task = detailDownloadTask.value
+  if (!task || !task.total) return 0
+  return Math.min(100, Math.round((task.completed / task.total) * 100))
+})
+
+const detailDownloadStatusText = computed(() => {
+  const task = detailDownloadTask.value
+  if (!task) return ''
+  const doneText = `${task.completed}/${task.total}`
+  if (task.status === 'done') return `${t('video.downlCompleteStatus')} ${doneText}`
+  if (task.status === 'error') return `${t('video.downloadErrorStatus')} ${doneText}`
+  return `${t('video.downloadingStatus')} ${doneText}`
 })
 
 // ── Table Columns ───────────────────────────────────────────────────────
@@ -664,9 +909,16 @@ const tableColumns: DataTableColumn<Account>[] = [
   {
     title: t('channels.tableActions'),
     key: 'actions',
-    width: 220,
+    width: 292,
     fixed: 'right',
-    render: (row) => h('div', { style: 'display:flex;gap:4px' }, [
+    render: (row) => h('div', { class: 'account-row-actions' }, [
+      h(NButton, {
+        size: 'small',
+        tertiary: true,
+        class: 'account-detail-action',
+        title: t('account.btnDetail'),
+        onClick: () => openDetailModal(row)
+      }, () => t('account.btnDetail')),
       h(NButton, {
         size: 'small',
         tertiary: true,
@@ -687,6 +939,185 @@ const tableColumns: DataTableColumn<Account>[] = [
     ])
   },
 ]
+
+const isHttpUrl = (url?: string) => /^https?:\/\//i.test(url || '')
+
+const formatDate = (value?: string) => value ? value.slice(0, 10) : '—'
+
+const formatNumber = (value?: number | null) => {
+  if (value === null || value === undefined) return '—'
+  return Number(value).toLocaleString()
+}
+
+const formatDuration = (seconds?: number | null) => {
+  if (!seconds || seconds <= 0) return '—'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const videoStatusLabel = (status?: string) => {
+  switch (status) {
+    case 'downloaded': return t('video.tagDownloaded')
+    case 'downloading':
+    case 'running': return t('video.tagDownloading')
+    case 'failed': return t('video.tagFailed')
+    default: return t('video.tagPending')
+  }
+}
+
+const videoStatusType = (status?: string) => {
+  switch (status) {
+    case 'downloaded': return 'success'
+    case 'downloading':
+    case 'running': return 'info'
+    case 'failed': return 'error'
+    default: return 'warning'
+  }
+}
+
+const routingSourceLabel = (source?: string) => {
+  switch (source) {
+    case 'account_static': return t('video.routingAccountStatic')
+    case 'system_paid': return t('video.routingSystemPaid')
+    case 'system_free': return t('video.routingSystemFree')
+    case 'direct': return t('video.routingDirect')
+    case 'failed': return t('video.routingFailed')
+    default: return source || t('video.routingUnknown')
+  }
+}
+
+const openVideoUrl = (row: AccountVideo) => {
+  if (!isHttpUrl(row.url)) {
+    message.warning(t('videoDetail.invalidUrl'))
+    return
+  }
+  window.open(row.url, '_blank', 'noopener,noreferrer')
+}
+
+const canClipVideo = (row: AccountVideo) => row.download_status === 'downloaded'
+
+const isVideoClipping = (videoId: number) => detailClippingVideoIds.value.includes(videoId)
+
+const setVideoClipping = (videoId: number, clipping: boolean) => {
+  detailClippingVideoIds.value = clipping
+    ? Array.from(new Set([...detailClippingVideoIds.value, videoId]))
+    : detailClippingVideoIds.value.filter(id => id !== videoId)
+}
+
+const triggerVideoClip = async (row: AccountVideo) => {
+  if (!canClipVideo(row)) {
+    message.warning(t('videoDetail.clipRequiresDownloaded'))
+    return
+  }
+
+  setVideoClipping(row.id, true)
+  try {
+    const res = await clipsApi.create(row.id)
+    const body = res.data || {}
+    if (body.error || body.ok === false) {
+      message.error(body.error || t('clip.createFailed'))
+      return
+    }
+    message.success(t('clip.taskCreated', { id: body.task_id ?? '' }))
+    showDetailModal.value = false
+    void router.push('/clip-history')
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || t('clip.createFailed')
+    message.error(errorMsg)
+  } finally {
+    setVideoClipping(row.id, false)
+  }
+}
+
+const detailColumns = computed<DataTableColumn<AccountVideo>[]>(() => [
+  { type: 'selection', width: 52 },
+  {
+    title: t('videoDetail.titleCol'),
+    key: 'title',
+    minWidth: 320,
+    ellipsis: true,
+    render: (row) => h('div', { class: 'video-title-cell' }, [
+      h('button', {
+        type: 'button',
+        class: 'video-title-button',
+        title: row.title || '',
+        onClick: () => openVideoUrl(row),
+      }, row.title || '—'),
+      h('div', { class: 'video-url-line', title: row.url || '' }, row.url || '—'),
+    ])
+  },
+  {
+    title: t('videoDetail.pubTimeCol'),
+    key: 'published_at',
+    width: 100,
+    render: (row) => formatDate(row.published_at)
+  },
+  {
+    title: t('videoDetail.duration'),
+    key: 'duration_sec',
+    width: 90,
+    render: (row) => formatDuration(row.duration_sec)
+  },
+  {
+    title: t('videoDetail.views'),
+    key: 'view_count',
+    width: 100,
+    align: 'right',
+    render: (row) => formatNumber(row.view_count)
+  },
+  {
+    title: t('videoDetail.likes'),
+    key: 'like_count',
+    width: 90,
+    align: 'right',
+    render: (row) => formatNumber(row.like_count)
+  },
+  {
+    title: t('videoDetail.comments'),
+    key: 'comment_count',
+    width: 90,
+    align: 'right',
+    render: (row) => formatNumber(row.comment_count)
+  },
+  {
+    title: t('videoDetail.dlStatus'),
+    key: 'download_status',
+    width: 110,
+    render: (row) => h(NTag, {
+      type: videoStatusType(row.download_status),
+      size: 'small',
+      bordered: false,
+    }, () => videoStatusLabel(row.download_status))
+  },
+  {
+    title: t('videoDetail.actions'),
+    key: 'actions',
+    width: 148,
+    fixed: 'right',
+    render: (row) => h('div', { class: 'video-row-actions' }, [
+      h(NButton, {
+        size: 'small',
+        tertiary: true,
+        class: 'video-open-action',
+        disabled: !isHttpUrl(row.url),
+        onClick: () => openVideoUrl(row)
+      }, () => t('videoDetail.open')),
+      h(NButton, {
+        size: 'small',
+        tertiary: true,
+        type: 'primary',
+        class: 'video-clip-action',
+        title: canClipVideo(row) ? t('video.clipTrigger') : t('videoDetail.clipRequiresDownloaded'),
+        disabled: !canClipVideo(row) || isVideoClipping(row.id),
+        loading: isVideoClipping(row.id),
+        onClick: () => triggerVideoClip(row)
+      }, () => t('videoDetail.clip'))
+    ])
+  },
+])
 
 // ── Methods ─────────────────────────────────────────────────────────────
 const loadAccounts = async () => {
@@ -735,6 +1166,212 @@ const openEditModal = async (account: Account) => {
   showAccountModal.value = true
 }
 
+const loadAccountVideos = async () => {
+  if (!detailAccount.value) return
+  detailLoading.value = true
+  try {
+    const params = {
+      title_kw: detailFilters.value.title_kw.trim(),
+      url_kw: detailFilters.value.url_kw.trim(),
+      status: detailFilters.value.status || undefined,
+      sort_by: detailFilters.value.sort_by,
+      sort_dir: detailFilters.value.sort_dir,
+      page: detailPage.value,
+      page_size: detailPageSize.value,
+    }
+    const res = await accountsApi.videos(detailAccount.value.id, params)
+    const body = res.data || {}
+    detailRows.value = Array.isArray(body.videos) ? body.videos : []
+    detailTotal.value = Number(body.total || 0)
+    detailPage.value = Number(body.page || detailPage.value || 1)
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || t('video.loadFailed')
+    message.error(errorMsg)
+    detailRows.value = []
+    detailTotal.value = 0
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const openDetailModal = async (account: Account) => {
+  detailAccount.value = account
+  detailPage.value = 1
+  detailPageSize.value = 20
+  detailSelectedRowKeys.value = []
+  detailDownloadSubtitles.value = false
+  detailDownloadTask.value = null
+  detailClippingVideoIds.value = []
+  detailFilters.value = {
+    title_kw: '',
+    url_kw: '',
+    status: '',
+    sort_by: 'published_at',
+    sort_dir: 'desc',
+  }
+  showDetailModal.value = true
+  await loadAccountVideos()
+}
+
+const searchDetailVideos = async () => {
+  detailPage.value = 1
+  await loadAccountVideos()
+}
+
+const resetDetailFilters = async () => {
+  detailFilters.value = {
+    title_kw: '',
+    url_kw: '',
+    status: '',
+    sort_by: 'published_at',
+    sort_dir: 'desc',
+  }
+  detailPage.value = 1
+  await loadAccountVideos()
+}
+
+const handleDetailCheckedRowKeys = (keys: Array<string | number>) => {
+  detailSelectedRowKeys.value = keys
+    .map(key => Number(key))
+    .filter(key => Number.isInteger(key) && key > 0)
+}
+
+const handleDetailPageChange = async (page: number) => {
+  detailPage.value = page
+  await loadAccountVideos()
+}
+
+const handleDetailPageSizeChange = async (pageSize: number) => {
+  detailPageSize.value = pageSize
+  detailPage.value = 1
+  await loadAccountVideos()
+}
+
+const stopDetailDownloadPolling = () => {
+  if (detailDownloadPollTimer !== null) {
+    window.clearInterval(detailDownloadPollTimer)
+    detailDownloadPollTimer = null
+  }
+}
+
+const pollDetailDownloadTask = async (taskId: string) => {
+  try {
+    const res = await accountsApi.downloadTask(taskId)
+    const task = res.data as DownloadTask
+    if (!task || (task as any).error) {
+      if ((task as any)?.error) message.error((task as any).error)
+      stopDetailDownloadPolling()
+      return
+    }
+    detailDownloadTask.value = task
+    if (task.status === 'done' || task.status === 'error') {
+      stopDetailDownloadPolling()
+      if (task.status === 'done') {
+        message.success(t('video.batchDone'))
+      } else {
+        message.error(task.error || t('video.downloadError'))
+      }
+      await loadAccountVideos()
+    }
+  } catch {
+    // Keep polling through transient network errors.
+  }
+}
+
+const startDetailDownloadPolling = (taskId: string) => {
+  stopDetailDownloadPolling()
+  void pollDetailDownloadTask(taskId)
+  detailDownloadPollTimer = window.setInterval(() => {
+    void pollDetailDownloadTask(taskId)
+  }, 3000)
+}
+
+const showDetailRoutingToast = (routing?: { source?: string; provider?: string; warnings?: string[] }) => {
+  if (!routing) return
+  let routingMsg = t('video.routingCurrent', { s: routingSourceLabel(routing.source) })
+  if (routing.provider) routingMsg += ` | ${routing.provider}`
+  if (routing.warnings?.length) routingMsg += ` | ${t('video.routingWarning')} ${routing.warnings.join(', ')}`
+  if (routing.source === 'direct' || routing.source === 'failed') message.warning(routingMsg)
+  else message.info(routingMsg)
+}
+
+const batchDownloadSelected = async () => {
+  if (!detailAccount.value) return
+  const videoIds = detailSelectedRowKeys.value
+    .map(id => Number(id))
+    .filter(id => Number.isInteger(id) && id > 0)
+  if (!videoIds.length) {
+    message.warning(t('videoDetail.noSelection'))
+    return
+  }
+
+  detailDownloading.value = true
+  try {
+    const payload: Record<string, unknown> = {
+      video_ids: videoIds,
+      no_subs: !detailDownloadSubtitles.value,
+    }
+    if (detailDownloadSubtitles.value) payload.sub_langs = 'zh-Hans,en'
+    const res = await accountsApi.batchDownloadVideos(detailAccount.value.id, payload)
+    const body = res.data || {}
+    if (body.error || body.ok === false) {
+      message.error(body.error || t('video.downloadFailed'))
+      return
+    }
+    const queued = Number(body.queued || videoIds.length)
+    message.success(t('video.videosQueued', { n: queued }))
+    showDetailRoutingToast(body.routing)
+    detailSelectedRowKeys.value = []
+    if (body.task_id) {
+      detailDownloadTask.value = {
+        task_id: body.task_id,
+        status: 'running',
+        total: queued,
+        completed: 0,
+        success: 0,
+        failed: 0,
+      }
+      startDetailDownloadPolling(body.task_id)
+    }
+    await loadAccountVideos()
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || t('video.downloadFailed')
+    message.error(errorMsg)
+  } finally {
+    detailDownloading.value = false
+  }
+}
+
+const retryFailedVideos = async () => {
+  if (!detailAccount.value) return
+  const failedIds = detailRows.value
+    .filter(v => v.download_status === 'failed')
+    .map(v => v.id)
+  if (!failedIds.length) {
+    message.warning(t('video.noRetryable'))
+    return
+  }
+
+  detailRetrying.value = true
+  try {
+    const res = await accountsApi.retryVideos(detailAccount.value.id, failedIds)
+    const body = res.data || {}
+    if (body.error || body.ok === false) {
+      message.error(body.error || t('video.retryFailed'))
+      return
+    }
+    message.success(t('video.retryDone', { n: body.retried || failedIds.length }))
+    detailSelectedRowKeys.value = []
+    detailPage.value = 1
+    await loadAccountVideos()
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || t('video.retryRequestFailed', { e: '' })
+    message.error(errorMsg)
+  } finally {
+    detailRetrying.value = false
+  }
+}
+
 const saveAccount = async () => {
   if (!formData.value.name || !formData.value.channel_url) {
     message.error(t('account.nameAndUrlRequired'))
@@ -747,7 +1384,6 @@ const saveAccount = async () => {
   saving.value = true
   try {
     const data = buildAccountPayload()
-    delete (data as any).status  // remove status from payload
     let res
     if (editingAccount.value) {
       res = await accountsApi.update(formData.value.id, data)
@@ -866,8 +1502,19 @@ const reloadJobs = async () => {
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────
+watch(showDetailModal, (visible) => {
+  if (!visible) {
+    stopDetailDownloadPolling()
+    detailClippingVideoIds.value = []
+  }
+})
+
 onMounted(async () => {
   await Promise.all([loadAccounts(), loadApiKeys(), loadProxyPools()])
+})
+
+onUnmounted(() => {
+  stopDetailDownloadPolling()
 })
 </script>
 
@@ -887,6 +1534,35 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-muted);
   margin-left: auto;
+}
+.account-row-actions,
+.video-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.account-row-actions :deep(.n-button),
+.video-row-actions :deep(.n-button) {
+  flex: 0 0 auto;
+}
+.account-detail-action {
+  min-width: 76px;
+}
+.video-clip-action {
+  min-width: 52px;
+}
+.video-clip-action:not(.n-button--disabled) {
+  color: var(--accent) !important;
+  background: rgba(201, 100, 66, 0.12) !important;
+  box-shadow: 0 0 0 1px rgba(201, 100, 66, 0.24) !important;
+}
+.video-clip-action:not(.n-button--disabled):hover {
+  color: #b95738 !important;
+  background: rgba(201, 100, 66, 0.18) !important;
+}
+.video-clip-action :deep(.n-button__content) {
+  color: inherit !important;
 }
 .form-section {
   border-bottom: 1px solid var(--border);
@@ -943,5 +1619,153 @@ onMounted(async () => {
 }
 .scan-confirm-content {
   padding: 8px 0;
+}
+.video-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.video-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+}
+.video-detail__identity {
+  min-width: 0;
+}
+.video-detail__eyebrow {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.video-detail__account {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text);
+}
+.video-detail__channel {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-detail__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.video-detail__filters {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 1.2fr)
+    minmax(180px, 1.2fr)
+    minmax(120px, .7fr)
+    minmax(130px, .8fr)
+    minmax(90px, .5fr)
+    auto
+    auto
+    auto;
+  gap: 8px;
+  align-items: center;
+}
+.video-detail__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+.video-detail__selected,
+.video-detail__status-page-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.video-title-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.video-title-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-title-button:hover {
+  color: var(--accent);
+}
+.video-url-line {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-progress {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.detail-progress__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text);
+}
+.detail-progress__track {
+  height: 6px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface2);
+}
+.detail-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width .2s ease;
+}
+.detail-progress__current {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .video-detail__header,
+  .video-detail__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .video-detail__actions {
+    justify-content: flex-start;
+  }
+  .video-detail__filters {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 </style>

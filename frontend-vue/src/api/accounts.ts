@@ -8,13 +8,25 @@ export default {
     return request({ url: '/api/accounts', method: 'post', data })
   },
   update(id: number, data: object) {
-    return request({ url: `/api/accounts/${id}/update`, method: 'post', data })
+    return request({ url: '/api/accounts', method: 'post', data: { ...data, id } })
   },
   delete(id: number) {
     return request({ url: `/api/accounts/${id}`, method: 'delete' })
   },
   scan(accountId: number, autoDownload = true) {
     return request({ url: '/api/accounts/scan', method: 'post', data: { account_id: accountId, auto_download: autoDownload } })
+  },
+  videos(accountId: number, params: object) {
+    return request({ url: `/api/accounts/${accountId}/videos`, method: 'get', params })
+  },
+  batchDownloadVideos(accountId: number, data: object) {
+    return request({ url: `/api/accounts/${accountId}/videos/batch-download`, method: 'post', data })
+  },
+  retryVideos(accountId: number, videoIds: number[]) {
+    return request({ url: '/api/videos/retry', method: 'post', data: { account_id: accountId, video_ids: videoIds } })
+  },
+  downloadTask(taskId: string) {
+    return request({ url: `/api/download-tasks/${taskId}`, method: 'get' })
   },
   routingPreview(accountId: number) {
     return request({ url: '/api/routing-preview', method: 'get', params: { account_id: accountId } })
