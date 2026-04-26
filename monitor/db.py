@@ -1874,6 +1874,35 @@ def get_account_videos(
         return [dict(r) for r in rows], total
 
 
+def get_account_videos_filtered(
+    account_id: int,
+    status: str | None = None,
+) -> list[dict]:
+    """查询账户视频列表，可按下载状态过滤；用于详情页状态筛选。"""
+    where_clauses = ["account_id = ?"]
+    params: list = [account_id]
+    if status:
+        where_clauses.append("download_status = ?")
+        params.append(status)
+
+    where_sql = " AND ".join(where_clauses)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT
+                id, video_id, title, description, url,
+                published_at, upload_date, duration_sec,
+                view_count, like_count, comment_count,
+                notify_status, download_status, download_at, download_path,
+                fetched_at, retry_count, failed_reason, failed_at
+               FROM monitor_videos
+               WHERE {where_sql}
+               ORDER BY published_at DESC, id DESC
+               LIMIT 100""",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def update_videos_download_status(
     video_ids: list[int],
     status: str | None = None,
