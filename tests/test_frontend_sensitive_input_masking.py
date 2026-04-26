@@ -20,15 +20,17 @@ def test_global_settings_keeps_masked_secrets_out_of_password_inputs():
     assert "payload.global_telegram_token = MASKED_SECRET_VALUE" in text
 
 
-def test_accounts_keeps_masked_account_secrets_out_of_password_inputs():
+def test_accounts_omits_unedited_masked_account_secrets_from_payload():
     text = read_view("Accounts.vue")
 
     assert 'v-model:value="dingtalkSignSecretInput"' in text
     assert 'v-model:value="telegramBotTokenInput"' in text
     assert 'v-model:value="formData.dingtalk_sign_secret"' not in text
     assert 'v-model:value="formData.telegram_bot_token"' not in text
-    assert "data.telegram_bot_token = MASKED_SECRET_VALUE" in text
-    assert "data.dingtalk_sign_secret = MASKED_SECRET_VALUE" in text
+    assert "data.telegram_bot_token = MASKED_SECRET_VALUE" not in text
+    assert "data.dingtalk_sign_secret = MASKED_SECRET_VALUE" not in text
+    assert "if (token) data.telegram_bot_token = token" in text
+    assert "if (signSecret) data.dingtalk_sign_secret = signSecret" in text
 
 
 def test_api_key_edit_form_does_not_show_masked_key_as_editable_value():
