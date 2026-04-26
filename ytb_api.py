@@ -12,7 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 YouTube Data API 概览：https://developers.google.com/youtube/v3/getting-started?hl=zh-cn
 """
 
-_DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS = 15
+_DEFAULT_YOUTUBE_API_TIMEOUT_SECONDS = 30
 
 
 def _youtube_api_timeout_seconds() -> int:
