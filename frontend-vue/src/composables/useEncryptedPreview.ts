@@ -1,15 +1,14 @@
 import { shallowRef, onBeforeUnmount } from 'vue'
 
-let sourceBuffer: SourceBuffer | null = null
-
 export function useEncryptedPreview() {
   const mediaSource = shallowRef<MediaSource | null>(null)
   const playerRef = shallowRef<HTMLVideoElement | null>(null)
+  const sourceBuffer = shallowRef<SourceBuffer | null>(null)
 
   const dispose = () => {
-    if (sourceBuffer) {
-      try { sourceBuffer.abort() } catch {}
-      sourceBuffer = null
+    if (sourceBuffer.value) {
+      try { sourceBuffer.value.abort() } catch {}
+      sourceBuffer.value = null
     }
     if (mediaSource.value) {
       try { mediaSource.value.endOfStream() } catch {}

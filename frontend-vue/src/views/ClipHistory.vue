@@ -45,10 +45,13 @@
     <!-- Task table -->
     <NDataTable
       v-else
+      class="app-sticky-table"
       :columns="columns"
       :data="tasks"
       :pagination="pagination"
       :row-key="(row: ClipTask) => row.id"
+      :scroll-x="1080"
+      :max-height="600"
       striped
     />
 
@@ -147,6 +150,7 @@ const columns = computed(() => [
   {
     title: t('clipHistory.tableTitle'),
     key: 'video_title',
+    width: 300,
     ellipsis: true,
     render: (row: ClipTask) => row.video_title || t('clip.unknownVideo'),
   },
@@ -177,6 +181,7 @@ const columns = computed(() => [
     title: t('clipHistory.tableActions'),
     key: 'actions',
     width: 120,
+    fixed: 'right' as const,
     render: (row: ClipTask) =>
       h(
         'a',

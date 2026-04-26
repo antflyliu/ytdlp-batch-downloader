@@ -58,6 +58,8 @@
   --shadow-ring: 0px 0px 0px 1px;
 
   /* Ring */
+  --ring-warm: #d1cfc5;
+  --ring-deep: #c2c0b6;
   --ring-subtle: 0 0 0 1px rgba(0,0,0,0.06);
   --ring-medium: 0 0 0 1px rgba(0,0,0,0.12);
 
@@ -65,19 +67,22 @@
   --overlay-bg: rgba(45,42,38,0.55);
 
   /* Typography */
-  --font: 'Georgia', -apple-system, BlinkMacSystemFont, 'Segoe UI', serif;
+  --font: Georgia, 'Times New Roman', serif;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', 'Cascadia Code', monospace;
 
   /* Sidebar */
-  --sidebar-width: 220px;
-  --sidebar-collapsed-width: 72px;
-  --sidebar-bg: #faf9f5;
-  --sidebar-surface: #ffffff;
-  --sidebar-border: #f0eee6;
+  --content-max-width: 1180px;
+  --app-shell-max-width: 1540px;
+  --sidebar-width: 248px;
+  --sidebar-collapsed-width: 76px;
+  --sidebar-bg: rgba(250, 249, 245, 0.96);
+  --sidebar-surface: #fffdf8;
+  --sidebar-border: #e8e6dc;
   --sidebar-text: #5e5d59;
   --sidebar-text-active: #141413;
   --sidebar-hover: #f0eee6;
+  --sidebar-active-bg: rgba(201, 100, 66, 0.10);
   --sidebar-active: #c96442;  /* Terracotta left border */
 
   /* Scrollbar */

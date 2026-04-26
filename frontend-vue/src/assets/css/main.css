@@ -9,10 +9,9 @@
   min-height: 100vh;
 }
 
-/* ── Modal overlay fix ──────────────────────────────────────────────── */
-/* Lock body scroll when modal opens so sidebar doesn't squeeze */
-body:has(.n-modal) {
-  overflow: hidden !important;
+/* ── Modal layout stability ─────────────────────────────────────────── */
+/* Reserve the scrollbar gutter so overlays do not re-center the app shell. */
+html {
   scrollbar-gutter: stable;
 }
 

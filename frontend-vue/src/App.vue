@@ -48,9 +48,9 @@ const themeOverrides = {
     borderRadius: '12px',
     hoverColor: '#f0eee6',
     modalColor: '#faf9f5',
-    cardColor: '#faf9f5',
+    cardColor: '#fffdf8',
     popoverColor: '#faf9f5',
-    tableColor: '#faf9f5',
+    tableColor: '#fffdf8',
     fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
 }

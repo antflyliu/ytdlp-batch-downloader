@@ -1,7 +1,7 @@
 <template>
-  <aside class="sidebar" :class="{ 'sidebar--collapsed': collapsed }">
+  <aside class="sidebar" :class="{ 'sidebar--collapsed': collapsed }" :aria-label="t('nav.appName')">
     <!-- Logo -->
-    <div class="sidebar__logo">
+    <RouterLink to="/" class="sidebar__logo" :title="t('nav.appName')" :aria-label="t('nav.appName')">
       <div class="sidebar__logo-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 2L2 7l10 5 10-5-10-5z"/>
@@ -10,10 +10,10 @@
         </svg>
       </div>
       <span class="sidebar__logo-text">ResDownloader</span>
-    </div>
+    </RouterLink>
 
     <!-- Nav -->
-    <nav class="sidebar__nav">
+    <nav class="sidebar__nav" :aria-label="t('nav.appName')">
       <!-- Primary nav items -->
       <RouterLink
         v-for="item in navItems"
@@ -21,9 +21,11 @@
         :to="item.path"
         class="sidebar__item"
         :class="{ 'sidebar__item--active': isActive(item.path) }"
+        :title="navLabel(item.key)"
+        :aria-current="isActive(item.path) ? 'page' : undefined"
       >
-        <span class="sidebar__item-icon" v-html="item.icon"></span>
-        <span class="sidebar__item-label">{{ t(`nav.${item.key}`) }}</span>
+        <span class="sidebar__item-icon" aria-hidden="true" v-html="item.icon"></span>
+        <span class="sidebar__item-label">{{ navLabel(item.key) }}</span>
       </RouterLink>
 
       <!-- Settings group (collapsible) -->
@@ -33,29 +35,37 @@
             to="/settings-hub"
             class="sidebar__item sidebar__item--settings-main"
             :class="{ 'sidebar__item--active-parent': isSettingsActive }"
+            :title="t('nav.settings')"
+            :aria-current="route.path === '/settings-hub' ? 'page' : undefined"
           >
-            <span class="sidebar__item-icon" v-html="settingsIcon"></span>
+            <span class="sidebar__item-icon" aria-hidden="true" v-html="settingsIcon"></span>
             <span class="sidebar__item-label">{{ t('nav.settings') }}</span>
           </RouterLink>
           <button
+            type="button"
             class="sidebar__group-toggle"
             :aria-label="t('common.toggle')"
+            :aria-expanded="settingsExpanded"
+            aria-controls="settings-subnav"
+            :title="t('common.toggle')"
             @click="settingsExpanded = !settingsExpanded"
           >
-            <span class="sidebar__group-chevron" v-html="chevronIcon"></span>
+            <span class="sidebar__group-chevron" aria-hidden="true" v-html="chevronIcon"></span>
           </button>
         </div>
 
-        <div class="sidebar__subnav">
+        <div id="settings-subnav" class="sidebar__subnav" :aria-label="t('nav.settings')" role="group">
           <RouterLink
             v-for="sub in settingsSubItems"
             :key="sub.path"
             :to="sub.path"
             class="sidebar__item sidebar__item--sub"
             :class="{ 'sidebar__item--active': isActive(sub.path) }"
+            :title="navLabel(sub.key)"
+            :aria-current="isActive(sub.path) ? 'page' : undefined"
           >
-            <span class="sidebar__item-icon" v-html="sub.icon"></span>
-            <span class="sidebar__item-label">{{ t(`nav.${sub.key}`) }}</span>
+            <span class="sidebar__item-icon" aria-hidden="true" v-html="sub.icon"></span>
+            <span class="sidebar__item-label">{{ navLabel(sub.key) }}</span>
           </RouterLink>
         </div>
       </div>
@@ -63,21 +73,41 @@
 
     <!-- Footer -->
     <div class="sidebar__footer">
-      <!-- Theme toggle -->
-      <button class="sidebar__item" @click="toggleTheme">
-        <span class="sidebar__item-icon" v-html="themeIcon"></span>
-        <span class="sidebar__item-label">{{ t('nav.theme') }}</span>
-      </button>
+      <div class="sidebar__footer-actions" :aria-label="t('nav.settings')" role="group">
+        <!-- Theme toggle -->
+        <button
+          type="button"
+          class="sidebar__item sidebar__item--tool"
+          :aria-label="t('nav.theme')"
+          :title="t('nav.theme')"
+          @click="toggleTheme"
+        >
+          <span class="sidebar__item-icon" aria-hidden="true" v-html="themeIcon"></span>
+          <span class="sidebar__item-label">{{ t('nav.theme') }}</span>
+        </button>
 
-      <!-- Language toggle -->
-      <button class="sidebar__item" @click="toggleLocale">
-        <span class="sidebar__item-icon" v-html="langIcon"></span>
-        <span class="sidebar__item-label">{{ t('menu.locale') }}</span>
-      </button>
+        <!-- Language toggle -->
+        <button
+          type="button"
+          class="sidebar__item sidebar__item--tool"
+          :aria-label="t('menu.locale')"
+          :title="t('menu.locale')"
+          @click="toggleLocale"
+        >
+          <span class="sidebar__item-icon" aria-hidden="true" v-html="langIcon"></span>
+          <span class="sidebar__item-label">{{ t('menu.locale') }}</span>
+        </button>
+      </div>
 
       <!-- Collapse toggle -->
-      <button class="sidebar__toggle" @click="toggleCollapse">
-        <span class="sidebar__toggle-icon">{{ collapsed ? '›' : '‹' }}</span>
+      <button
+        type="button"
+        class="sidebar__toggle"
+        :aria-pressed="collapsed"
+        :title="t('nav.collapse')"
+        @click="toggleCollapse"
+      >
+        <span class="sidebar__toggle-icon" aria-hidden="true">{{ collapsed ? '›' : '‹' }}</span>
         <span class="sidebar__item-label">{{ collapsed ? '' : t('nav.collapse') }}</span>
       </button>
     </div>
@@ -85,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -93,7 +123,7 @@ const { t, locale } = useI18n()
 const route = useRoute()
 
 const collapsed = ref(false)
-const settingsExpanded = ref(false)
+const settingsExpanded = ref(route.path.startsWith('/settings-hub'))
 
 // SVG icons
 const dashboardIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>`
@@ -137,6 +167,10 @@ const settingsSubItems = [
   { key: 'settingsProxy', path: '/settings-hub/proxy', icon: lockIcon },
 ]
 
+const navLabel = (key: string) => {
+  return t(`nav.${key}`)
+}
+
 const isActive = (path: string) => {
   return route.path === path
 }
@@ -144,6 +178,15 @@ const isActive = (path: string) => {
 const isSettingsActive = computed(() => {
   return route.path.startsWith('/settings-hub')
 })
+
+watch(
+  () => route.path,
+  (path) => {
+    if (path.startsWith('/settings-hub')) {
+      settingsExpanded.value = true
+    }
+  },
+)
 
 const toggleTheme = () => {
   // Placeholder: theme toggle can be expanded later

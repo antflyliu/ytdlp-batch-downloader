@@ -206,7 +206,7 @@ const toggleEnabled = async (val: boolean) => {
 const toggleSystemProxy = async (val: boolean) => {
   switchingProxy.value = true
   try {
-    await configApi.setSystemProxy(val ? 'open' : 'unset')
+    await configApi.setSystemProxy(val)
     status.system_proxy = val
     message.success(val ? t('settings.systemProxyEnabled') : t('settings.systemProxyDisabled'))
   } catch {

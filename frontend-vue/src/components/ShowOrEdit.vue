@@ -7,7 +7,7 @@
         v-if="isEdit"
         ref="inputRef"
         :value="inputValue"
-        @update:value="v => inputValue = v"
+        @update:value="handleInputUpdate"
         @change="handleChange"
         @blur="handleChange"
     />
@@ -50,6 +50,10 @@ watch(
 function handleOnClick() {
   isEdit.value = true
   nextTick(() => inputRef.value?.focus())
+}
+
+function handleInputUpdate(value: string) {
+  inputValue.value = value
 }
 
 function handleChange() {

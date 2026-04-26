@@ -1,5 +1,5 @@
 <template>
-  <div class="flex gap-2">
+  <div class="resource-action">
     <!-- Download button -->
     <NButton
       v-if="canDownload(row)"
@@ -142,3 +142,27 @@ const handleSelect = (key: string) => {
   }
 }
 </script>
+
+<style scoped>
+.resource-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: max-content;
+  padding: 2px;
+  border-radius: 12px;
+  background: #fffdf8;
+  box-shadow: 0 0 0 1px rgba(20, 20, 19, 0.04);
+  white-space: nowrap;
+}
+
+.resource-action :deep(.n-button) {
+  min-width: 76px;
+  flex-shrink: 0;
+}
+
+.resource-action :deep(.n-button:last-child) {
+  min-width: 64px;
+}
+</style>

@@ -40,12 +40,14 @@
       <!-- Table -->
       <div v-if="pools.length > 0" class="table-wrap">
         <NDataTable
+          class="app-sticky-table"
           :columns="columns"
           :data="pools"
           :pagination="{ pageSize: 20 }"
           :virtual="true"
           :row-key="(row: ProxyPoolNode) => String(row.id)"
-          :scroll-x="800"
+          :scroll-x="900"
+          :max-height="600"
           striped
         />
       </div>
@@ -64,6 +66,7 @@
     <!-- Add/Edit Modal -->
     <NModal
       v-model:show="showFormModal"
+      :block-scroll="false"
       preset="card"
       :title="editingNode ? t('proxy.modalTitleEdit') : t('proxy.modalTitleAdd')"
       style="width: 480px"
@@ -79,7 +82,7 @@
         <NFormItem :label="t('proxyPools.proxyUrl')" required>
           <NInput
             v-model:value="formData.proxy_url"
-            :placeholder="t('proxyPools.nodeNamePlaceholder')"
+            :placeholder="proxyUrlPlaceholder"
           />
           <template #feedback>
             <div class="form-hint">{{ t('proxyPools.proxyHint') }}</div>
@@ -105,6 +108,7 @@
     <!-- Demo Modal -->
     <NModal
       v-model:show="showDemoModal"
+      :block-scroll="false"
       preset="card"
       :title="t('proxyPools.watchDemo')"
       style="width: 720px; max-width: 90vw"
@@ -123,6 +127,7 @@
     <!-- Delete Confirm -->
     <NModal
       v-model:show="showDeleteModal"
+      :block-scroll="false"
       preset="dialog"
       :title="t('proxy.deleteConfirmTitle').replace('{name}', deletingNode?.name || '')"
       :content="t('proxy.deleteConfirmMsg')"
@@ -177,6 +182,7 @@ interface ProxyPoolNode {
 const pools = ref<ProxyPoolNode[]>([])
 const saving = ref(false)
 const deleting = ref(false)
+const hasSavedProxyUrl = ref(false)
 
 // Form modal
 const showFormModal = ref(false)
@@ -206,16 +212,18 @@ async function loadPools() {
 }
 
 async function saveNode() {
-  if (!formData.name.trim() || !formData.proxy_url.trim()) {
+  if (!formData.name.trim() || (!editingNode.value && !formData.proxy_url.trim())) {
     message.error(t('proxy.nameAndUrlRequired'))
     return
   }
   saving.value = true
   try {
-    const body = {
+    const body: { name: string; enabled: boolean; proxy_url?: string } = {
       name: formData.name.trim(),
-      proxy_url: formData.proxy_url.trim(),
       enabled: formData.enabled,
+    }
+    if (!editingNode.value || formData.proxy_url.trim()) {
+      body.proxy_url = formData.proxy_url.trim()
     }
     if (editingNode.value) {
       await request.post(`/api/proxy-pools/${editingNode.value.id}/update`, body)
@@ -284,14 +292,16 @@ function openAddModal() {
   formData.name = ''
   formData.proxy_url = ''
   formData.enabled = true
+  hasSavedProxyUrl.value = false
   showFormModal.value = true
 }
 
 function openEditModal(node: ProxyPoolNode) {
   editingNode.value = node
   formData.name = node.name
-  formData.proxy_url = node.proxy_url
+  formData.proxy_url = ''
   formData.enabled = !!node.enabled
+  hasSavedProxyUrl.value = true
   showFormModal.value = true
 }
 
@@ -342,6 +352,7 @@ const columns = computed(() => [
     title: t('proxyPools.tableActions'),
     key: 'actions',
     width: 220,
+    fixed: 'right' as const,
     render: (row: ProxyPoolNode) =>
       h('div', { class: 'actions' }, [
         h(NButton, { size: 'small', quaternary: true, onClick: () => openEditModal(row) }, () => t('proxy.btnEdit')),
@@ -355,6 +366,12 @@ const columns = computed(() => [
       ]),
   },
 ])
+
+const proxyUrlPlaceholder = computed(() => (
+  hasSavedProxyUrl.value
+    ? t('proxyPools.proxyUrlSavedPlaceholder')
+    : t('proxyPools.nodeNamePlaceholder')
+))
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────────
 

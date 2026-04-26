@@ -125,6 +125,7 @@
     <!-- Add/Edit modal -->
     <NModal
       v-model:show="showModal"
+      :block-scroll="false"
       preset="card"
       :title="isEditing ? t('apiKeyForm.editTitle') : t('apiKeyForm.addTitle')"
       style="width: 480px; max-width: 95vw"
@@ -139,7 +140,7 @@
         <NFormItem :label="t('apiKeyForm.keyValue')" path="key_value">
           <NInput
             v-model:value="form.key_value"
-            :placeholder="t('apiKeyForm.keyValueHint')"
+            :placeholder="keyValuePlaceholder"
             :readonly="isEditing"
             :disabled="isEditing"
             clearable
@@ -178,6 +179,7 @@
     <!-- Delete confirm -->
     <NModal
       v-model:show="showDeleteConfirm"
+      :block-scroll="false"
       preset="card"
       :title="t('apiKeysUi.deleteConfirmTitle').replace('{name}', deletingKey?.name || '')"
       style="width: 420px; max-width: 95vw"
@@ -236,6 +238,12 @@ const form = reactive({
   daily_quota: 10000,
   is_active: true,
 })
+
+const keyValuePlaceholder = computed(() => (
+  isEditing.value
+    ? t('apiKeyForm.keyValueSavedPlaceholder')
+    : t('apiKeyForm.keyValueHint')
+))
 
 const rules: FormRules = {
   name: { required: true, message: t('apiKeysUi.toastNameRequired'), trigger: 'blur' as FormItemRule['trigger'] },
@@ -300,7 +308,7 @@ const openEdit = (k: ApiKey) => {
   isEditing.value = true
   form.id = k.id
   form.name = k.name
-  form.key_value = k.key_value
+  form.key_value = ''
   form.daily_quota = k.daily_quota
   form.is_active = k.is_active
   showModal.value = true

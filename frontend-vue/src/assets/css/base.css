@@ -65,7 +65,7 @@ body {
   background: var(--bg, var(--color-background));
   line-height: 1.6;
   font-family:
-    Inter,
+    var(--font-sans, Inter),
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',

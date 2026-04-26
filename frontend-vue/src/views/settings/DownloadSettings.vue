@@ -14,7 +14,7 @@
       <NCard :title="t('settings.saveDirectory')">
         <NFormItem :label="t('config.downloadPath')" path="download_path">
           <NInput
-            v-model:value="form.download_path"
+            v-model:value="form.download_output_path"
             :placeholder="t('settings.downloadPathPlaceholder')"
           />
         </NFormItem>
@@ -33,7 +33,7 @@
       <NCard :title="t('settings.cookiesFile')">
         <NFormItem :label="t('settings.cookiesFile')" path="cookies_file">
           <NInput
-            v-model:value="form.cookies_file"
+            v-model:value="form.download_cookies_file"
             :placeholder="t('settings.cookiesFilePlaceholder')"
           />
         </NFormItem>
@@ -45,7 +45,7 @@
       <NCard :title="t('settings.subLangs')">
         <NFormItem :label="t('settings.subLangs')" path="sub_langs">
           <NInput
-            v-model:value="form.sub_langs"
+            v-model:value="form.default_sub_langs"
             placeholder="en,zh-Hans,zh-Hant"
           />
         </NFormItem>
@@ -73,9 +73,9 @@ const message = useMessage()
 const saving = ref(false)
 
 const form = reactive<AppConfig>({
-  download_path: '',
-  cookies_file: '',
-  sub_langs: '',
+  download_output_path: '',
+  download_cookies_file: '',
+  default_sub_langs: '',
   enable_aria2: false,
 })
 
@@ -83,9 +83,9 @@ const loadConfig = async () => {
   try {
     const res = await configApi.get()
     const data = res.data || {}
-    form.download_path = data.download_path || ''
-    form.cookies_file = data.cookies_file || ''
-    form.sub_langs = data.sub_langs || ''
+    form.download_output_path = data.download_output_path || ''
+    form.download_cookies_file = data.download_cookies_file || ''
+    form.default_sub_langs = data.default_sub_langs || ''
     form.enable_aria2 = !!data.enable_aria2
   } catch {
     message.error(t('settings.loadFailed'))

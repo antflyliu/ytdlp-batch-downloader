@@ -116,7 +116,7 @@
     "insert_tail": "Insert tail",
     "insert_tail_tip": "Intercept whether new data is added to the end of the list",
     "upstream_proxy": "Upstream Proxy",
-    "upstream_proxy_tip": "For combining with other proxy tools, format: http://username\\:password@your.proxy.server\\:port",
+    "upstream_proxy_tip": "For combining with other proxy tools, format: http://username\\:password{'@'}your.proxy.server\\:port",
     "download_proxy": "Download Proxy",
     "download_proxy_tip": "Whether to use upstream proxy for downloads",
     "user_agent_tip": "Keep default if unsure",
@@ -177,6 +177,7 @@
     "loadFailed": "Failed to load settings",
     "saveFailed": "Failed to save settings",
     "saved": "Settings saved",
+    "secretSavedPlaceholder": "Saved; enter a new value to replace it",
     "directoryRequired": "Download directory is required",
     "selectDirectoryTip": "Enter the full path below",
     "llmModel": "Model name",
@@ -185,6 +186,7 @@
     "hubDesc": "Manage notifications, API, downloads, AI clipping, and dynamic proxy by module",
     "catEntertainment": "Entertainment",
     "llmApiKey": "API Key",
+    "llmApiKeySavedPlaceholder": "Saved; enter a new key to replace it",
     "manageProviders": "Manage providers",
     "sessionMode": "Default session mode",
     "cookiesFilePlaceholder": "Leave empty to disable cookies",
@@ -307,7 +309,8 @@
     "type": "Type",
     "size": "Size",
     "domain": "Domain",
-    "description": "Description"
+    "description": "Description",
+    "action": "Actions"
   },
   "importJson": {
     "title": "Batch Import",
@@ -439,7 +442,8 @@
     "nodeName": "Node name",
     "enableNowHint": "After saving, bind in account settings",
     "enableNow": "Enable now",
-    "proxyUrl": "Proxy URL"
+    "proxyUrl": "Proxy URL",
+    "proxyUrlSavedPlaceholder": "Saved; enter a new proxy URL to replace it"
   },
   "proxy": {
     "statusOnline": "Online",
@@ -605,7 +609,7 @@
     "enableProxy": "Enable Account Fixed Proxy",
     "noDefaultKey": "— No Default Key (must specify manually) —",
     "downloadModeHelp": "Prefer account fixed proxy, fallback to system dynamic proxy when unavailable",
-    "channelUrlHint": "Supports @handle, UC channel ID, or full video/playlist URL",
+    "channelUrlHint": "Supports {'@'}handle, UC channel ID, or full video/playlist URL",
     "apiKeyHint": "Select a saved API Key, or leave empty to use system default (configured in system settings)",
     "statusError": "Error",
     "apiKey": "API Key",
@@ -683,7 +687,7 @@
     "feishuTemplateIdPlaceholder": "Feishu card template ID, e.g., $UUID$",
     "proxyPoolHint": "Both download paths of the same account share one proxy config to avoid single IP rate limiting",
     "mode": "Fetch Mode",
-    "channelUrlPlaceholder": "@C-HitShow / UCxxxx / Full YouTube URL"
+    "channelUrlPlaceholder": "{'@'}C-HitShow / UCxxxx / Full YouTube URL"
   },
   "batchDownload": {
     "expandLog": "Expand details",
@@ -928,7 +932,7 @@
     "telegramChatId": "Telegram Chat ID",
     "proxyProtoSocks5HttpsHttpSocks4": "SOCKS5 → HTTPS → HTTP → SOCKS4",
     "scanJitter": "Scheduled scan jitter (seconds)",
-    "telegramBotTokenHint": "Format: <code>bot&lt;token&gt;</code> from @BotFather",
+    "telegramBotTokenHint": "Format: <code>bot&lt;token&gt;</code> from {'@'}BotFather",
     "channelMetaTTLHint": "After this many days, channel metadata is refreshed. <strong>0</strong> means never expire.",
     "feishuHint": "Account-level URL overrides this global value",
     "quotaTimezone": "Quota timezone",
@@ -1186,14 +1190,14 @@
     "clearFailed": "Clear failed",
     "validLabel": "valid ",
     "noCache": "No cache",
-    "handlePlaceholder": "@handle or channel URL",
+    "handlePlaceholder": "{'@'}handle or channel URL",
     "refreshFailed": "Refresh failed: {e}",
     "clearAll": "Clear all cache",
     "confirmClearAll": "Confirm clearing all API cache?",
     "confirmDeleteCacheMsg": "After deletion, next scan will call API again (1 unit).",
     "rawLabel": "raw ",
     "cachedAt": "Cached at ",
-    "confirmDeleteCache": "Confirm deleting cache @{handle}?"
+    "confirmDeleteCache": "Confirm deleting cache {'@'}{handle}?"
   },
   "eventLog": {
     "inProgress": "In progress…",
@@ -1287,6 +1291,7 @@
   },
   "apiKeyForm": {
     "keyValueHint": "YouTube Data API v3 key value; stored securely in the local database.",
+    "keyValueSavedPlaceholder": "Saved; the original key is hidden while editing.",
     "save": "Save",
     "addTitle": "New API Key",
     "enableKey": "Enable this key",

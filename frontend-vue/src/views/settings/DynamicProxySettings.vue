@@ -14,21 +14,21 @@
       <!-- System Default Dynamic Proxy -->
       <NCard :title="t('config.dynProxySection')">
         <NFormItem :label="t('config.dynProxyEnable')" path="dyn_proxy_enable">
-          <NSwitch v-model:value="form.dyn_proxy_enable" />
+          <NSwitch v-model:value="form.system_dynamic_proxy_enabled" />
         </NFormItem>
         <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.dynProxyEnableDesc') }}
         </div>
 
         <NFormItem :label="t('config.dynProxyNewAccount')" path="dyn_proxy_new_account">
-          <NSwitch v-model:value="form.dyn_proxy_new_account" />
+          <NSwitch v-model:value="form.apply_dynamic_proxy_to_new_accounts" />
         </NFormItem>
         <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.dynProxyNewAccountDesc') }}
         </div>
 
         <NFormItem :label="t('config.dynProxyExistingAccount')" path="dyn_proxy_existing_account">
-          <NSwitch v-model:value="form.dyn_proxy_existing_account" />
+          <NSwitch v-model:value="form.apply_dynamic_proxy_to_existing_accounts" />
         </NFormItem>
         <div style="color:var(--error);padding-left:200px" class="text-xs -mt-2 mb-3">
           {{ t('config.dynProxyExistingAccountWarn') }}
@@ -36,7 +36,7 @@
 
         <NFormItem :label="t('config.stickyMinutes')" path="dyn_proxy_sticky_minutes">
           <NInputNumber
-            v-model:value="form.dyn_proxy_sticky_minutes"
+            v-model:value="form.default_sticky_minutes"
             :min="0"
             style="width: 160px"
           />
@@ -46,33 +46,33 @@
       <!-- Risk Control -->
       <NCard :title="t('config.riskControlSection')">
         <NFormItem :label="t('config.riskFreeProxyAuto')" path="risk_free_proxy_auto">
-          <NSwitch v-model:value="form.risk_free_proxy_auto" />
+          <NSwitch v-model:value="form.allow_free_proxy_for_auto_download" />
         </NFormItem>
 
         <NFormItem :label="t('config.riskFreeProxyManual')" path="risk_free_proxy_manual">
-          <NSwitch v-model:value="form.risk_free_proxy_manual" />
+          <NSwitch v-model:value="form.allow_free_proxy" />
         </NFormItem>
 
         <NFormItem :label="t('config.riskCookieNoFreeProxy')" path="risk_cookie_no_free_proxy">
-          <NSwitch v-model:value="form.risk_cookie_no_free_proxy" />
+          <NSwitch v-model:value="form.allow_free_proxy_with_cookies" />
         </NFormItem>
         <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.riskCookieNoFreeProxyDesc') }}
         </div>
 
         <NFormItem :label="t('config.riskAutoDirectFallback')" path="risk_auto_direct_fallback">
-          <NSwitch v-model:value="form.risk_auto_direct_fallback" />
+          <NSwitch v-model:value="form.auto_direct_fallback" />
         </NFormItem>
         <div style="color:var(--error);padding-left:200px" class="text-xs -mt-2 mb-3">
           {{ t('config.riskAutoDirectFallbackWarn') }}
         </div>
 
         <NFormItem :label="t('config.riskManualDirectFallback')" path="risk_manual_direct_fallback">
-          <NSwitch v-model:value="form.risk_manual_direct_fallback" />
+          <NSwitch v-model:value="form.manual_direct_fallback" />
         </NFormItem>
 
         <NFormItem :label="t('config.maskProxyLogs')" path="mask_proxy_logs">
-          <NSwitch v-model:value="form.mask_proxy_logs" />
+          <NSwitch v-model:value="form.mask_proxy_in_logs" />
         </NFormItem>
         <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 200px">
           {{ t('config.maskProxyLogsDesc') }}
@@ -80,7 +80,7 @@
 
         <NFormItem :label="t('config.proxyProtocolOrder')" path="proxy_protocol_order">
           <NSelect
-            v-model:value="form.proxy_protocol_order"
+            v-model:value="form.default_proxy_protocol_order"
             :options="protocolOptions"
             style="width: 320px"
           />
@@ -133,17 +133,17 @@ const protocolOptions = [
 ]
 
 const form = reactive<AppConfig>({
-  dyn_proxy_enable: false,
-  dyn_proxy_new_account: false,
-  dyn_proxy_existing_account: false,
-  dyn_proxy_sticky_minutes: 5,
-  risk_free_proxy_auto: false,
-  risk_free_proxy_manual: true,
-  risk_cookie_no_free_proxy: true,
-  risk_auto_direct_fallback: false,
-  risk_manual_direct_fallback: true,
-  mask_proxy_logs: false,
-  proxy_protocol_order: 'http>https>socks5>socks4',
+  system_dynamic_proxy_enabled: false,
+  apply_dynamic_proxy_to_new_accounts: false,
+  apply_dynamic_proxy_to_existing_accounts: false,
+  default_sticky_minutes: 5,
+  allow_free_proxy_for_auto_download: false,
+  allow_free_proxy: true,
+  allow_free_proxy_with_cookies: true,
+  auto_direct_fallback: false,
+  manual_direct_fallback: true,
+  mask_proxy_in_logs: false,
+  default_proxy_protocol_order: 'http>https>socks5>socks4',
 })
 
 const goToProviders = () => {
@@ -154,17 +154,17 @@ const loadConfig = async () => {
   try {
     const res = await configApi.get()
     const data = res.data || {}
-    form.dyn_proxy_enable = !!data.dyn_proxy_enable
-    form.dyn_proxy_new_account = !!data.dyn_proxy_new_account
-    form.dyn_proxy_existing_account = !!data.dyn_proxy_existing_account
-    form.dyn_proxy_sticky_minutes = data.dyn_proxy_sticky_minutes || 5
-    form.risk_free_proxy_auto = !!data.risk_free_proxy_auto
-    form.risk_free_proxy_manual = !!data.risk_free_proxy_manual
-    form.risk_cookie_no_free_proxy = !!data.risk_cookie_no_free_proxy
-    form.risk_auto_direct_fallback = !!data.risk_auto_direct_fallback
-    form.risk_manual_direct_fallback = !!data.risk_manual_direct_fallback
-    form.mask_proxy_logs = !!data.mask_proxy_logs
-    form.proxy_protocol_order = data.proxy_protocol_order || 'http>https>socks5>socks4'
+    form.system_dynamic_proxy_enabled = !!data.system_dynamic_proxy_enabled
+    form.apply_dynamic_proxy_to_new_accounts = !!data.apply_dynamic_proxy_to_new_accounts
+    form.apply_dynamic_proxy_to_existing_accounts = !!data.apply_dynamic_proxy_to_existing_accounts
+    form.default_sticky_minutes = data.default_sticky_minutes || 5
+    form.allow_free_proxy_for_auto_download = !!data.allow_free_proxy_for_auto_download
+    form.allow_free_proxy = !!data.allow_free_proxy
+    form.allow_free_proxy_with_cookies = !!data.allow_free_proxy_with_cookies
+    form.auto_direct_fallback = !!data.auto_direct_fallback
+    form.manual_direct_fallback = !!data.manual_direct_fallback
+    form.mask_proxy_in_logs = !!data.mask_proxy_in_logs
+    form.default_proxy_protocol_order = data.default_proxy_protocol_order || 'http>https>socks5>socks4'
   } catch {
     message.error(t('settings.loadFailed'))
   }

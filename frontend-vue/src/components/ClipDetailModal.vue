@@ -1,6 +1,7 @@
 <template>
   <NModal
     :show="true"
+    :block-scroll="false"
     preset="card"
     :title="t('clipDetail.taskLabel')"
     style="max-width: 800px; width: 90vw"

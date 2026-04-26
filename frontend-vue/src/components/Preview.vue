@@ -1,6 +1,7 @@
 <template>
   <NModal
       :show="showModal"
+      :block-scroll="false"
       :on-update:show="changeShow"
       preset="card"
       class="w-[540px] h-auto"
@@ -33,7 +34,7 @@ import { useEncryptedPreview } from '@/composables/useEncryptedPreview'
 import type Player from "video.js/dist/types/player"
 
 const { t } = useI18n()
-const videoPlayerRef = ref<HTMLElement | null>(null)
+const videoPlayerRef = ref<HTMLVideoElement | null>(null)
 const { mediaSource, playerRef, dispose, sourceBuffer: sb } = useEncryptedPreview()
 
 let player: Player | null = null
@@ -58,7 +59,7 @@ const emit = defineEmits(["update:showModal"])
 const changeShow = (value: boolean) => emit("update:showModal", value)
 
 const onAfterEnter = () => {
-  playerRef.value = videoPlayerRef.value as HTMLVideoElement
+  playerRef.value = videoPlayerRef.value
   if (props.previewRow.DecodeKey) {
     playVideoWithoutTotalLength()
   } else if (props.previewRow.Classify === "live") {
@@ -152,6 +153,7 @@ const playVideoWithoutTotalLength = () => {
 
 const handleSeeking = () => {
   if (!videoPlayerRef.value) return
+  if (videoPlayerRef.value.buffered.length === 0) return
   const currentTime = videoPlayerRef.value.currentTime
   const bufferedEnd = videoPlayerRef.value.buffered.end(videoPlayerRef.value.buffered.length - 1)
 

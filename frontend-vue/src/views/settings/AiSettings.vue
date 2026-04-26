@@ -23,10 +23,10 @@
 
         <NFormItem :label="t('config.llmApiKey')" path="llm_api_key">
           <NInput
-            v-model:value="form.llm_api_key"
+            v-model:value="llmApiKeyInput"
             type="password"
             show-password-on="click"
-            :placeholder="t('settings.llmApiKey')"
+            :placeholder="llmApiKeyPlaceholder"
           />
         </NFormItem>
 
@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import {
   NForm, NFormItem, NInput, NInputNumber, NButton, NCard,
   NSelect, NSwitch, useMessage,
@@ -105,7 +105,16 @@ import configApi, { AppConfig } from '@/api/config'
 const { t } = useI18n()
 const message = useMessage()
 
+const MASKED_SECRET_VALUE = '***'
 const saving = ref(false)
+const llmApiKeyInput = ref('')
+const hasSavedLlmApiKey = ref(false)
+
+const llmApiKeyPlaceholder = computed(() => (
+  hasSavedLlmApiKey.value
+    ? t('settings.llmApiKeySavedPlaceholder')
+    : t('settings.llmApiKey')
+))
 
 const providerOptions = [
   { label: t('config.llmQwen'), value: 'qwen' },
@@ -131,6 +140,9 @@ const form = reactive<AppConfig>({
   clip_embed_thumbnail: false,
   clip_embed_subtitle: false,
   clip_adapt_aspect_ratio: false,
+  clip_thumbnail_quality: 2,
+  auto_clip_enabled: false,
+  auto_clip_notify_enabled: false,
 })
 
 const loadConfig = async () => {
@@ -138,7 +150,10 @@ const loadConfig = async () => {
     const res = await configApi.get()
     const data = res.data || {}
     form.llm_provider = data.llm_provider || 'qwen'
-    form.llm_api_key = data.llm_api_key || ''
+    const loadedLlmApiKey = data.llm_api_key || ''
+    hasSavedLlmApiKey.value = loadedLlmApiKey === MASKED_SECRET_VALUE
+    llmApiKeyInput.value = hasSavedLlmApiKey.value ? '' : loadedLlmApiKey
+    form.llm_api_key = hasSavedLlmApiKey.value ? MASKED_SECRET_VALUE : loadedLlmApiKey
     form.llm_model = data.llm_model || ''
     form.llm_base_url = data.llm_base_url || ''
     form.llm_category = data.llm_category || 'entertainment'
@@ -146,6 +161,9 @@ const loadConfig = async () => {
     form.clip_embed_thumbnail = !!data.clip_embed_thumbnail
     form.clip_embed_subtitle = !!data.clip_embed_subtitle
     form.clip_adapt_aspect_ratio = !!data.clip_adapt_aspect_ratio
+    form.clip_thumbnail_quality = data.clip_thumbnail_quality ?? 2
+    form.auto_clip_enabled = !!data.auto_clip_enabled
+    form.auto_clip_notify_enabled = !!data.auto_clip_notify_enabled
   } catch {
     message.error(t('settings.loadFailed'))
   }
@@ -154,7 +172,22 @@ const loadConfig = async () => {
 const save = async () => {
   saving.value = true
   try {
-    await configApi.save(form as AppConfig)
+    const payload: AppConfig = {
+      ...form,
+      llm_api_key: llmApiKeyInput.value,
+    }
+    if (hasSavedLlmApiKey.value && !llmApiKeyInput.value) {
+      payload.llm_api_key = MASKED_SECRET_VALUE
+    }
+    await configApi.save(payload)
+    if (payload.llm_api_key) {
+      hasSavedLlmApiKey.value = true
+      llmApiKeyInput.value = ''
+      form.llm_api_key = MASKED_SECRET_VALUE
+    } else {
+      hasSavedLlmApiKey.value = false
+      form.llm_api_key = ''
+    }
     message.success(t('settings.saved'))
   } catch {
     message.error(t('settings.saveFailed'))
@@ -167,4 +200,3 @@ onMounted(() => {
   loadConfig()
 })
 </script>
-

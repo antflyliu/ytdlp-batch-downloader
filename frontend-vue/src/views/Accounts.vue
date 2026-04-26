@@ -44,6 +44,7 @@
       <!-- Account Table -->
       <div v-if="accounts.length > 0" class="table-wrap">
         <NDataTable
+          class="app-sticky-table"
           :columns="tableColumns"
           :data="filteredAccounts"
           :bordered="false"
@@ -69,6 +70,7 @@
     <!-- Add/Edit Account Modal -->
     <NModal
       v-model:show="showAccountModal"
+      :block-scroll="false"
       preset="card"
       :title="editingAccount ? t('account.titleEdit') : t('account.modalTitleAdd')"
       style="width: 680px"
@@ -215,8 +217,10 @@
               </NFormItem>
               <NFormItem :label="t('account.dingtalkSecret')">
                 <NInput
-                  v-model:value="formData.dingtalk_sign_secret"
-                  :placeholder="t('account.dingtalkSecretPlaceholder')"
+                  v-model:value="dingtalkSignSecretInput"
+                  type="password"
+                  show-password-on="click"
+                  :placeholder="dingtalkSignSecretPlaceholder"
                 />
                 <template #feedback>
                   <span class="text-xs text-dim">{{ t('account.dingtalkSecretHint') }}</span>
@@ -238,8 +242,10 @@
             <template v-if="formData.notify_platform === 'telegram'">
               <NFormItem :label="t('account.botToken')">
                 <NInput
-                  v-model:value="formData.telegram_bot_token"
-                  :placeholder="t('account.botTokenPlaceholder')"
+                  v-model:value="telegramBotTokenInput"
+                  type="password"
+                  show-password-on="click"
+                  :placeholder="telegramBotTokenPlaceholder"
                 />
                 <template #feedback>
                   <span class="text-xs text-dim">{{ t('account.webhookHintTelegram') }}</span>
@@ -312,6 +318,7 @@
     <!-- Scan Confirm Modal -->
     <NModal
       v-model:show="showScanModal"
+      :block-scroll="false"
       preset="dialog"
       :title="t('scanConfirm.title')"
       positive-text=""
@@ -335,6 +342,7 @@
     <!-- Delete Confirm -->
     <NModal
       v-model:show="showDeleteModal"
+      :block-scroll="false"
       preset="dialog"
       :title="t('account.deleteConfirmTitle')"
       positive-text=""
@@ -374,6 +382,8 @@ import accountsApi from '@/api/accounts'
 
 const { t } = useI18n()
 const message = useMessage()
+
+const MASKED_SECRET_VALUE = '***'
 
 // ── Types ──────────────────────────────────────────────────────────────
 interface Account {
@@ -469,6 +479,10 @@ const defaultFormData = (): Account => ({
 })
 
 const formData = ref<Account>(defaultFormData())
+const telegramBotTokenInput = ref('')
+const dingtalkSignSecretInput = ref('')
+const hasSavedTelegramBotToken = ref(false)
+const hasSavedDingtalkSignSecret = ref(false)
 
 // ── Options ─────────────────────────────────────────────────────────────
 const platforms = computed(() => [
@@ -495,10 +509,59 @@ const downloadModeOptions = computed(() => [
   { value: 'direct_only', label: t('account.downloadModeDirectOnly') },
 ])
 
-const apiKeyOptions = computed(() => [
-  { label: t('account.apiKeyDefault'), value: null },
-  ...apiKeys.value.map(k => ({ label: `${k.name} (${k.key_value})`, value: k.id })),
-])
+const apiKeyOptions = computed(() =>
+  apiKeys.value.map(k => ({ label: `${k.name} (${k.key_value})`, value: k.id }))
+)
+
+const telegramBotTokenPlaceholder = computed(() => (
+  hasSavedTelegramBotToken.value
+    ? t('settings.secretSavedPlaceholder')
+    : t('account.botTokenPlaceholder')
+))
+
+const dingtalkSignSecretPlaceholder = computed(() => (
+  hasSavedDingtalkSignSecret.value
+    ? t('settings.secretSavedPlaceholder')
+    : t('account.dingtalkSecretPlaceholder')
+))
+
+const resetSecretInputs = () => {
+  telegramBotTokenInput.value = ''
+  dingtalkSignSecretInput.value = ''
+  hasSavedTelegramBotToken.value = false
+  hasSavedDingtalkSignSecret.value = false
+}
+
+const syncSecretInputsFromAccount = (account: Account) => {
+  const loadedTelegramToken = account.telegram_bot_token || ''
+  hasSavedTelegramBotToken.value = loadedTelegramToken === MASKED_SECRET_VALUE
+  telegramBotTokenInput.value = hasSavedTelegramBotToken.value ? '' : loadedTelegramToken
+  formData.value.telegram_bot_token = hasSavedTelegramBotToken.value
+    ? MASKED_SECRET_VALUE
+    : loadedTelegramToken
+
+  const loadedDingtalkSecret = account.dingtalk_sign_secret || ''
+  hasSavedDingtalkSignSecret.value = loadedDingtalkSecret === MASKED_SECRET_VALUE
+  dingtalkSignSecretInput.value = hasSavedDingtalkSignSecret.value ? '' : loadedDingtalkSecret
+  formData.value.dingtalk_sign_secret = hasSavedDingtalkSignSecret.value
+    ? MASKED_SECRET_VALUE
+    : loadedDingtalkSecret
+}
+
+const buildAccountPayload = (): Account => {
+  const data = {
+    ...formData.value,
+    telegram_bot_token: telegramBotTokenInput.value,
+    dingtalk_sign_secret: dingtalkSignSecretInput.value,
+  }
+  if (hasSavedTelegramBotToken.value && !telegramBotTokenInput.value) {
+    data.telegram_bot_token = MASKED_SECRET_VALUE
+  }
+  if (hasSavedDingtalkSignSecret.value && !dingtalkSignSecretInput.value) {
+    data.dingtalk_sign_secret = MASKED_SECRET_VALUE
+  }
+  return data
+}
 
 const proxyPoolOptions = computed(() =>
   proxyPools.value.map(p => ({
@@ -602,6 +665,7 @@ const tableColumns: DataTableColumn<Account>[] = [
     title: t('channels.tableActions'),
     key: 'actions',
     width: 220,
+    fixed: 'right',
     render: (row) => h('div', { style: 'display:flex;gap:4px' }, [
       h(NButton, {
         size: 'small',
@@ -655,6 +719,7 @@ const loadProxyPools = async () => {
 const openAddModal = async () => {
   editingAccount.value = null
   formData.value = defaultFormData()
+  resetSecretInputs()
   await loadApiKeys()
   await loadProxyPools()
   showAccountModal.value = true
@@ -663,6 +728,7 @@ const openAddModal = async () => {
 const openEditModal = async (account: Account) => {
   editingAccount.value = account
   formData.value = { ...defaultFormData(), ...account }
+  syncSecretInputsFromAccount(account)
   await loadApiKeys()
   await loadProxyPools()
   routingResult.value = null
@@ -680,7 +746,7 @@ const saveAccount = async () => {
   }
   saving.value = true
   try {
-    const data = { ...formData.value }
+    const data = buildAccountPayload()
     delete (data as any).status  // remove status from payload
     let res
     if (editingAccount.value) {
@@ -688,8 +754,9 @@ const saveAccount = async () => {
     } else {
       res = await accountsApi.create(data)
     }
-    if (res.code === 0) {
-      message.error(res.message)
+    const body = res.data as { code?: number; message?: string } | undefined
+    if (body?.code === 0) {
+      message.error(body.message || t('account.networkError'))
     } else {
       message.success(editingAccount.value ? t('account.editSuccess') : t('account.addSuccess'))
       showAccountModal.value = false
@@ -712,8 +779,9 @@ const confirmDelete = async () => {
   deleting.value = true
   try {
     const res = await accountsApi.delete(deletingAccountId.value)
-    if (res.code === 0) {
-      message.error(res.message)
+    const body = res.data as { code?: number; message?: string } | undefined
+    if (body?.code === 0) {
+      message.error(body.message || t('account.networkError'))
     } else {
       message.success(t('account.deleteSuccess'))
       showDeleteModal.value = false

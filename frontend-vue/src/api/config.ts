@@ -1,30 +1,30 @@
 import request from '@/api/request'
 
 export interface AppConfig {
-  // Notify
-  feishu_webhook?: string
-  dingtalk_webhook?: string
-  dingtalk_secret_global?: string
-  wecom_webhook?: string
-  telegram_bot_token?: string
-  telegram_chat_id?: string
+  // Notify (snake_case, matching backend)
+  global_feishu_url?: string
+  global_dingtalk_url?: string
+  global_dingtalk_sign_secret?: string
+  global_wecom_url?: string
+  global_telegram_token?: string
+  global_telegram_chat_id?: string
 
   // API & Scan
-  default_api_key?: string
-  quota_budget?: number
-  quota_timezone?: string
+  default_api_key_id?: string
+  quota_budget_per_day?: number
+  quota_usage_timezone?: string
   quota_alert_thresholds?: string
-  channel_meta_health_enable?: boolean
-  channel_meta_health_interval_hours?: number
-  channel_meta_ttl_days?: number
+  channel_meta_health_check_enabled?: boolean
+  channel_meta_health_check_interval_hours?: number
+  channel_meta_max_age_days?: number
   notify_on_scan_error?: boolean
-  scan_error_cooldown?: number
-  scan_jitter?: number
+  scan_error_notify_cooldown_seconds?: number
+  scan_jitter_seconds?: number
 
   // Download
-  download_path?: string
-  cookies_file?: string
-  sub_langs?: string
+  download_output_path?: string
+  download_cookies_file?: string
+  default_sub_langs?: string
   enable_aria2?: boolean
 
   // AI Clip
@@ -37,24 +37,26 @@ export interface AppConfig {
   clip_embed_thumbnail?: boolean
   clip_embed_subtitle?: boolean
   clip_adapt_aspect_ratio?: boolean
+  clip_thumbnail_quality?: number
+  auto_clip_enabled?: boolean
+  auto_clip_notify_enabled?: boolean
 
   // Dynamic Proxy
-  dyn_proxy_enable?: boolean
-  dyn_proxy_new_account?: boolean
-  dyn_proxy_existing_account?: boolean
-  dyn_proxy_sticky_minutes?: number
-  proxy_protocol_order?: string
-  risk_free_proxy_auto?: boolean
-  risk_free_proxy_manual?: boolean
-  risk_cookie_no_free_proxy?: boolean
-  risk_auto_direct_fallback?: boolean
-  risk_manual_direct_fallback?: boolean
-  mask_proxy_logs?: boolean
+  system_dynamic_proxy_enabled?: boolean
+  apply_dynamic_proxy_to_new_accounts?: boolean
+  apply_dynamic_proxy_to_existing_accounts?: boolean
+  default_sticky_minutes?: number
+  default_proxy_protocol_order?: string
+  allow_free_proxy_for_auto_download?: boolean
+  allow_free_proxy?: boolean
+  allow_free_proxy_with_cookies?: boolean
+  auto_direct_fallback?: boolean
+  manual_direct_fallback?: boolean
+  mask_proxy_in_logs?: boolean
 
   // Proxy Sniffer
   proxy_sniffer_enabled?: boolean
   proxy_sniffer_port?: number
-  proxy_sniffer_system_proxy?: boolean
 }
 
 export interface ProxyStatus {

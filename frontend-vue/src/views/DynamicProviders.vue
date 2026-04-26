@@ -133,13 +133,16 @@
       </div>
 
       <!-- Table -->
-      <div v-else>
+      <div v-else class="table-wrap">
         <NDataTable
+          class="app-sticky-table"
           :columns="columns"
           :data="filteredProviders"
           :pagination="{ pageSize: PAGE_SIZE }"
           :row-key="(row: DynamicProvider) => row.id"
           :loading="loading"
+          :scroll-x="1040"
+          :max-height="600"
           striped
           size="small"
         />
@@ -149,6 +152,7 @@
     <!-- Add/Edit Provider Modal -->
     <NModal
       v-model:show="showProviderModal"
+      :block-scroll="false"
       :title="editingProvider ? t('dynProviders.addProviderTitle') : t('dynProviders.addProviderTitle')"
       preset="card"
       style="width:720px;max-width:95vw"
@@ -190,9 +194,13 @@
         <NDivider>{{ t('dynProviders.gatewayConfig') }}</NDivider>
 
         <!-- Rotating Gateway Config -->
-        <NCollapse>
+        <NCollapse
+          v-if="form.adapter_type === 'rotating_gateway'"
+          :key="form.adapter_type"
+          :default-expanded-names="['rotating']"
+        >
           <NCollapseItem :title="t('dynProviders.rotatingGateway')" name="rotating">
-            <div v-show="form.adapter_type === 'rotating_gateway'" class="config-section">
+            <div class="config-section config-section--rotating">
               <NGrid :cols="2" :x-gap="12">
                 <NFormItemGi :label="t('dynProviders.gatewayHost')" required>
                   <NInput v-model:value="form.config.gateway_host" :placeholder="t('dynProviders.gatewayHost')" />
@@ -210,27 +218,46 @@
                 </NFormItemGi>
               </NGrid>
               <NFormItem :label="t('dynProviders.password')">
-                <NInput v-model:value="form.config.password" type="password" show-password-on="mousedown" />
+                <NInput
+                  v-model:value="form.config.password"
+                  type="password"
+                  show-password-on="mousedown"
+                  :placeholder="rotatingPasswordPlaceholder"
+                />
               </NFormItem>
             </div>
           </NCollapseItem>
         </NCollapse>
 
         <!-- Local Gateway Config -->
-        <NCollapse>
-          <NCollapseItem :title="t('dynProviders.localGateway')" name="local">
-            <div v-show="form.adapter_type === 'local_gateway'" class="config-section">
+        <NCollapse
+          v-else-if="form.adapter_type === 'local_gateway'"
+          :key="form.adapter_type"
+          :default-expanded-names="['local']"
+        >
+              <NCollapseItem :title="t('dynProviders.localGateway')" name="local">
+            <div class="config-section config-section--local">
               <NFormItem :label="t('dynProviders.localProxyUrl')" required>
-                <NInput v-model:value="form.config.local_proxy_url" :placeholder="t('dynProviders.localProxyUrlHint')" />
+                <NInput v-model:value="form.config.local_proxy_url" :placeholder="localProxyUrlPlaceholder" />
               </NFormItem>
             </div>
           </NCollapseItem>
         </NCollapse>
 
         <!-- List API / Public Feed Config -->
-        <NCollapse>
-          <NCollapseItem :title="t('dynProviders.listApi')" name="listapi">
-            <div v-show="form.adapter_type === 'list_api' || form.adapter_type === 'public_feed'" class="config-section">
+        <NCollapse
+          v-else-if="form.adapter_type === 'list_api' || form.adapter_type === 'public_feed'"
+          :key="form.adapter_type"
+          :default-expanded-names="['listapi']"
+        >
+          <NCollapseItem
+            :title="form.adapter_type === 'public_feed' ? t('dynProviders.publicFeed') : t('dynProviders.listApi')"
+            name="listapi"
+          >
+            <div
+              class="config-section"
+              :class="form.adapter_type === 'public_feed' ? 'config-section--public-feed' : 'config-section--list-api'"
+            >
               <NGrid :cols="2" :x-gap="12">
                 <NFormItemGi :label="t('dynProviders.apiUrl')" required>
                   <NInput v-model:value="form.config.base_url" :placeholder="t('dynProviders.apiUrl')" />
@@ -270,7 +297,12 @@
                     <NInput v-model:value="form.config.auth_username" />
                   </NFormItemGi>
                   <NFormItemGi :label="t('dynProviders.authPassword')">
-                    <NInput v-model:value="form.config.auth_password" type="password" show-password-on="mousedown" />
+                    <NInput
+                      v-model:value="form.config.auth_password"
+                      type="password"
+                      show-password-on="mousedown"
+                      :placeholder="listAuthPasswordPlaceholder"
+                    />
                   </NFormItemGi>
                 </NGrid>
               </div>
@@ -344,7 +376,7 @@
     </NModal>
 
     <!-- Provider Detail Drawer -->
-    <NDrawer v-model:show="showDetailDrawer" :width="420" placement="right">
+    <NDrawer v-model:show="showDetailDrawer" :block-scroll="false" :width="420" placement="right">
       <NDrawerContent :title="detailProvider?.name || ''" closable>
         <template v-if="detailLoading">
           <div style="display:flex; justify-content:center; padding:32px 0">
@@ -444,15 +476,17 @@ import { h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NButton, NCard, NSpace, NTag, NInput, NInputNumber, NSelect, NSwitch,
-  NGrid, NGridItem as NFormItemGi, NFormItem, NDivider, NCollapse,
+  NGrid, NFormItemGi, NFormItem, NDivider, NCollapse,
   NCollapseItem, NDataTable, NModal, NDrawer, NDrawerContent, NSpin,
-  useMessage,
+  NDropdown, useMessage,
 } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 import request from '@/api/request'
 
 const { t } = useI18n()
 const message = useMessage()
 
+const MASKED_SECRET_VALUE = '***'
 const PAGE_SIZE = 15
 
 // ── State ────────────────────────────────────────────────────────────
@@ -475,6 +509,9 @@ const searchQuery = ref('')
 const showProviderModal = ref(false)
 const editingProvider = ref<DynamicProvider | null>(null)
 const form = ref<ProviderForm>(buildForm())
+const hasSavedRotatingPassword = ref(false)
+const hasSavedListAuthPassword = ref(false)
+const hasSavedLocalProxyUrl = ref(false)
 
 // Detail
 const showDetailDrawer = ref(false)
@@ -606,6 +643,24 @@ const logFilterOptions = [
   { label: t('dynProviders.logCleanup'), value: 'cleanup' },
   { label: t('dynProviders.logError'), value: 'error' },
 ]
+
+const rotatingPasswordPlaceholder = computed(() => (
+  hasSavedRotatingPassword.value
+    ? t('settings.secretSavedPlaceholder')
+    : ''
+))
+
+const listAuthPasswordPlaceholder = computed(() => (
+  hasSavedListAuthPassword.value
+    ? t('settings.secretSavedPlaceholder')
+    : ''
+))
+
+const localProxyUrlPlaceholder = computed(() => (
+  hasSavedLocalProxyUrl.value
+    ? t('proxyPools.proxyUrlSavedPlaceholder')
+    : t('dynProviders.localProxyUrlHint')
+))
 
 const filteredLogs = computed(() => {
   const mode = logFilter.value
@@ -762,6 +817,9 @@ async function healthCheckAll() {
 function openAddProvider() {
   editingProvider.value = null
   form.value = buildForm()
+  hasSavedRotatingPassword.value = false
+  hasSavedListAuthPassword.value = false
+  hasSavedLocalProxyUrl.value = false
   showProviderModal.value = true
 }
 
@@ -785,8 +843,10 @@ function openEditProvider(row: DynamicProvider) {
   form.value.config.gateway_port = cfg.gateway_port || null
   form.value.config.protocol = cfg.protocol || 'http'
   form.value.config.username = cfg.username || ''
-  form.value.config.password = cfg.password ? '***' : ''
-  form.value.config.local_proxy_url = cfg.local_proxy_url || ''
+  hasSavedRotatingPassword.value = row.adapter_type === 'rotating_gateway' && !!cfg.password
+  form.value.config.password = ''
+  hasSavedLocalProxyUrl.value = row.adapter_type === 'local_gateway' && !!cfg.local_proxy_url
+  form.value.config.local_proxy_url = hasSavedLocalProxyUrl.value ? '' : (cfg.local_proxy_url || '')
   form.value.config.base_url = cfg.base_url || ''
   form.value.config.adapter_name = cfg.adapter_name || ''
   form.value.config.limit = cfg.limit || 50
@@ -795,6 +855,11 @@ function openEditProvider(row: DynamicProvider) {
   const hasAuth = !!(cfg.username)
   form.value.config.has_auth = hasAuth
   form.value.config.auth_username = hasAuth ? (cfg.username || '') : ''
+  hasSavedListAuthPassword.value = (
+    (row.adapter_type === 'list_api' || row.adapter_type === 'public_feed') &&
+    hasAuth &&
+    !!cfg.password
+  )
   form.value.config.auth_password = ''
   const fm = cfg.field_mapping || {}
   form.value.config.field_mapping.host = (fm.host && fm.host[0]) || ''
@@ -816,11 +881,13 @@ function buildConfigJson(): Record<string, any> | null {
     const uname = form.value.config.username?.trim()
     const pwd = form.value.config.password
     if (uname) cfg.username = uname
-    if (pwd && pwd !== '***') cfg.password = pwd
+    if (pwd) cfg.password = pwd
+    else if (editingProvider.value && hasSavedRotatingPassword.value) cfg.password = MASKED_SECRET_VALUE
   } else if (adapter === 'local_gateway') {
     const url = form.value.config.local_proxy_url?.trim()
-    if (!url) { message.warning(t('provider.localProxyRequired')); return null }
-    cfg.local_proxy_url = url
+    if (url) cfg.local_proxy_url = url
+    else if (editingProvider.value && hasSavedLocalProxyUrl.value) cfg.local_proxy_url = MASKED_SECRET_VALUE
+    else { message.warning(t('provider.localProxyRequired')); return null }
   } else if (adapter === 'list_api' || adapter === 'public_feed') {
     const baseUrl = form.value.config.base_url?.trim()
     if (!baseUrl) { message.warning(t('provider.apiUrlRequired')); return null }
@@ -840,6 +907,7 @@ function buildConfigJson(): Record<string, any> | null {
       const p = form.value.config.auth_password
       if (u) cfg.username = u
       if (p) cfg.password = p
+      else if (editingProvider.value && hasSavedListAuthPassword.value) cfg.password = MASKED_SECRET_VALUE
     }
     cfg.field_mapping = {}
     const hf = form.value.config.field_mapping.host?.trim()
@@ -959,6 +1027,63 @@ async function deleteProvider(row: DynamicProvider) {
     await loadAll()
   } catch (e: any) {
     message.error(e?.message || t('provider.operationError'))
+  }
+}
+
+function providerActionOptions(row: DynamicProvider): DropdownOption[] {
+  const options: DropdownOption[] = [
+    { label: t('provider.btnEdit'), key: 'edit' },
+    { label: row.enabled ? t('provider.btnDisable') : t('provider.btnToggle'), key: 'toggle' },
+    { label: t('provider.btnCheck'), key: 'check' },
+    { label: t('provider.btnRefresh'), key: 'refresh' },
+    { label: t('provider.btnPreview'), key: 'preview' },
+    { label: t('provider.btnDetail'), key: 'detail' },
+  ]
+
+  if (row.is_in_cooldown) {
+    options.push({ label: t('provider.btnClearCooldown'), key: 'clearCooldown' })
+  }
+
+  options.push(
+    { type: 'divider', key: 'delete-divider' },
+    {
+      label: t('provider.btnDelete'),
+      key: 'delete',
+      props: {
+        style: 'color: var(--error); font-weight: 600;',
+      },
+    }
+  )
+
+  return options
+}
+
+function handleProviderAction(row: DynamicProvider, key: string | number) {
+  switch (key) {
+    case 'edit':
+      openEditProvider(row)
+      break
+    case 'toggle':
+      toggleProvider(row)
+      break
+    case 'check':
+      healthCheckProvider(row)
+      break
+    case 'refresh':
+      refreshProvider(row)
+      break
+    case 'preview':
+      previewProvider(row)
+      break
+    case 'detail':
+      openDetail(row)
+      break
+    case 'clearCooldown':
+      clearCooldown(row)
+      break
+    case 'delete':
+      deleteProvider(row)
+      break
   }
 }
 
@@ -1111,24 +1236,25 @@ const columns = computed(() => [
   {
     title: t('dynProviders.thActions'),
     key: 'actions',
-    width: 300,
-    render: (row: DynamicProvider) => {
-      const btns = [
-        h(NButton, { size: 'tiny', onClick: () => openEditProvider(row) }, () => t('provider.btnEdit')),
-        h(NButton, {
-          size: 'tiny',
-          type: row.enabled ? 'warning' : 'success',
-          onClick: () => toggleProvider(row)
-        }, () => row.enabled ? t('provider.btnDisable') : t('provider.btnToggle')),
-        h(NButton, { size: 'tiny', onClick: () => healthCheckProvider(row) }, () => t('provider.btnCheck')),
-        h(NButton, { size: 'tiny', onClick: () => refreshProvider(row) }, () => t('provider.btnRefresh')),
-        h(NButton, { size: 'tiny', onClick: () => previewProvider(row) }, () => t('provider.btnPreview')),
-        h(NButton, { size: 'tiny', onClick: () => openDetail(row) }, () => t('provider.btnDetail')),
-        row.is_in_cooldown ? h(NButton, { size: 'tiny', type: 'success', onClick: () => clearCooldown(row) }, () => t('provider.btnClearCooldown')) : null,
-        h(NButton, { size: 'tiny', type: 'error', onClick: () => deleteProvider(row) }, () => t('provider.btnDelete')),
-      ]
-      return h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, btns)
-    }
+    width: 128,
+    fixed: 'right' as const,
+    render: (row: DynamicProvider) =>
+      h('div', { class: 'provider-row-actions' }, [
+        h(
+          NDropdown,
+          {
+            trigger: 'click',
+            placement: 'bottom-end',
+            showArrow: true,
+            options: providerActionOptions(row),
+            onSelect: (key: string | number) => handleProviderAction(row, key),
+          },
+          {
+            default: () =>
+              h(NButton, { size: 'small', tertiary: true, class: 'provider-action-trigger' }, () => `${t('action.more')} ▾`),
+          }
+        ),
+      ]),
   },
 ])
 
@@ -1166,5 +1292,14 @@ onMounted(() => {
 }
 .config-section {
   padding: 4px 0;
+}
+.provider-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-width: max-content;
+}
+.provider-row-actions :deep(.provider-action-trigger) {
+  min-width: 76px;
+  font-weight: 600;
 }
 </style>

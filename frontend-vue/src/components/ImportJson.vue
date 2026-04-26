@@ -2,6 +2,7 @@
   <div class="import-json">
     <NModal
       v-model:show="showModal"
+      :block-scroll="false"
       preset="card"
       :title="t('importJson.title')"
       style="width: 500px"

@@ -21,11 +21,14 @@
 
     <!-- Resource table -->
     <NDataTable
+      class="app-sticky-table"
       :columns="columns"
       :data="filteredResources"
       :pagination="{ pageSize: 20 }"
       :virtual="true"
       :row-key="(row: MediaInfo) => row.UrlSign"
+      :scroll-x="1280"
+      :max-height="600"
       striped
     />
 
@@ -117,6 +120,7 @@ const columns = computed(() => [
   {
     title: t('column.description'),
     key: 'Description',
+    width: 420,
     ellipsis: true,
     render: (row: MediaInfo) => {
       if (row.Description) return row.Description
@@ -135,7 +139,8 @@ const columns = computed(() => [
   {
     title: t('column.action'),
     key: 'actions',
-    width: 200,
+    width: 300,
+    fixed: 'right' as const,
     render: (row: MediaInfo) => h(ResourceAction, { row, onDelete: handleDelete })
   },
 ])

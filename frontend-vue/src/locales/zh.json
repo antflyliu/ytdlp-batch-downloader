@@ -116,7 +116,7 @@
     "insert_tail": "添入尾部",
     "insert_tail_tip": "拦截到新数据是否添加到列表尾部",
     "upstream_proxy": "上游代理",
-    "upstream_proxy_tip": "用于结合其他代理工具，格式: http://username\\:password@your.proxy.server\\:port",
+    "upstream_proxy_tip": "用于结合其他代理工具，格式: http://username\\:password{'@'}your.proxy.server\\:port",
     "download_proxy": "下载代理",
     "download_proxy_tip": "下载操作时是否使用上游代理",
     "user_agent_tip": "如不清楚请保持默认",
@@ -177,6 +177,7 @@
     "loadFailed": "加载设置失败",
     "saveFailed": "保存设置失败",
     "saved": "设置已保存",
+    "secretSavedPlaceholder": "已保存，输入新值可替换",
     "directoryRequired": "请输入下载目录",
     "selectDirectoryTip": "请在下方输入完整路径",
     "llmModel": "模型名称",
@@ -185,6 +186,7 @@
     "hubDesc": "按模块管理通知、API、下载、AI 切片与动态代理",
     "catEntertainment": "娱乐类",
     "llmApiKey": "API Key",
+    "llmApiKeySavedPlaceholder": "已保存，输入新 Key 可替换",
     "manageProviders": "管理提供方",
     "sessionMode": "默认会话模式",
     "cookiesFilePlaceholder": "留空则不使用 Cookie",
@@ -307,7 +309,8 @@
     "type": "类型",
     "size": "大小",
     "domain": "域名",
-    "description": "描述"
+    "description": "描述",
+    "action": "操作"
   },
   "importJson": {
     "title": "批量导入",
@@ -439,7 +442,8 @@
     "nodeName": "节点名称",
     "enableNowHint": "保存后可在账户中关联使用",
     "enableNow": "立即启用",
-    "proxyUrl": "代理地址"
+    "proxyUrl": "代理地址",
+    "proxyUrlSavedPlaceholder": "已保存，输入新代理地址可替换"
   },
   "proxy": {
     "statusOnline": "在线",
@@ -605,7 +609,7 @@
     "enableProxy": "启用账户固定代理",
     "noDefaultKey": "— 无默认 Key —",
     "downloadModeHelp": "优先使用账户固定代理，不可用时回退到系统动态代理",
-    "channelUrlHint": "支持 @handle、UC 频道 ID 或完整视频/播放列表 URL",
+    "channelUrlHint": "支持 {'@'}handle、UC 频道 ID 或完整视频/播放列表 URL",
     "apiKeyHint": "选择已保存的 API Key，或留空使用系统默认 Key（需在系统设置中配置）",
     "statusError": "异常",
     "apiKey": "API Key",
@@ -683,7 +687,7 @@
     "feishuTemplateIdPlaceholder": "飞书卡片模板 ID，如 $UUID$",
     "proxyPoolHint": "同一账户的两条下载路径共用一套代理配置，避免单 IP 被限流",
     "mode": "获取模式",
-    "channelUrlPlaceholder": "@C-HitShow / UCxxxx / 完整 YouTube URL"
+    "channelUrlPlaceholder": "{'@'}C-HitShow / UCxxxx / 完整 YouTube URL"
   },
   "batchDownload": {
     "expandLog": "展开详情",
@@ -928,7 +932,7 @@
     "telegramChatId": "Telegram Chat ID",
     "proxyProtoSocks5HttpsHttpSocks4": "SOCKS5 → HTTPS → HTTP → SOCKS4",
     "scanJitter": "定时扫描错峰（秒）",
-    "telegramBotTokenHint": "格式：<code>bot&lt;token&gt;</code>，从 @BotFather 获取",
+    "telegramBotTokenHint": "格式：<code>bot&lt;token&gt;</code>，从 {'@'}BotFather 获取",
     "channelMetaTTLHint": "超过该天数会重新请求 channels 元数据并写回 SQLite。设为 <strong>0</strong> 表示永不过期（与旧行为一致）。",
     "feishuHint": "账户级 URL 会覆盖此处全局配置",
     "quotaTimezone": "配额统计时区",
@@ -1186,7 +1190,7 @@
     "clearFailed": "清空失败",
     "validLabel": "valid ",
     "noCache": "暂无缓存",
-    "handlePlaceholder": "输入 @handle 或频道 URL",
+    "handlePlaceholder": "输入 {'@'}handle 或频道 URL",
     "refreshFailed": "刷新失败",
     "clearAll": "清空所有缓存",
     "confirmClearAll": "清空所有缓存",
@@ -1287,6 +1291,7 @@
   },
   "apiKeyForm": {
     "keyValueHint": "YouTube Data API v3 的实际 Key 值，安全存储于本地数据库",
+    "keyValueSavedPlaceholder": "已保存，编辑时不会显示原 Key",
     "save": "保存",
     "addTitle": "新增 API Key",
     "enableKey": "启用此 Key",

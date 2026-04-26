@@ -6,7 +6,7 @@ interface EventHandlers {
 }
 
 export const useEventStore = defineStore('event', () => {
-  const handles = ref<EventHandlers>({}) as EventHandlers
+  const handles = ref<EventHandlers>({})
   // Use shallowRef for EventSource to avoid deep reactivity overhead
   const eventSourceRef = shallowRef<EventSource | null>(null)
   const reconnectAttempt = ref(0)
@@ -22,7 +22,16 @@ export const useEventStore = defineStore('event', () => {
       try {
         const msg = JSON.parse(e.data)
         // Go send() wraps as {type, data} — not {event, data}
-        const eventType = msg.type || msg.event
+        const eventType =
+          typeof msg.type === 'string'
+            ? msg.type
+            : typeof msg.event === 'string'
+              ? msg.event
+              : ''
+        if (!eventType) {
+          console.warn('[eventStore] SSE message missing event type:', msg)
+          return
+        }
         // Double-unwrap: Go's send() data field may itself contain a JSON string or object
         const eventData = msg.data?.data || msg.data
         const handler = handles.value[eventType]
