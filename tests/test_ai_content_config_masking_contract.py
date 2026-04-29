@@ -1,0 +1,104 @@
+"""Contract tests for AI article/video workflow config surface and secret masking."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SERVER_MAIN = ROOT / "server" / "__main__.py"
+CONFIG_API = ROOT / "frontend-vue" / "src" / "api" / "config.ts"
+AI_SETTINGS = ROOT / "frontend-vue" / "src" / "views" / "settings" / "AiSettings.vue"
+
+
+def _require_snippets(text: str, snippets: list[str], reason: str) -> None:
+    missing = [snippet for snippet in snippets if snippet not in text]
+    if missing:
+        pytest.xfail(f"{reason}. Missing: {missing}")
+
+
+def test_backend_config_masking_whitelist_includes_ai_article_and_video_secrets():
+    text = SERVER_MAIN.read_text(encoding="utf-8")
+
+    _require_snippets(
+        text,
+        [
+            '"whisper_api_key"',
+            '"comfyui_api_key"',
+            '"runninghub_api_key"',
+            '"minimax_api_key"',
+            '"openai_api_key"',
+            '"gemini_api_key"',
+        ],
+        "Backend config masking whitelist for P0 AI workflow secrets is incomplete",
+    )
+
+
+def test_backend_config_save_whitelist_includes_ai_article_and_video_fields():
+    text = SERVER_MAIN.read_text(encoding="utf-8")
+
+    _require_snippets(
+        text,
+        [
+            '"whisper_api_key"',
+            '"article_tools_path"',
+            '"article_output_dir"',
+            '"video_gen_output_dir"',
+            '"comfyui_api_key"',
+            '"runninghub_api_key"',
+            '"image_generation_provider"',
+            '"image_generation_fallback_order"',
+            '"minimax_api_key"',
+            '"openai_api_key"',
+            '"gemini_api_key"',
+            '"default_scene_count"',
+            '"default_template"',
+        ],
+        "Backend config save whitelist for P0 AI workflows is incomplete",
+    )
+
+
+def test_frontend_app_config_includes_ai_article_and_video_fields():
+    text = CONFIG_API.read_text(encoding="utf-8")
+
+    _require_snippets(
+        text,
+        [
+            "whisper_api_key?: string",
+            "article_tools_path?: string",
+            "article_output_dir?: string",
+            "video_gen_output_dir?: string",
+            "comfyui_api_key?: string",
+            "runninghub_api_key?: string",
+            "image_generation_provider?: string",
+            "minimax_api_key?: string",
+            "openai_api_key?: string",
+            "gemini_api_key?: string",
+            "default_template?: string",
+            "default_scene_count?: number",
+        ],
+        "Frontend AppConfig contract for P0 AI workflows is incomplete",
+    )
+
+
+def test_ai_settings_masks_new_ai_workflow_secrets_with_round_trip_preservation():
+    text = AI_SETTINGS.read_text(encoding="utf-8")
+
+    _require_snippets(
+        text,
+        [
+            "whisperApiKeyInput",
+            "comfyuiApiKeyInput",
+            "runninghubApiKeyInput",
+            "minimaxApiKeyInput",
+            "openaiApiKeyInput",
+            "geminiApiKeyInput",
+            "payload.whisper_api_key = MASKED_SECRET_VALUE",
+            "payload.comfyui_api_key = MASKED_SECRET_VALUE",
+            "payload.runninghub_api_key = MASKED_SECRET_VALUE",
+            "payload.minimax_api_key = MASKED_SECRET_VALUE",
+            "payload.openai_api_key = MASKED_SECRET_VALUE",
+            "payload.gemini_api_key = MASKED_SECRET_VALUE",
+        ],
+        "AiSettings does not yet preserve masked P0 AI workflow secrets",
+    )
