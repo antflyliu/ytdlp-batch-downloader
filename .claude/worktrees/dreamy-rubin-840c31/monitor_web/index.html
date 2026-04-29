@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="meta.pageTitle">YouTube 视频监控</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/variables.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+<link rel="stylesheet" href="/static/css/common.css">
+<link rel="stylesheet" href="/static/css/form.css">
+<link rel="stylesheet" href="/static/css/table.css">
+<link rel="stylesheet" href="/static/css/modal.css">
+<link rel="stylesheet" href="/static/css/toast.css">
+<link rel="stylesheet" href="/static/css/drawer.css">
+<link rel="stylesheet" href="/static/css/provider.css">
+<link rel="stylesheet" href="/static/css/batch.css">
+<link rel="stylesheet" href="/static/css/api-key.css">
+<link rel="stylesheet" href="/static/css/theme.css">
+<link rel="stylesheet" href="/static/css/clip-detail.css">
+<link href="https://unpkg.com/video.js@7/dist/video-js.min.css" rel="stylesheet">
+<script src="https://unpkg.com/video.js@7/dist/video.min.js"></script>
+<link rel="stylesheet" href="/static/css/sidebar.css">
+</head>
+<body>
+<div class="app" id="app">
+  <!-- 侧边栏 -->
+  <nav class="sidebar" id="sidebar">
+    <button type="button" class="sidebar__logo sidebar__logo--toggle" id="sidebarLogoToggle" aria-label="展开或收起侧栏" title="展开或收起侧栏">
+      <div class="sidebar__logo-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+      <span class="sidebar__logo-text" data-i18n="nav.appName">YouTube 监控</span>
+    </button>
+    <div class="sidebar__nav">
+      <a class="sidebar__item sidebar__item--active" data-page="dashboard">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.dashboard">数据概览</span>
+      </a>
+      <a class="sidebar__item" data-page="channels">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="7 2 12 7 17 2"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.channels">账户管理</span>
+      </a>
+      <a class="sidebar__item" data-page="downloads">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.downloads">批量下载</span>
+      </a>
+      <a class="sidebar__item" data-page="api-keys">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.779 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.apiKeys">API Keys</span>
+      </a>
+      <a class="sidebar__item" data-page="proxy-pools">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.proxyPools">代理池</span>
+      </a>
+      <a class="sidebar__item" data-page="dynamic-providers">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.dynamicProviders">动态代理</span>
+      </a>
+      <a class="sidebar__item" data-page="clip-history">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.clipHistory">切片历史</span>
+      </a>
+      <a class="sidebar__item" data-page="resources">
+        <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+        <span class="sidebar__item-label" data-i18n="nav.resources">资源嗅探</span>
+      </a>
+      <div class="sidebar__group sidebar__group--settings" id="sidebarSettingsGroup">
+        <div class="sidebar__group-head">
+          <a class="sidebar__item sidebar__item--settings-main" data-page="settings" href="#/settings">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settings">配置中心</span>
+          </a>
+          <button type="button" class="sidebar__group-toggle" id="sidebarSettingsToggle" aria-label="展开或收起配置子菜单" aria-expanded="false" aria-controls="sidebarSettingsSubnav" title="展开或收起子菜单">
+            <svg class="sidebar__group-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+        <div class="sidebar__subnav" id="sidebarSettingsSubnav" role="navigation" aria-label="配置中心子项">
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-notify">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsNotify">通知与 Webhook</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-api">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsApi">API 与扫描</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-download">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsDownload">下载设置</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-ai">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsAi">AI 切片</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-dynamic">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsDynamic">系统动态代理</span>
+          </a>
+          <a class="sidebar__item sidebar__item--sub" data-page="settings-proxy">
+            <span class="sidebar__item-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            <span class="sidebar__item-label" data-i18n="nav.settingsProxy">代理嗅探</span>
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar__footer">
+      <button type="button" class="sidebar__toggle" id="sidebarToggle" aria-label="展开或收起侧栏" title="展开或收起侧栏">
+        <span class="sidebar__toggle-icon" aria-hidden="true">&lt;&lt;</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- 主内容区 -->
+  <div class="app__main" id="appMain">
+    <!-- 顶部栏 -->
+    <header class="header">
+      <div class="header-left">
+        <span id="headerNavTitle" class="header-nav-title" data-i18n="nav.dashboard">数据概览</span>
+      </div>
+      <div class="header-right">
+        <button class="btn btn--sm btn--ghost" id="langToggle">CN / EN</button>
+      </div>
+    </header>
+
+    <!-- 页面内容 -->
+    <main class="main">
+      <!-- Dashboard (page-dashboard) -->
+      <section class="page page--active" id="page-dashboard">
+        <div class="card">
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="page.dashboard.statAccounts">监控账户</div>
+              <div class="stat-value" id="statAccounts">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="page.dashboard.statScans">总扫描次数</div>
+              <div class="stat-value" id="statScans">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="page.dashboard.statNew">新增视频</div>
+              <div class="stat-value" id="statNew">—</div>
+            </div>
+            <div class="stat-card" id="quotaCard" style="display:none">
+              <div class="stat-label" data-i18n="page.dashboard.statQuota">API Quota</div>
+              <div class="stat-value" id="statQuota">—</div>
+              <div class="progress-bar" style="height:4px;background:var(--border);border-radius:2px;margin-top:4px">
+                <div id="quotaBar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
+              </div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="quotaSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="page.dashboard.statLast">最后扫描</div>
+              <div class="stat-value" id="statLast" style="font-size:14px">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">事</div>
+              <span data-i18n="page.dashboard.eventLog">扫描事件日志</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-dim)" id="eventCount" data-i18n="page.dashboard.eventCountDefault">最近 20 条</div>
+          </div>
+          <div class="card-body">
+            <div class="log-area" id="logArea">
+              <div class="empty-state" style="padding:24px">
+                <div class="empty-title" style="font-size:13px" data-i18n="page.dashboard.noRecords">暂无扫描记录</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Channels (page-channels) -->
+      <section class="page" id="page-channels">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.channels.title">账户管理</div>
+            <div class="page-desc" data-i18n="page.channels.desc">管理监控账户、扫描调度和通知渠道</div>
+          </div>
+        </div>
+        <div class="card card--accounts-scroll">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">户</div>
+              <span data-i18n="account.title">监控账户</span>
+            </div>
+            <div class="actions">
+              <div id="schedulerControls">
+                <button class="btn btn--primary" onclick="openAddAccount()" data-i18n="page.channels.addAccount">+ 添加账户</button>
+                <button class="btn btn--success" id="btnToggleScheduler" onclick="toggleScheduler()" data-i18n="page.channels.toggleScheduler">▶ 启动监控</button>
+              </div>
+              <button class="btn btn--ghost" onclick="reloadJobs()" data-i18n="page.channels.reloadJobs">↻ 重载任务</button>
+            </div>
+          </div>
+          <div class="card-account-search">
+            <input
+              class="form-input"
+              id="accountSearch"
+              type="search"
+              data-i18n-placeholder="page.channels.searchPlaceholder"
+              placeholder="搜索账户名称或频道 URL…"
+              oninput="filterAccountTable(this.value)"
+              style="max-width:280px"
+            >
+            <span class="account-count" id="accountCount" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
+          </div>
+          <div class="table-wrap table-wrap--accounts" id="accountsTableWrap">
+            <table class="accounts-table">
+              <thead>
+                <tr>
+                  <th data-i18n="page.channels.tableId">ID</th>
+                  <th data-i18n="page.channels.tableName">名称</th>
+                  <th data-i18n="page.channels.tableChannelUrl">频道 URL</th>
+                  <th data-i18n="page.channels.tableApiKey">API Key</th>
+                  <th data-i18n="page.channels.tableMode">模式</th>
+                  <th data-i18n="page.channels.tableInterval">间隔</th>
+                  <th data-i18n="page.channels.tableFetch">获取</th>
+                  <th data-i18n="page.channels.tableStatus">状态</th>
+                  <th data-i18n="page.channels.tableNotify">通知</th>
+                  <th data-i18n="page.channels.tableProxy">代理</th>
+                  <th data-i18n="page.channels.tableActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="accountsTable">
+              </tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="emptyAccounts" style="display:none">
+            <div class="empty-icon" aria-hidden="true">—</div>
+            <div class="empty-title" data-i18n="page.channels.emptyTitle">暂无监控账户</div>
+            <div class="empty-desc" data-i18n="page.channels.emptyDesc">点击右上角「添加账户」开始监控 YouTube 频道</div>
+            <button class="btn btn--primary" onclick="openAddAccount()" data-i18n="page.channels.addFirst">+ 添加第一个账户</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Downloads -->
+      <section class="page" id="page-downloads">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.downloads.title">批量下载</div>
+            <div class="page-desc" data-i18n="page.downloads.desc">上传视频列表文件，批量下载 YouTube 视频</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn--primary" id="bdStartBtn" onclick="bdStart()" data-i18n="page.downloads.startDownload">▶ 开始下载</button>
+          </div>
+        </div>
+
+        <!-- 上传区卡片 -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📁</div>
+              <span data-i18n="page.downloads.uploadTitle">上传视频列表</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="bd-pills" id="bdPills">
+              <button class="bd-pill active" data-fmt="excel" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatExcel">Excel</button>
+              <button class="bd-pill" data-fmt="csv" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatCsv">CSV</button>
+              <button class="bd-pill" data-fmt="txt" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatTxt">TXT</button>
+            </div>
+            <input type="hidden" id="bdFmt" value="excel">
+            <div class="bd-dropzone" id="bdDropzone" onclick="bdTriggerFile()">
+              <div id="bdDropIdle">
+                <div class="bd-drop-icon">——</div>
+                <div class="bd-drop-text" data-i18n="page.downloads.dropzoneClick">点击选择文件上传</div>
+                <div class="bd-drop-sub" data-i18n="page.downloads.dropzoneSub">支持 Excel · CSV · TXT</div>
+              </div>
+              <div id="bdDropSelected" style="display:none">
+                <div class="bd-drop-icon" style="color:var(--success)" data-i18n="page.downloads.dropzoneSelected">✓</div>
+                <div class="bd-drop-text" id="bdFileName"></div>
+                <div class="bd-drop-sub" id="bdUrlCount"></div>
+              </div>
+            </div>
+            <input type="file" id="bdFileInput" style="display:none" accept=".xlsx,.xls,.csv,.txt" onchange="bdHandleFile(this)">
+            <div class="bd-file-error" id="bdFileError" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- 配置区卡片 -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📦</div>
+              <span data-i18n="page.downloads.configTitle">下载配置</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="bd-config-grid" id="bdConfig">
+              <div class="bd-form-row">
+                <label class="bd-label" data-i18n="page.downloads.outputPath">保存路径</label>
+                <div class="bd-input-row">
+                  <input class="bd-input" id="bdOutputPath" data-i18n-placeholder="page.downloads.outputPathPlaceholder" placeholder="默认使用全局配置">
+                  <button class="btn btn--sm btn--ghost" onclick="bdBrowsePath()" data-i18n="page.downloads.browse">浏览</button>
+                </div>
+              </div>
+              <div class="bd-form-row">
+                <label class="bd-label" data-i18n="page.downloads.resolution">视频画质</label>
+                <select class="bd-select" id="bdResolution">
+                  <option value="best" data-i18n="page.downloads.resolutionBest">最高画质</option>
+                  <option value="720p" data-i18n="page.downloads.resolution720p">720p</option>
+                  <option value="1080p" data-i18n="page.downloads.resolution1080p">1080p</option>
+                  <option value="1440p" data-i18n="page.downloads.resolution1440p">1440p</option>
+                </select>
+              </div>
+              <div class="bd-form-row">
+                <label class="bd-label" data-i18n="page.downloads.subLang">字幕语言</label>
+                <input class="bd-input" id="bdSubLang" value="zh-Hans,en" style="width:120px">
+                <label class="bd-checkbox-label">
+                  <input type="checkbox" id="bdSubEnabled" checked>
+                  <span data-i18n="page.downloads.downloadSub">下载字幕</span>
+                </label>
+              </div>
+              <div class="bd-form-row">
+                <label class="bd-label" data-i18n="page.downloads.proxyPool">代理池</label>
+                <select class="bd-select" id="bdProxy">
+                  <option value="" data-i18n="page.downloads.proxyPoolDefault">（按系统默认路由）</option>
+                </select>
+              </div>
+              <div class="bd-form-row">
+                <label class="bd-label" data-i18n="page.downloads.cookie">Cookie</label>
+                <div class="bd-input-row">
+                  <input class="bd-input" id="bdCookie" data-i18n-placeholder="page.downloads.cookiePlaceholder" placeholder="留空使用全局配置">
+                  <button class="btn btn--sm btn--ghost" onclick="bdBrowseCookie()" data-i18n="page.downloads.fillCookie">填写路径</button>
+                </div>
+              </div>
+              <div class="bd-field-hint" data-i18n="page.downloads.cookieHint">Cookie 覆盖值必须是监控服务器本机可访问的文件路径，不支持直接读取浏览器本地文件。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 最近任务卡片 -->
+        <div class="card" id="bdRecentSection">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🗂</div>
+              <span data-i18n="page.downloads.recentTitle">最近任务</span>
+            </div>
+            <div class="actions">
+              <button class="btn btn--sm btn--ghost" onclick="loadRecentBatchTasks()" data-i18n="page.downloads.recentRefresh">↻ 刷新</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="bd-input-row">
+              <select class="bd-select" id="bdRecentTasks" style="flex:1">
+                <option value="" data-i18n="page.downloads.recentPlaceholder">暂无最近任务</option>
+              </select>
+              <button class="btn btn--sm btn--ghost" onclick="bdOpenSelectedTask()" data-i18n="page.downloads.recentView">查看</button>
+            </div>
+            <div class="bd-filter-row" id="bdRecentFilters">
+              <button type="button" class="bd-filter-chip active" data-filter="all" onclick="bdSetRecentFilter('all', this)" data-i18n="page.downloads.recentFilterAll">全部</button>
+              <button type="button" class="bd-filter-chip" data-filter="active" onclick="bdSetRecentFilter('active', this)" data-i18n="page.downloads.recentFilterActive">进行中</button>
+              <button type="button" class="bd-filter-chip" data-filter="finished" onclick="bdSetRecentFilter('finished', this)" data-i18n="page.downloads.recentFilterFinished">已结束</button>
+              <button type="button" class="bd-filter-chip" data-filter="cancelled" onclick="bdSetRecentFilter('cancelled', this)" data-i18n="page.downloads.recentFilterCancelled">已取消</button>
+            </div>
+            <div class="bd-field-hint" id="bdRecentHint" data-i18n="page.downloads.recentHint">可恢复查看运行中任务，或打开最近完成/取消的任务结果。</div>
+            <div class="bd-recent-summary" id="bdRecentSummary">全部 0 · 进行中 0 · 已结束 0 · 已取消 0</div>
+            <div class="bd-recent-grid" id="bdRecentList">
+              <div class="bd-recent-empty" data-i18n="page.downloads.recentEmpty">暂无最近任务</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 进度卡片（下载时显示） -->
+        <div class="card" id="bdProgressSection" style="display:none">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">📡</div>
+              <span data-i18n="page.downloads.progressTitle">下载管道</span>
+            </div>
+            <div class="actions">
+              <button class="btn btn--sm btn--ghost" id="bdCancelBtn" onclick="bdCancel()" data-i18n="page.downloads.cancel">取消</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="bd-track-wrap">
+              <div class="bd-track">
+                <div class="bd-track-fill" id="bdTrackFill"></div>
+                <div class="bd-track-pulse" id="bdTrackPulse"></div>
+              </div>
+              <span class="bd-pct" id="bdPct">0%</span>
+            </div>
+            <div class="bd-current" id="bdCurrent"></div>
+            <div class="bd-counter" id="bdCounter"></div>
+            <div class="bd-log-toggle" onclick="bdToggleLog()" id="bdLogToggle" data-i18n="page.downloads.expandLog">▾ 展开详情</div>
+            <div class="bd-log" id="bdLog" style="display:none"><div id="bdLogText"></div></div>
+          </div>
+        </div>
+
+        <div class="bd-complete" id="bdComplete" style="display:none"></div>
+      </section>
+
+      <!-- API Keys -->
+      <section class="page" id="page-api-keys">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.apiKeys.title">API Keys</div>
+            <div class="page-desc" data-i18n="page.apiKeys.desc">管理 YouTube API Keys，独立设置配额上限</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn--primary" onclick="openAddApiKey()" data-i18n="page.apiKeys.addKey">+ 新增 Key</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface2);border-radius:var(--r-md);margin-bottom:16px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span style="font-size:12px;color:var(--text-dim)" data-i18n="page.apiKeys.hint">每个 Key 可独立设置每日配额上限，账户可选择使用哪个 Key。未指定时自动使用系统默认 Key。</span>
+          </div>
+          <div class="card-body" id="apiKeysList" style="display:flex;flex-direction:column;gap:10px;padding:0 0 4px"></div>
+        </div>
+      </section>
+
+      <!-- Proxy Pools（布局与账户管理列表一致） -->
+      <section class="page" id="page-proxy-pools">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.proxyPools.title">固定代理管理</div>
+            <div class="page-desc" data-i18n="page.proxyPools.desc">维护下载出口节点，防止限流</div>
+          </div>
+        </div>
+
+        <div class="card card--accounts-scroll">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">代</div>
+              <span data-i18n="account.title">固定代理节点工作台</span>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn btn--primary" onclick="openAddProxyPool()" data-i18n="page.proxyPools.addNode">+ 添加节点</button>
+              <button type="button" class="btn btn--ghost" onclick="openProxyDemo()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span data-i18n="page.proxyPools.watchDemo">回看演示</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-account-search card-proxy-pool-meta">
+            <span class="pp-demo-note" data-i18n="page.proxyPools.maskedNote">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
+              列表中地址已掩码，仅保留主机信息
+            </span>
+            <span class="card-proxy-pool-meta__hint" data-i18n="page.proxyPools.metaHint">启用后的节点可在账户管理中绑定为下载出口。</span>
+          </div>
+          <div class="table-wrap table-wrap--accounts" id="proxyPoolTableWrap">
+            <table class="accounts-table">
+              <thead>
+                <tr>
+                  <th data-i18n="page.proxyPools.tableId">ID</th>
+                  <th data-i18n="page.proxyPools.tableName">名称</th>
+                  <th data-i18n="page.proxyPools.tableNode">代理节点</th>
+                  <th data-i18n="page.proxyPools.tableStatus">状态</th>
+                  <th data-i18n="page.proxyPools.tableActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="proxyPoolTable">
+              </tbody>
+            </table>
+          </div>
+          <div id="emptyProxyPools" class="empty-state" style="display:none">
+            <div class="empty-icon" aria-hidden="true">—</div>
+            <div class="empty-title" data-i18n="page.proxyPools.emptyTitle">暂无固定代理节点</div>
+            <div class="empty-desc" data-i18n="page.proxyPools.emptyDesc">创建节点后，可在账户管理中配置下载网络策略并选择此出口。</div>
+            <button type="button" class="btn btn--primary" onclick="openAddProxyPool()" data-i18n="page.proxyPools.addFirst">+ 添加第一个节点</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Dynamic Providers -->
+      <section class="page" id="page-dynamic-providers">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.dynamicProviders.title">动态代理提供方</div>
+            <div class="page-desc" data-i18n="page.dynamicProviders.desc">管理列表拉取型提供方，独立于监控扫描事件</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn--primary" onclick="openAddDynamicProvider()" data-i18n="page.dynamicProviders.addProvider">+ 添加提供方</button>
+          </div>
+        </div>
+
+        <!-- 调度器状态卡 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap">
+            <div style="flex:1 1 280px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em">Provider Scheduler</span>
+                <span class="tag tag--warning" id="dynProviderSchedulerBadge" data-dyn-scheduler-badge data-i18n="page.dynamicProviders.schedulerNotStarted">未启动</span>
+              </div>
+              <div id="dynSchedulerHint" data-dyn-scheduler-hint style="font-size:13px;color:var(--text-muted);margin-bottom:6px" data-i18n="page.dynamicProviders.schedulerHint">调度器未运行：刷新间隔不会自动生效</div>
+              <div id="dynProviderNextRun" data-dyn-scheduler-next style="font-size:11px;color:var(--text-dim)" data-i18n="page.dynamicProviders.nextRun">下一次执行：—</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;justify-content:center;flex-shrink:0">
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="btn btn--sm btn--ghost" id="btnDynProviderSchedulerToggle" data-dyn-scheduler-toggle data-scheduler-compact="true" onclick="toggleDynamicProviderScheduler()" data-i18n="page.dynamicProviders.startScheduler">启动调度</button>
+                <button class="btn btn--sm btn--ghost" onclick="reloadDynamicProviderJobs()" data-i18n="page.dynamicProviders.reloadJobs">重载任务</button>
+                <button class="btn btn--sm btn--ghost" onclick="runDynamicProviderJobsOnce()" data-i18n="page.dynamicProviders.refreshAll">立即刷新全部</button>
+              </div>
+              <button class="btn btn--sm btn--ghost" onclick="healthCheckAllProviders()" data-i18n="page.dynamicProviders.healthCheck">
+                全量健康检查
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 调度日志与说明：可折叠，默认收起，与账户管理等页面同系浅色卡片 -->
+        <div class="dyn-scheduler-stack" role="region" aria-label="调度执行记录与说明" style="margin-bottom:16px">
+          <div class="card dyn-collapse">
+            <button type="button" class="dyn-collapse__trigger" aria-expanded="false" aria-controls="dynSchedulerLogsPanelPage" onclick="toggleDynCollapse(this)">
+              <span class="dyn-collapse__trigger-main">
+                <span class="dyn-collapse__chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </span>
+                <span class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)" aria-hidden="true">📋</span>
+                <span class="dyn-collapse__label" data-i18n="page.dynamicProviders.logTitle">最近调度执行</span>
+              </span>
+              <span class="dyn-collapse__hint" data-i18n="page.dynamicProviders.logHint">展开后筛选并查看 Provider Scheduler 运行记录</span>
+            </button>
+            <div id="dynSchedulerLogsPanelPage" class="dyn-collapse__panel" hidden>
+              <div class="dyn-collapse__toolbar">
+                <label class="dyn-collapse__filter-label" for="dynProviderLogFilterPage" data-i18n="page.dynamicProviders.logTypeLabel">日志类型</label>
+                <select id="dynProviderLogFilterPage" class="form-input dyn-collapse__filter" data-dyn-log-filter onchange="syncDynLogFilters(this); loadProviderSchedulerLogs();">
+                  <option value="all" data-i18n="page.dynamicProviders.logTypeAll">全部日志</option>
+                  <option value="refresh" data-i18n="page.dynamicProviders.logTypeRefresh">仅 refresh</option>
+                  <option value="cleanup" data-i18n="page.dynamicProviders.logTypeCleanup">仅 cleanup</option>
+                  <option value="error" data-i18n="page.dynamicProviders.logTypeError">仅 error</option>
+                </select>
+              </div>
+              <div data-dyn-scheduler-logs class="dyn-scheduler-card-scroll dyn-scheduler-logs-shell" style="max-height:240px"></div>
+            </div>
+          </div>
+
+          <div class="card dyn-collapse">
+            <button type="button" class="dyn-collapse__trigger" aria-expanded="false" aria-controls="dynSchedulerHelpPanelPage" onclick="toggleDynCollapse(this)">
+              <span class="dyn-collapse__trigger-main">
+                <span class="dyn-collapse__chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </span>
+                <span class="card-title-icon" style="background:var(--surface2);color:var(--text-muted)" aria-hidden="true">📖</span>
+                <span class="dyn-collapse__label" data-i18n="page.dynamicProviders.helpTitle">调度说明</span>
+              </span>
+              <span class="dyn-collapse__hint" data-i18n="page.dynamicProviders.helpHint">调度器行为与任务注册规则</span>
+            </button>
+            <div id="dynSchedulerHelpPanelPage" class="dyn-collapse__panel" hidden>
+              <div class="dyn-scheduler-help-body dyn-scheduler-help-body--light">
+                <p data-i18n-html="page.dynamicProviders.helpText1"></p>
+                <p data-i18n-html="page.dynamicProviders.helpText2"></p>
+                <p data-i18n-html="page.dynamicProviders.helpText3"></p>
+                <p data-i18n-html="page.dynamicProviders.helpText4"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 提供方表格 -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title" data-i18n="page.dynamicProviders.listTitle">提供方列表</div>
+          </div>
+          <div class="dyn-provider-list-toolbar card-account-search">
+            <input type="search" id="dynProviderSearchPage" class="form-input dyn-provider-search-input" data-i18n-placeholder="page.dynamicProviders.searchPlaceholder" placeholder="搜索名称、ID、适配器类型…" autocomplete="off" aria-label="筛选提供方" />
+            <span id="dynProviderListSummaryPage" class="dyn-provider-list-summary" aria-live="polite"></span>
+          </div>
+          <div class="table-wrap table-wrap--accounts">
+            <table class="dyn-table accounts-table dyn-provider-table" id="dynProviderTable">
+              <thead>
+                <tr>
+                  <th style="width:36px" data-i18n="page.dynamicProviders.tableId">ID</th>
+                  <th data-i18n="page.dynamicProviders.tableName">名称</th>
+                  <th data-i18n="page.dynamicProviders.tableBilling">计费</th>
+                  <th data-i18n="page.dynamicProviders.tableAdapter">适配器</th>
+                  <th data-i18n="page.dynamicProviders.tableHealth">健康状态</th>
+                  <th data-i18n="page.dynamicProviders.tablePriority">优先级</th>
+                  <th data-i18n="page.dynamicProviders.tableFeatures">功能</th>
+                  <th data-i18n="page.dynamicProviders.tableActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="dynProviderTableBody"></tbody>
+            </table>
+          </div>
+          <div id="dynProviderPaginationPage" class="dyn-provider-pagination" style="display:none">
+            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderPrevPage" onclick="dynProviderGoPage('page', -1)" data-i18n="page.dynamicProviders.prevPage">‹ 上一页</button>
+            <span id="dynProviderPageInfoPage" class="dyn-provider-page-info"></span>
+            <button type="button" class="btn btn--sm btn--ghost" id="dynProviderNextPage" onclick="dynProviderGoPage('page', 1)" data-i18n="page.dynamicProviders.nextPage">下一页 ›</button>
+          </div>
+          <div id="dynEmptyState" class="dyn-empty" style="display:none;padding:40px;text-align:center">
+            <div class="dyn-empty-title" data-i18n="page.dynamicProviders.emptyTitle">还没有配置动态代理提供方</div>
+            <div class="dyn-empty-desc" data-i18n="page.dynamicProviders.emptyDesc">添加一个提供方后，它将参与系统动态代理路由决策。</div>
+            <div style="margin-top:12px">
+              <button class="btn btn--primary btn--sm" onclick="openAddDynamicProvider()" data-i18n="page.dynamicProviders.addFirst">+ 添加第一个提供方</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Clip History -->
+      <section class="page" id="page-clip-history">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.clipHistory.title">切片历史</div>
+            <div class="page-desc" data-i18n="page.clipHistory.desc">查看历史切片任务，支持筛选和分页</div>
+          </div>
+          <div class="page-actions">
+            <span id="chTotal" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+        </div>
+
+        <!-- 筛选工具栏 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <select class="form-input" id="chAccountFilter" style="width:160px" onchange="chLoad()">
+              <option value="" data-i18n="page.clipHistory.filterAccount">全部账户</option>
+            </select>
+            <select class="form-input" id="chStatusFilter" style="width:120px" onchange="chLoad()">
+              <option value="" data-i18n="page.clipHistory.filterStatus">全部状态</option>
+              <option value="pending" data-i18n="page.clipHistory.statusPending">等待中</option>
+              <option value="running" data-i18n="page.clipHistory.statusRunning">进行中</option>
+              <option value="done" data-i18n="page.clipHistory.statusDone">已完成</option>
+              <option value="error" data-i18n="page.clipHistory.statusError">失败</option>
+            </select>
+            <button class="btn btn--sm btn--ghost" onclick="chLoad()" data-i18n="page.clipHistory.refresh">刷新</button>
+          </div>
+        </div>
+
+        <!-- 任务列表 -->
+        <div class="card">
+          <div class="table-wrap">
+            <table class="accounts-table clip-history-table" style="width:100%">
+              <thead>
+                <tr>
+                  <th style="width:40px" data-i18n="page.clipHistory.tableId">ID</th>
+                  <th style="width:120px" data-i18n="page.clipHistory.tableAccount">账户</th>
+                  <th data-i18n="page.clipHistory.tableTitle">视频标题</th>
+                  <th style="width:70px" data-i18n="page.clipHistory.tableStatus">状态</th>
+                  <th style="width:50px" data-i18n="page.clipHistory.tableClips">切片</th>
+                  <th style="width:50px" data-i18n="page.clipHistory.tableCollection">合集</th>
+                  <th style="width:140px" data-i18n="page.clipHistory.tableCreated">创建时间</th>
+                  <th data-i18n="page.clipHistory.tableActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="chTbody"></tbody>
+            </table>
+            <div id="chEmpty" style="display:none;padding:40px;text-align:center;color:var(--text-muted)" data-i18n="page.clipHistory.noTasks">
+              暂无切片任务
+            </div>
+            <div id="chLoading" style="display:none;padding:40px;text-align:center;color:var(--text-muted)" data-i18n="page.clipHistory.loading">
+              加载中...
+            </div>
+          </div>
+          <div id="chPagination" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:12px">
+            <button class="btn btn--sm btn--ghost" id="chPrevBtn" onclick="chGoPage(-1)" data-i18n="page.clipHistory.prevPage">‹ 上一页</button>
+            <span id="chPageInfo" style="font-size:12px;color:var(--text-muted)"></span>
+            <button class="btn btn--sm btn--ghost" id="chNextBtn" onclick="chGoPage(1)" data-i18n="page.clipHistory.nextPage">下一页 ›</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 资源嗅探 -->
+      <section class="page" id="page-resources">
+        <div class="page-header">
+          <div>
+            <div class="page-title" data-i18n="page.resources.title">资源嗅探</div>
+            <div class="page-desc" data-i18n="page.resources.desc">显示代理捕获的媒体资源，支持下载、解密与批量管理</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn--sm btn--ghost" onclick="resExport()" data-i18n="page.resources.export">📤 导出</button>
+            <button class="btn btn--sm btn--ghost btn--danger" id="btn-res-batch-delete" disabled onclick="resBatchDelete()" data-i18n="page.resources.batchDelete">🗑 批量删除</button>
+            <button class="btn btn--sm btn--danger" onclick="resClear()" data-i18n="page.resources.clear">清空全部</button>
+          </div>
+        </div>
+
+        <!-- 代理状态 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-size:12px;color:var(--text-dim)" data-i18n="page.resources.proxyStatus">代理状态：</span>
+            <span id="res-proxy-status" class="badge badge--secondary">—</span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:8px" data-i18n="page.resources.hint">启用系统代理并浏览网页，捕获的媒体资源将实时显示在此列表</span>
+          </div>
+        </div>
+
+        <!-- 类型过滤 -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="res-type-tab btn btn--sm active" data-type="all" onclick="resFilterByType('all')" data-i18n="page.resources.filterAll">全部</button>
+            <button class="res-type-tab btn btn--sm" data-type="video" onclick="resFilterByType('video')" data-i18n="page.resources.filterVideo">视频</button>
+            <button class="res-type-tab btn btn--sm" data-type="audio" onclick="resFilterByType('audio')" data-i18n="page.resources.filterAudio">音频</button>
+            <button class="res-type-tab btn btn--sm" data-type="image" onclick="resFilterByType('image')" data-i18n="page.resources.filterImage">图片</button>
+            <button class="res-type-tab btn btn--sm" data-type="pdf" onclick="resFilterByType('pdf')" data-i18n="page.resources.filterPdf">PDF</button>
+            <button class="res-type-tab btn btn--sm" data-type="doc" onclick="resFilterByType('doc')" data-i18n="page.resources.filterDoc">文档</button>
+            <span id="res-count" style="font-size:12px;color:var(--text-muted);margin-left:auto"></span>
+          </div>
+        </div>
+
+        <!-- 资源列表 -->
+        <div class="card">
+          <div class="table-wrap">
+            <table class="accounts-table resources-table">
+              <thead>
+                <tr>
+                  <th style="width:32px">
+                    <input type="checkbox" onchange="resSelectAll(this)" />
+                  </th>
+                  <th data-i18n="page.resources.colType">类型</th>
+                  <th data-i18n="page.resources.colInfo">资源信息</th>
+                  <th style="width:80px" data-i18n="page.resources.colSize">大小</th>
+                  <th style="width:80px" data-i18n="page.resources.colStatus">状态</th>
+                  <th style="min-width:200px" data-i18n="page.resources.colActions">操作</th>
+                </tr>
+              </thead>
+              <tbody id="res-table-body">
+              </tbody>
+            </table>
+            <div id="res-empty" class="empty-state" style="padding:40px;text-align:center;display:none">
+              <div class="empty-icon">🕵️</div>
+              <div class="empty-title" data-i18n="page.resources.emptyTitle">暂无捕获资源</div>
+              <div class="empty-desc" data-i18n="page.resources.emptyDesc">开启系统代理并浏览网页，捕获的媒体资源将实时显示在此</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 资源预览模态框 -->
+        <div class="modal-overlay" id="modalResPreview" style="display:none">
+          <div class="modal" style="max-width:900px;width:95vw">
+            <div class="modal-header">
+              <span class="modal-title" id="resPreviewTitle" data-i18n="page.resources.previewTitle">资源预览</span>
+              <button class="modal-close" onclick="resPreviewClose()" title="关闭">×</button>
+            </div>
+            <div class="modal-body" style="padding:0;text-align:center">
+              <!-- 图片预览 -->
+              <img id="resPreviewImg" style="max-width:100%;max-height:70vh;display:none" />
+              <!-- 视频/音频预览 -->
+              <div id="resPreviewMediaWrap" style="display:none">
+                <video id="resPreviewVideo" class="video-js vjs-big-play-centered vjs-fluid" controls preload="auto" style="width:100%;max-height:70vh"></video>
+              </div>
+              <!-- 加载中 -->
+              <div id="resPreviewLoading" style="padding:40px">
+                <span data-i18n="page.resources.previewLoading">加载中…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 配置中心：内容由 templates/pages/settings-*.html 注入各 mount 节点 -->
+      <section class="page" id="page-settings"><div id="tpl-page-settings"></div></section>
+      <section class="page" id="page-settings-notify"><div id="tpl-page-settings-notify"></div></section>
+      <section class="page" id="page-settings-api"><div id="tpl-page-settings-api"></div></section>
+      <section class="page" id="page-settings-download"><div id="tpl-page-settings-download"></div></section>
+      <section class="page" id="page-settings-ai"><div id="tpl-page-settings-ai"></div></section>
+      <section class="page" id="page-settings-dynamic"><div id="tpl-page-settings-dynamic"></div></section>
+      <section class="page" id="page-settings-proxy"><div id="tpl-page-settings-proxy"></div></section>
+    </main>
+  </div>
+</div>
+
+<!-- 模态: 添加/编辑账户 -->
+<div id="tpl-modal-account"></div>
+
+<!-- 模态: 固定代理管理 -->
+<div id="tpl-modal-proxy-pools"></div>
+
+<!-- 模态: 添加/编辑固定代理 -->
+<div id="tpl-modal-proxy-pool-form"></div>
+
+<!-- 模态: 固定代理功能演示（iframe） -->
+<div id="tpl-modal-proxy-pool-demo"></div>
+
+<!-- 全屏: 视频详情 -->
+<div id="tpl-modal-video-detail"></div>
+
+<!-- 模态: 立即扫描确认 -->
+<div id="tpl-modal-scan-confirm"></div>
+
+<!-- 模态: 通用确认（替代原生 confirm） -->
+<div id="tpl-modal-confirm"></div>
+
+<!-- 模态: API Key 管理 -->
+<div id="tpl-modal-api-keys"></div>
+
+<!-- 模态: 添加/编辑 API Key -->
+<div id="tpl-modal-api-key-form"></div>
+
+<!-- 模态: API 缓存管理 -->
+<div id="tpl-modal-cache"></div>
+
+<!-- 模态: 全局配置 -->
+<div id="tpl-modal-config"></div>
+
+<!-- 模态: 动态代理提供方管理 -->
+<div id="tpl-modal-dynamic-providers"></div>
+
+<!-- 提供方运行详情抽屉 -->
+<div id="tpl-dyn-provider-detail-drawer"></div>
+
+<!-- 模态: 添加/编辑动态代理提供方 -->
+<div id="tpl-modal-dynamic-provider-form"></div>
+
+<!-- 批量下载弹窗样式已提取到 static/css/ (batch.css + components.css 聚合) -->
+<div id="tpl-modal-batch-download"></div>
+
+<!-- 模态: 切片历史 -->
+<div id="tpl-modal-clip-history"></div>
+
+<!-- 模态: 切片详情 -->
+<div id="tpl-modal-clip-detail"></div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toasts"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

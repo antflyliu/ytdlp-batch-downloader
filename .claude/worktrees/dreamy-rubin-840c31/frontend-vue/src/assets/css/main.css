@@ -1,0 +1,40 @@
+@import 'base.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* ── Modal layout stability ─────────────────────────────────────────── */
+/* Reserve the scrollbar gutter so overlays do not re-center the app shell. */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* ── Modal card footer: always visible, never pushed out ───────────────── */
+/* Naive UI NModal with preset="card" renders card as flex column.
+   Footer is a flex item — use flex-shrink:0 to keep it at natural height. */
+body .n-modal .n-card__footer,
+body .n-dialog .n-card__footer {
+  flex-shrink: 0 !important;
+  padding: 14px 24px !important;
+  border-top: 1px solid #f0eee6 !important;
+  background-color: #faf9f5 !important;
+}
+
+/* Modal overlay backdrop */
+body .n-modal-mask {
+  background-color: rgba(45, 42, 38, 0.32) !important;
+}
+
+.ellipsis-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

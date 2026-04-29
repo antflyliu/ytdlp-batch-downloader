@@ -1,0 +1,49 @@
+<!-- 模态: 添加/编辑固定代理（与账户 / API Key 表单弹框同款壳层） -->
+<div class="modal-overlay modal-overlay--account" id="modalProxyPoolForm" role="dialog" aria-modal="true" aria-labelledby="modalProxyPoolFormTitle">
+  <div class="modal modal--account">
+    <div class="modal-header">
+      <div class="modal-title" id="modalProxyPoolFormTitle" data-i18n="proxyPools.addTitle">添加固定代理节点</div>
+      <button type="button" class="modal-close" onclick="closeModal('modalProxyPoolForm')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppId">
+      <div class="form-group">
+        <label class="form-label" for="ppName" data-i18n="proxyPools.nodeName">节点名称</label>
+        <input class="form-input" id="ppName" data-i18n-placeholder="proxyPools.nodeNamePlaceholder" placeholder="例如：香港节点-01 / 住宅代理" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ppUrl">
+          <span data-i18n="proxyPools.proxyUrl">代理地址</span>
+          <span class="pp-scheme-tag">HTTP</span>
+        </label>
+        <input class="form-input" id="ppUrl" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false">
+        <div class="pp-hint-row">
+          <div class="pp-hint-schemes">
+            <span class="pp-scheme-chip">http</span>
+            <span class="pp-scheme-chip">https</span>
+            <span class="pp-scheme-chip">socks5</span>
+            <span class="pp-scheme-chip">socks4</span>
+          </div>
+        </div>
+        <div class="form-hint" style="margin-top:4px" data-i18n="proxyPools.proxyHint">
+          支持带用户名密码认证的代理，认证信息已加密存储
+        </div>
+      </div>
+      <hr class="form-sep">
+      <div class="proxy-toggle-row" style="margin-bottom:0">
+        <div class="proxy-toggle-copy">
+          <div class="proxy-toggle-title" data-i18n="proxyPools.enableNow">立即启用</div>
+          <div class="proxy-toggle-sub" data-i18n="proxyPools.enableNowHint">保存后可在账户中关联使用</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="ppEnabled" checked>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalProxyPoolForm')" data-i18n="common.cancel">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveProxyPool()" data-i18n="proxyPools.saveNode">保存节点</button>
+    </div>
+  </div>
+</div>

@@ -23,6 +23,18 @@ _GLOBAL_WEBHOOK_KEYS = (
     "global_telegram_token",
 )
 
+_SECRET_CONFIG_KEYS = (
+    "llm_api_key",
+    "whisper_api_key",
+    "comfyui_api_key",
+    "runninghub_api_key",
+    "minimax_api_key",
+    "openai_api_key",
+    "gemini_api_key",
+    "wechat_app_secret",
+    "wechat_exporter_auth_key",
+)
+
 
 # ── Helpers ────────────────────────────────────────────────────
 
@@ -36,6 +48,10 @@ def _write_config(path: str, cfg: dict) -> None:
 
 def _config_default() -> dict:
     """默认的全局配置"""
+    data_dir = get_data_dir()
+    article_output_dir = os.path.join(data_dir, "ai-articles")
+    video_output_dir = os.path.join(data_dir, "video-gen")
+    default_template = "1080x1920/image_default.html"
     return {
         "global_feishu_url": "",
         "global_dingtalk_url": "",
@@ -97,6 +113,69 @@ def _config_default() -> dict:
         # ── 自动切片配置 ─────────────────────────────────────
         "auto_clip_enabled": False,          # 下载完成后自动触发 AI 切片
         "auto_clip_notify_enabled": False,    # 切片完成后发送通知
+        # ── AI 文章生成配置 ─────────────────────────────────────
+        "whisper_provider": "api",   # "api" = remote API, "local" = faster-whisper
+        "whisper_base_url": "",
+        "whisper_api_key": "",
+        "whisper_model": "base",
+        "article_output_dir": article_output_dir,
+        "article_default_target_lang": "zh-Hans",
+        "article_target_lang": "zh-Hans",
+        "article_subtitle_languages": "en,zh-Hans,zh-Hant,zh,ja,ko",
+        "article_subtitle_proxy": "",
+        "article_subtitle_proxy_mode": "auto",
+        "article_subtitle_proxy_pool_id": None,
+        "article_tools_path": "",
+        "article_author": "",
+        "article_llm_optimize_model": "",
+        "article_llm_summary_model": "",
+        "article_llm_translate_model": "",
+        "article_optimize_model": "",
+        "article_summary_model": "",
+        "article_translate_model": "",
+        # ── AI 视频生成配置 ─────────────────────────────────────
+        "comfyui_url": "",
+        "comfyui_api_key": "",
+        "runninghub_url": "",
+        "runninghub_api_key": "",
+        "tts_provider": "local",
+        "local_tts_url": "",
+        "video_gen_output_dir": video_output_dir,
+        "video_gen_default_template": default_template,
+        "video_gen_default_scene_count": 5,
+        "default_template": default_template,
+        "default_scene_count": 5,
+        "video_gen_prompt_prefix": "clean editorial illustration",
+        # ── AI 图片生成配置 ─────────────────────────────────────
+        "image_generation_provider": "minimax",
+        "image_generation_fallback_order": "minimax,openai,gemini,local",
+        "image_generation_timeout_seconds": 300,
+        "minimax_api_key": "",
+        "minimax_base_url": "https://api.minimax.io",
+        "minimax_image_model": "image-01",
+        "openai_api_key": "",
+        "openai_base_url": "https://api.openai.com/v1",
+        "openai_image_model": "gpt-image-2",
+        "openai_image_size": "1536x1024",
+        "openai_image_quality": "medium",
+        "gemini_api_key": "",
+        "gemini_base_url": "https://generativelanguage.googleapis.com",
+        "gemini_image_model": "imagen-4.0-generate-001",
+        # ── 微信公众号发布配置 ─────────────────────────────────────
+        "wechat_app_id": "",
+        "wechat_app_secret": "",
+        "wechat_default_author": "",
+        "wechat_default_theme": "default",
+        "wechat_default_color": "blue",
+        "wechat_need_open_comment": True,
+        "wechat_only_fans_can_comment": False,
+        # ── 微信公众号采集配置 ─────────────────────────────────────
+        "wechat_exporter_base_url": "https://down.mptext.top",
+        "wechat_exporter_auth_key": "",
+        "wechat_collection_output_dir": os.path.join(data_dir, "wechat-articles"),
+        "wechat_collection_default_format": "markdown",
+        "wechat_collection_delay_seconds": 1.0,
+        "wechat_collection_max_articles": 50,
         # ── 资源嗅探 ──────────────────────────────────────────
         "proxy_sniffer_enabled": False,      # 默认关闭，手动在配置中心开启
         "proxy_sniffer_port": 8899,          # Go 子进程监听端口
@@ -126,10 +205,14 @@ def load_config() -> dict:
         return _config_default()
 
     raw_cfg = {**_config_default(), **raw_cfg}
-    encrypted_cfg = _encrypt_config_references(_encrypt_config_webhooks(raw_cfg))
+    encrypted_cfg = _encrypt_config_references(
+        _encrypt_config_secrets(_encrypt_config_webhooks(raw_cfg))
+    )
     if source_path and encrypted_cfg != raw_cfg:
         _write_config(source_path, encrypted_cfg)
-    return _decrypt_config_references(_decrypt_config_webhooks(encrypted_cfg))
+    return _decrypt_config_references(
+        _decrypt_config_secrets(_decrypt_config_webhooks(encrypted_cfg))
+    )
 
 
 def save_config(cfg: dict) -> None:
@@ -142,7 +225,10 @@ def save_config(cfg: dict) -> None:
     cfg["global_dingtalk_sign_secret"] = (
         normalize_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret")) or ""
     )
-    _write_config(_cfg_path, _encrypt_config_references(_encrypt_config_webhooks(cfg)))
+    _write_config(
+        _cfg_path,
+        _encrypt_config_references(_encrypt_config_secrets(_encrypt_config_webhooks(cfg))),
+    )
     try:
         import monitor.quota as _quota
 
@@ -168,6 +254,30 @@ def _decrypt_config_webhooks(cfg: dict) -> dict:
     cfg = {**_config_default(), **cfg}
     for key in _GLOBAL_WEBHOOK_KEYS:
         cfg[key] = _dec(cfg.get(key)) or ""
+    return cfg
+
+
+def _encrypt_config_secrets(cfg: dict) -> dict:
+    """Encrypt API-key style config secrets at rest."""
+    from config.encryption import _encrypt_config_value
+
+    cfg = {**_config_default(), **cfg}
+    for key in _SECRET_CONFIG_KEYS:
+        value = cfg.get(key)
+        if isinstance(value, str) and value and not value.startswith("enc:"):
+            cfg[key] = _encrypt_config_value(value)
+    return cfg
+
+
+def _decrypt_config_secrets(cfg: dict) -> dict:
+    """Decrypt API-key style config secrets for runtime use."""
+    from config.encryption import _decrypt_config_value
+
+    cfg = {**_config_default(), **cfg}
+    for key in _SECRET_CONFIG_KEYS:
+        value = cfg.get(key)
+        if isinstance(value, str) and value.startswith("enc:"):
+            cfg[key] = _decrypt_config_value(value)
     return cfg
 
 

@@ -1,0 +1,161 @@
+<!-- 模态: 添加/编辑账户 -->
+<div class="modal-overlay modal-overlay--account" id="modalAccount" role="dialog" aria-modal="true" aria-labelledby="modalAccountTitle">
+  <div class="modal modal--account">
+    <div class="modal-header">
+      <div class="modal-title" id="modalAccountTitle" data-i18n="account.title">添加监控账户</div>
+      <button type="button" class="modal-close" onclick="closeModal('modalAccount')" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="accId">
+      <div class="form-group">
+        <label class="form-label" data-i18n="account.name">账户名称 *</label>
+        <input class="form-input" id="accName" data-i18n-placeholder="account.namePlaceholder" placeholder="例如：综艺Show">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="account.channelUrl">频道 URL *</label>
+        <input class="form-input" id="accChannel" data-i18n-placeholder="account.channelUrlPlaceholder" placeholder="@C-HitShow / UCxxxx / 完整 YouTube URL">
+        <div class="form-hint" data-i18n="account.channelUrlHint">支持 @handle、UC 频道 ID 或完整视频/播放列表 URL</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="account.apiKey">API Key</label>
+        <select class="form-input" id="accApiKeySelect" onchange="onApiKeySelectChanged()">
+          <option value="" data-i18n="account.apiKeyDefault">— 使用系统默认 —</option>
+        </select>
+        <input type="hidden" id="accApiKeyId">
+        <input type="hidden" id="accApiKeyEnv" value="YOUTUBE_Data_API_V3">
+        <div class="form-hint" data-i18n="account.apiKeyHint">选择已保存的 API Key，或留空使用系统默认 Key（需在系统设置中配置）</div>
+      </div>
+      <hr class="form-sep">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" data-i18n="account.mode">获取模式</label>
+          <select class="form-input" id="accMode">
+            <option value="playlist" data-i18n="account.modePlaylist">播放列表（配额省）</option>
+            <option value="search" data-i18n="account.modeSearch">搜索（配额费）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-i18n="account.limit">每次获取条数</label>
+          <input class="form-input" id="accLimit" type="number" value="5" min="1" max="50">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" data-i18n="account.interval">扫描间隔（分钟）</label>
+          <input class="form-input" id="accInterval" type="number" value="5" min="1" max="1440">
+        </div>
+      </div>
+      <hr class="form-sep">
+      <div class="form-group">
+        <label class="form-label" data-i18n="account.notifyPlatform">通知平台</label>
+        <div class="platform-selector" id="platformSelector">
+          <button type="button" class="platform-btn active-feishu" onclick="selectPlatform('feishu')" data-i18n="account.feishu">飞书</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('dingtalk')" data-i18n="account.dingtalk">钉钉</button>
+          <button type="button" class="platform-btn" onclick="selectPlatform('telegram')" data-i18n="account.telegram">Telegram</button>
+        </div>
+        <input type="hidden" id="accPlatform" value="feishu">
+      </div>
+      <div class="form-group" id="accWebhookGroup">
+        <label class="form-label" id="accWebhookLabel" data-i18n="account.webhookUrl">Webhook URL</label>
+        <input class="form-input" id="accWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx">
+        <div class="form-hint" id="webhookHintDefault" data-i18n="account.webhookHintDefault">留空则使用全局 Webhook 配置</div>
+        <div class="form-hint" id="webhookHintTelegram" style="display:none;color:var(--telegram)" data-i18n="account.webhookHintTelegram">Telegram Bot Token 需填写下方专用字段</div>
+      </div>
+      <!-- Telegram Bot Token（独立字段，与 Webhook URL 解耦，仅 Telegram 平台显示） -->
+      <div class="form-group" id="telegramTokenGroup" style="display:none">
+        <label class="form-label" id="accTelegramTokenLabel" style="color:var(--telegram)" data-i18n="account.botToken">Bot Token</label>
+        <input class="form-input" id="accTelegramToken" type="password" data-i18n-placeholder="account.botTokenPlaceholder" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxYZ" autocomplete="new-password">
+        <div class="form-hint" style="color:var(--telegram)" data-i18n="account.botTokenHint">Chat ID 需在全局设置中配置；留空则使用全局 Bot Token</div>
+      </div>
+      <div class="form-group form-group--dingtalk-addon" id="dingtalkSignSecretGroup" style="display:none" role="region" aria-label="钉钉机器人加签配置">
+        <label class="form-label form-label--platform" for="accDingtalkSecret" data-i18n="account.dingtalkSecret">钉钉加签密钥</label>
+        <input class="form-input" id="accDingtalkSecret" type="password" name="dingtalk_sign_secret" autocomplete="new-password" inputmode="text" spellcheck="false" data-i18n-placeholder="account.dingtalkSecretPlaceholder" placeholder="SEC 开头，与当前 Webhook 同一机器人" aria-describedby="accDingtalkSecretHint">
+        <div class="form-hint" id="accDingtalkSecretHint" data-i18n="account.dingtalkSecretHint">若机器人在钉钉后台开启了「加签」，请填写 SEC；与账户级 Webhook URL 须为同一机器人。仅使用全局钉钉 Webhook 时勿在此填写。</div>
+      </div>
+      <!-- 飞书模板配置（仅飞书平台显示） -->
+      <div class="form-group" id="feishuTemplateConfig" style="display:none">
+        <label class="form-label" data-i18n="account.feishuMode">飞书发送方式</label>
+        <select class="form-input" id="accFeishuMode" style="width:100%" onchange="updateFeishuModeUI()">
+          <option value="card_json" data-i18n="account.feishuModeCard">Markdown 卡片（推荐）</option>
+          <option value="template" data-i18n="account.feishuModeTemplate">飞书模板卡片</option>
+        </select>
+        <div class="form-hint" data-i18n="account.feishuModeHint">Markdown 卡片：代码拼装富文本卡片；飞书模板：需在飞书开放平台创建卡片模板</div>
+      </div>
+      <div class="form-group" id="feishuTemplateIdGroup" style="display:none">
+        <label class="form-label" data-i18n="account.feishuTemplateId">详情模板 ID</label>
+        <input class="form-input" id="accFeishuTemplateId" data-i18n-placeholder="account.feishuTemplateIdPlaceholder" placeholder="飞书卡片模板 ID，如 $UUID$">
+        <div class="form-hint" data-i18n="account.feishuTemplateIdHint">飞书多维表格或开放平台创建的卡片模板 ID</div>
+      </div>
+      <div class="form-group" id="feishuScanTemplateIdGroup" style="display:none">
+        <label class="form-label" data-i18n="account.feishuScanTemplateId">扫描确认模板 ID</label>
+        <input class="form-input" id="accFeishuScanTemplateId" data-i18n-placeholder="account.feishuScanTemplateIdPlaceholder" placeholder="扫描确认卡片模板 ID，如 $UUID$">
+        <div class="form-hint" data-i18n="account.feishuScanTemplateIdHint">扫描完成（无新视频）时发送的确认卡片模板 ID</div>
+      </div>
+      <div class="checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="accEnabled" checked>
+          <span class="checkbox-box"></span>
+          <span data-i18n="account.enableMonitor">启用监控</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="accNotify" checked>
+          <span class="checkbox-box"></span>
+          <span data-i18n="account.enableNotify">发送通知</span>
+        </label>
+      </div>
+      <hr class="form-sep">
+      <div class="proxy-section">
+        <div class="form-label" data-i18n="account.downloadPolicy">下载网络策略</div>
+        <div class="proxy-toggle-row">
+          <div class="proxy-toggle-copy">
+            <div class="proxy-toggle-title" data-i18n="account.enableProxy">启用账户固定代理</div>
+            <div class="proxy-toggle-sub" data-i18n="account.enableProxyHint">新视频自动下载与手动批量下载都会使用所选节点</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="accProxyEnabled" onchange="toggleProxySection()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="proxy-mode-kicker">routing policy</div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">
+            <span data-i18n="account.downloadMode">下载模式</span>
+            <span class="form-hint" style="margin-top:2px" data-i18n="account.downloadModeHint">决定何时使用固定代理、何时回退动态代理</span>
+          </label>
+          <select id="accDownloadProxyMode" class="form-input" onchange="onAccountProxyModeChange()">
+            <option value="auto" data-i18n="account.downloadModeAuto">自动（推荐）</option>
+            <option value="account_only" data-i18n="account.downloadModeAccountOnly">仅账户固定代理</option>
+            <option value="system_only" data-i18n="account.downloadModeSystemOnly">仅系统动态代理</option>
+            <option value="direct_only" data-i18n="account.downloadModeDirectOnly">始终直连</option>
+          </select>
+          <div class="form-help-text" id="accProxyModeHelp" data-i18n="account.downloadModeHelp">
+            优先使用账户固定代理，不可用时回退到系统动态代理
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="btn btn-sm info" onclick="previewAccountRouting()" data-i18n="account.previewRouting">预览本次路由</button>
+            <span style="font-size:11px;color:var(--text-dim)" data-i18n="account.previewRoutingHint">不会触发下载，仅预览当前账户在此模式下会如何选线路</span>
+          </div>
+          <div id="routingPreviewBox" class="routing-preview">
+            <div class="routing-preview-title">download routing preview</div>
+            <div class="routing-preview-main" id="routingPreviewMain">—</div>
+            <div class="routing-preview-meta" id="routingPreviewMeta"></div>
+            <div class="routing-preview-reason" id="routingPreviewReason"></div>
+            <div class="routing-preview-warnings" id="routingPreviewWarnings"></div>
+          </div>
+        </div>
+
+        <div class="proxy-select-wrap">
+          <select class="form-input" id="accProxyPoolSelect" onchange="updateProxyLabel()" disabled>
+            <option value="" data-i18n="account.proxyPoolPlaceholder">— 先开启代理，再选择节点 —</option>
+          </select>
+        </div>
+        <div class="form-hint" data-i18n="account.proxyPoolHint">同一账户的两条下载路径共用一套代理配置，避免单 IP 被限流</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modalAccount')" data-i18n="common.cancel">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveAccount()" data-i18n="common.save">保存</button>
+    </div>
+  </div>
+</div>

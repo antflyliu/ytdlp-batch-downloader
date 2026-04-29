@@ -1,0 +1,129 @@
+<!-- 批量下载弹窗 -->
+<div class="modal-overlay" id="modalBatchDownload">
+  <div class="modal" style="max-width:640px;height:88vh;display:flex;flex-direction:column">
+  <div class="modal-header">
+    <div class="modal-title">⬇  <span data-i18n="batchDownload.title">批量下载</span></div>
+    <button class="modal-close" onclick="bdClose()">✕</button>
+  </div>
+  <div class="modal-body" style="overflow-y:auto;flex:1;padding:16px 20px">
+
+    <!-- 上传区 -->
+    <div class="bd-section">
+      <div class="bd-section-label" data-i18n="batchDownload.uploadSection">📁 上传视频列表</div>
+      <div class="bd-pills" id="bdPills">
+        <button class="bd-pill active" data-fmt="excel" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatExcel">Excel</button>
+        <button class="bd-pill" data-fmt="csv" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatCsv">CSV</button>
+        <button class="bd-pill" data-fmt="txt" onclick="bdSwitchFmt(this)" data-i18n="batchDownload.formatTxt">TXT</button>
+      </div>
+      <input type="hidden" id="bdFmt" value="excel">
+      <div class="bd-dropzone" id="bdDropzone" onclick="bdTriggerFile()">
+        <div id="bdDropIdle">
+          <div class="bd-drop-icon">——</div>
+          <div class="bd-drop-text" data-i18n="batchDownload.dropzoneClick">点击选择文件上传</div>
+          <div class="bd-drop-sub" data-i18n="batchDownload.dropzoneHint">支持 Excel · CSV · TXT</div>
+        </div>
+        <div id="bdDropSelected" style="display:none">
+          <div class="bd-drop-icon" style="color:var(--success)">✓</div>
+          <div class="bd-drop-text" id="bdFileName"></div>
+          <div class="bd-drop-sub" id="bdUrlCount"></div>
+        </div>
+      </div>
+      <input type="file" id="bdFileInput" style="display:none" accept=".xlsx,.xls,.csv,.txt" onchange="bdHandleFile(this)">
+      <div class="bd-file-error" id="bdFileError" style="display:none"></div>
+    </div>
+
+    <div class="bd-sep"></div>
+
+    <!-- 配置区 -->
+    <div class="bd-section" id="bdConfig">
+      <div class="bd-section-label" data-i18n="batchDownload.configSection">📦 下载配置</div>
+      <div class="bd-form-row">
+        <label class="bd-label" data-i18n="batchDownload.outputPath">保存路径</label>
+        <div class="bd-input-row">
+          <input class="bd-input" id="bdOutputPath" data-i18n-placeholder="batchDownload.outputPathPlaceholder" placeholder="默认使用全局配置">
+          <button class="bd-browse" onclick="bdBrowsePath()" data-i18n="common.browse">浏览</button>
+        </div>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label" data-i18n="batchDownload.resolution">视频画质</label>
+        <select class="bd-select" id="bdResolution">
+          <option value="best" data-i18n="batchDownload.resolutionBest">最高画质</option>
+          <option value="720p">720p</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p</option>
+        </select>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label" data-i18n="batchDownload.subLang">字幕语言</label>
+        <input class="bd-input" id="bdSubLang" value="zh-Hans,en" style="width:120px">
+        <label class="bd-checkbox-label">
+          <input type="checkbox" id="bdSubEnabled" checked>
+          <span data-i18n="batchDownload.subEnabled">下载字幕</span>
+        </label>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label" data-i18n="batchDownload.proxyPool">代理池</label>
+        <select class="bd-select" id="bdProxy">
+          <option value="" data-i18n="batchDownload.proxyPoolDefault">（按系统默认路由）</option>
+        </select>
+      </div>
+      <div class="bd-form-row">
+        <label class="bd-label" data-i18n="batchDownload.cookie">Cookie</label>
+        <div class="bd-input-row">
+          <input class="bd-input" id="bdCookie" data-i18n-placeholder="batchDownload.cookiePlaceholder" placeholder="留空使用全局配置；填写监控服务可访问的 Cookie 路径">
+          <button class="bd-browse" onclick="bdBrowseCookie()" data-i18n="batchDownload.cookieFill">填写路径</button>
+        </div>
+      </div>
+      <div class="bd-field-hint" data-i18n="batchDownload.cookieHint">Cookie 覆盖值必须是监控服务器本机可访问的文件路径，不支持直接读取浏览器本地文件。</div>
+    </div>
+
+    <div class="bd-sep"></div>
+
+    <!-- 最近任务 -->
+    <div class="bd-section" id="bdRecentSection">
+      <div class="bd-section-label" data-i18n="batchDownload.recentSection">🗂 最近任务</div>
+      <div class="bd-input-row">
+        <select class="bd-select" id="bdRecentTasks">
+          <option value="" data-i18n="batchDownload.recentNone">暂无最近任务</option>
+        </select>
+        <button class="bd-browse" onclick="loadRecentBatchTasks()" data-i18n="common.refresh">刷新</button>
+        <button class="bd-browse" onclick="bdOpenSelectedTask()" data-i18n="common.view">查看</button>
+      </div>
+      <div class="bd-filter-row" id="bdRecentFilters">
+        <button type="button" class="bd-filter-chip active" data-filter="all" onclick="bdSetRecentFilter('all', this)" data-i18n="batchDownload.recentFilterAll">全部</button>
+        <button type="button" class="bd-filter-chip" data-filter="active" onclick="bdSetRecentFilter('active', this)" data-i18n="batchDownload.recentFilterActive">进行中</button>
+        <button type="button" class="bd-filter-chip" data-filter="finished" onclick="bdSetRecentFilter('finished', this)" data-i18n="batchDownload.recentFilterFinished">已结束</button>
+        <button type="button" class="bd-filter-chip" data-filter="cancelled" onclick="bdSetRecentFilter('cancelled', this)" data-i18n="batchDownload.recentFilterCancelled">已取消</button>
+      </div>
+      <div class="bd-field-hint" id="bdRecentHint" data-i18n="batchDownload.recentHint">可恢复查看运行中任务，或打开最近完成/取消的任务结果。</div>
+      <div class="bd-recent-summary" id="bdRecentSummary" data-i18n="batchDownload.recentSummary">全部 0 · 进行中 0 · 已结束 0 · 已取消 0</div>
+      <div class="bd-recent-grid" id="bdRecentList">
+        <div class="bd-recent-empty" data-i18n="batchDownload.recentNone">暂无最近任务</div>
+      </div>
+    </div>
+
+    <!-- 进度区 -->
+    <div class="bd-section" id="bdProgressSection" style="display:none">
+      <div class="bd-section-label" data-i18n="batchDownload.progressSection">📡 下载管道</div>
+      <div class="bd-track-wrap">
+        <div class="bd-track">
+          <div class="bd-track-fill" id="bdTrackFill"></div>
+          <div class="bd-track-pulse" id="bdTrackPulse"></div>
+        </div>
+        <span class="bd-pct" id="bdPct">0%</span>
+      </div>
+      <div class="bd-current" id="bdCurrent"></div>
+      <div class="bd-counter" id="bdCounter"></div>
+      <div class="bd-log-toggle" onclick="bdToggleLog()" id="bdLogToggle" data-i18n="batchDownload.expandLog">▾ 展开详情</div>
+      <div class="bd-log" id="bdLog" style="display:none"><div id="bdLogText"></div></div>
+    </div>
+
+    <div class="bd-complete" id="bdComplete" style="display:none"></div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn btn-ghost" id="bdCancelBtn" onclick="bdCancel()" data-i18n="batchDownload.cancel">取消</button>
+    <button class="btn btn-primary" id="bdStartBtn" onclick="bdStart()" data-i18n="batchDownload.start">▶ 开始下载</button>
+  </div>
+</div>
+</div>

@@ -17,6 +17,7 @@ import importlib.util
 import os
 import sys
 import sqlite3
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import contextmanager
@@ -84,13 +85,49 @@ def init_db() -> None:
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as f:
         schema = f.read()
     with get_connection() as conn:
+        _prepare_legacy_schema_for_bootstrap(conn)
         conn.executescript(schema)
         _ensure_schema_migrations(conn)
         _migrate_monitor_accounts(conn)
     mark_incomplete_web_batch_tasks_interrupted()
+    mark_incomplete_ai_content_tasks_interrupted()
     # 同步初始化 quota 表
     import monitor.quota as _quota
     _quota._ensure_schema()
+
+
+def _prepare_legacy_schema_for_bootstrap(conn) -> None:
+    """Patch old tables enough for schema.sql indexes to execute safely."""
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "monitor_videos" not in tables:
+        return
+
+    cur = conn.execute("PRAGMA table_info(monitor_videos)")
+    cols = {row[1] for row in cur.fetchall()}
+    for col, ddl in [
+        ("channel_id", "TEXT DEFAULT NULL"),
+        ("channel_handle", "TEXT DEFAULT NULL"),
+        ("description", "TEXT DEFAULT NULL"),
+        ("url", "TEXT NOT NULL DEFAULT ''"),
+        ("upload_date", "TEXT DEFAULT NULL"),
+        ("duration_sec", "INTEGER DEFAULT NULL"),
+        ("view_count", "INTEGER DEFAULT NULL"),
+        ("like_count", "INTEGER DEFAULT NULL"),
+        ("comment_count", "INTEGER DEFAULT NULL"),
+        ("thumbnail_url", "TEXT DEFAULT NULL"),
+        ("fetched_at", "TEXT NOT NULL DEFAULT ''"),
+        ("notify_status", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("notify_sent_at", "TEXT DEFAULT NULL"),
+        ("notify_error", "TEXT DEFAULT NULL"),
+        ("download_at", "TEXT DEFAULT NULL"),
+        ("download_path", "TEXT DEFAULT NULL"),
+        ("download_error", "TEXT DEFAULT NULL"),
+    ]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE monitor_videos ADD COLUMN {col} {ddl}")
 
 
 def _ensure_schema_migrations(conn) -> None:
@@ -518,6 +555,160 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v16_failed_retry_fields", today),
+        )
+
+    # v17: AI article + video generation task workflows
+    if "v17_ai_content_workflows" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS article_tasks (
+                task_id           TEXT PRIMARY KEY,
+                monitor_video_id  INTEGER,
+                video_id          TEXT,
+                video_url         TEXT,
+                video_title       TEXT,
+                status            TEXT NOT NULL DEFAULT 'pending',
+                current_stage     TEXT,
+                source_lang       TEXT,
+                target_lang       TEXT NOT NULL DEFAULT 'zh-Hans',
+                auto_translate    INTEGER NOT NULL DEFAULT 1,
+                output_dir        TEXT,
+                draft_path        TEXT,
+                transcript_path   TEXT,
+                optimized_path    TEXT,
+                summary_path      TEXT,
+                translated_path   TEXT,
+                stage_json        TEXT NOT NULL DEFAULT '{}',
+                stages_json       TEXT NOT NULL DEFAULT '{}',
+                result_json       TEXT NOT NULL DEFAULT '{}',
+                error             TEXT,
+                cancel_requested  INTEGER NOT NULL DEFAULT 0,
+                cancel_message    TEXT,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                finished_at       TEXT,
+                FOREIGN KEY (monitor_video_id) REFERENCES monitor_videos(id) ON DELETE SET NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_article_tasks_created_at ON article_tasks(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_article_tasks_status ON article_tasks(status, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_article_tasks_video ON article_tasks(monitor_video_id, created_at DESC)"
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS video_gen_tasks (
+                task_id           TEXT PRIMARY KEY,
+                mode              TEXT NOT NULL DEFAULT 'generate',
+                topic             TEXT,
+                script_text       TEXT,
+                template_name     TEXT,
+                template_key      TEXT,
+                prompt_prefix     TEXT,
+                image_workflow    TEXT,
+                tts_workflow      TEXT,
+                bgm_volume        REAL,
+                scene_count       INTEGER NOT NULL DEFAULT 5,
+                status            TEXT NOT NULL DEFAULT 'pending',
+                current_stage     TEXT,
+                output_dir        TEXT,
+                output_path       TEXT,
+                storyboard_path   TEXT,
+                video_path        TEXT,
+                duration_sec      REAL,
+                file_size         INTEGER,
+                stage_json        TEXT NOT NULL DEFAULT '{}',
+                stages_json       TEXT NOT NULL DEFAULT '{}',
+                result_json       TEXT NOT NULL DEFAULT '{}',
+                error             TEXT,
+                cancel_requested  INTEGER NOT NULL DEFAULT 0,
+                cancel_message    TEXT,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                finished_at       TEXT
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_created_at ON video_gen_tasks(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_status ON video_gen_tasks(status, created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v17_ai_content_workflows", today),
+        )
+
+    # v17b: keep the early frontend/API contract aliases available without
+    # changing the internal task field names used by the pipelines.
+    if "v17_ai_content_contract_aliases" not in applied:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "article_tasks" in tables:
+            cur = conn.execute("PRAGMA table_info(article_tasks)")
+            cols = {row[1] for row in cur.fetchall()}
+            if "stage_json" not in cols:
+                conn.execute("ALTER TABLE article_tasks ADD COLUMN stage_json TEXT NOT NULL DEFAULT '{}'")
+        if "video_gen_tasks" in tables:
+            cur = conn.execute("PRAGMA table_info(video_gen_tasks)")
+            cols = {row[1] for row in cur.fetchall()}
+            for col, ddl in [
+                ("template_name", "TEXT"),
+                ("stage_json", "TEXT NOT NULL DEFAULT '{}'"),
+                ("output_path", "TEXT"),
+                ("prompt_prefix", "TEXT"),
+                ("image_workflow", "TEXT"),
+                ("tts_workflow", "TEXT"),
+                ("bgm_volume", "REAL"),
+            ]:
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE video_gen_tasks ADD COLUMN {col} {ddl}")
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v17_ai_content_contract_aliases", today),
+        )
+
+    # v18: WeChat Official Account publish tasks
+    if "v18_wechat_publish_tasks" not in applied:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS wechat_publish_tasks (
+                task_id           TEXT PRIMARY KEY,
+                article_task_id   TEXT,
+                draft_path        TEXT,
+                title             TEXT,
+                author            TEXT,
+                theme             TEXT NOT NULL DEFAULT 'default',
+                color             TEXT NOT NULL DEFAULT 'blue',
+                need_open_comment INTEGER NOT NULL DEFAULT 1,
+                only_fans_can_comment INTEGER NOT NULL DEFAULT 0,
+                cover_image       TEXT,
+                html_content      TEXT,
+                publish_mode      TEXT NOT NULL DEFAULT 'draft',
+                status            TEXT NOT NULL DEFAULT 'pending',
+                wx_article_id     TEXT,
+                wx_url            TEXT,
+                error             TEXT,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL,
+                finished_at       TEXT
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wechat_tasks_created_at ON wechat_publish_tasks(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wechat_tasks_status ON wechat_publish_tasks(status, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wechat_tasks_article ON wechat_publish_tasks(article_task_id, created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v18_wechat_publish_tasks", today),
         )
 
 
@@ -1569,6 +1760,539 @@ def mark_incomplete_web_batch_tasks_interrupted() -> None:
                WHERE status IN ('running', 'cancelling')""",
             (now, now),
         )
+
+
+# ── AI 内容工作流任务 CRUD ────────────────────────────────
+
+_AI_TASK_TERMINAL_STATUSES = {"done", "error", "cancelled", "interrupted"}
+
+
+def _json_loads_or(raw, default):
+    try:
+        return json.loads(raw) if raw not in (None, "") else default
+    except Exception:
+        return default
+
+
+def _build_ai_task_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def _normalize_article_task_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    item["auto_translate"] = bool(item.get("auto_translate"))
+    item["cancel_requested"] = bool(item.get("cancel_requested"))
+    stages_json = item.pop("stages_json", None) or item.get("stage_json")
+    item["stages"] = _json_loads_or(stages_json, {})
+    item["result"] = _json_loads_or(item.pop("result_json", "{}"), {})
+    return item
+
+
+def _normalize_video_gen_task_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    item["cancel_requested"] = bool(item.get("cancel_requested"))
+    stages_json = item.pop("stages_json", None) or item.get("stage_json")
+    item["stages"] = _json_loads_or(stages_json, {})
+    item["result"] = _json_loads_or(item.pop("result_json", "{}"), {})
+    item["template_name"] = item.get("template_name") or item.get("template_key")
+    item["output_path"] = item.get("output_path") or item.get("video_path")
+    return item
+
+
+def create_article_task(
+    monitor_video_id: int | None,
+    video_id: str | None,
+    video_url: str | None,
+    video_title: str | None,
+    *,
+    target_lang: str = "zh-Hans",
+    auto_translate: bool = True,
+    output_dir: str | None = None,
+    task_id: str | None = None,
+) -> str:
+    task_id = task_id or _build_ai_task_id("article")
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO article_tasks
+               (task_id, monitor_video_id, video_id, video_url, video_title,
+                status, target_lang, auto_translate, output_dir,
+                stages_json, result_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
+            (
+                task_id,
+                monitor_video_id,
+                video_id,
+                video_url,
+                video_title,
+                target_lang,
+                int(bool(auto_translate)),
+                output_dir,
+                now,
+                now,
+            ),
+        )
+    return task_id
+
+
+def update_article_task(
+    task_id: str,
+    *,
+    status=_UNSET,
+    current_stage=_UNSET,
+    source_lang=_UNSET,
+    target_lang=_UNSET,
+    output_dir=_UNSET,
+    draft_path=_UNSET,
+    transcript_path=_UNSET,
+    optimized_path=_UNSET,
+    summary_path=_UNSET,
+    translated_path=_UNSET,
+    stages=_UNSET,
+    result=_UNSET,
+    error=_UNSET,
+    cancel_requested=_UNSET,
+    cancel_message=_UNSET,
+    finished_at=_UNSET,
+) -> None:
+    fields = []
+    values = []
+    mapping = [
+        ("status", status),
+        ("current_stage", current_stage),
+        ("source_lang", source_lang),
+        ("target_lang", target_lang),
+        ("output_dir", output_dir),
+        ("draft_path", draft_path),
+        ("transcript_path", transcript_path),
+        ("optimized_path", optimized_path),
+        ("summary_path", summary_path),
+        ("translated_path", translated_path),
+        ("error", error),
+        ("cancel_message", cancel_message),
+        ("finished_at", finished_at),
+    ]
+    for field, value in mapping:
+        if value is not _UNSET:
+            fields.append(f"{field}=?")
+            values.append(value)
+    if stages is not _UNSET:
+        stages_payload = json.dumps(stages or {}, ensure_ascii=False)
+        fields.append("stages_json=?")
+        values.append(stages_payload)
+        fields.append("stage_json=?")
+        values.append(stages_payload)
+    if result is not _UNSET:
+        fields.append("result_json=?")
+        values.append(json.dumps(result or {}, ensure_ascii=False))
+    if cancel_requested is not _UNSET:
+        fields.append("cancel_requested=?")
+        values.append(int(bool(cancel_requested)))
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(task_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE article_tasks SET {', '.join(fields)} WHERE task_id = ?", values)
+
+
+def get_article_task(task_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM article_tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+    return _normalize_article_task_row(row)
+
+
+def list_article_tasks(
+    *,
+    status: str | None = None,
+    monitor_video_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    where = []
+    params = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if monitor_video_id is not None:
+        where.append("monitor_video_id = ?")
+        params.append(monitor_video_id)
+    where_sql = " AND ".join(where) if where else "1=1"
+    with get_connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM article_tasks WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT * FROM article_tasks
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+    return ([_normalize_article_task_row(row) for row in rows], total)
+
+
+def request_cancel_article_task(task_id: str, message: str | None = None) -> dict | None:
+    task = get_article_task(task_id)
+    if not task:
+        return None
+    if task.get("status") not in _AI_TASK_TERMINAL_STATUSES:
+        next_status = "cancelling" if task.get("status") != "pending" else "cancelled"
+        finished_at = now_iso() if next_status == "cancelled" else _UNSET
+        update_article_task(
+            task_id,
+            status=next_status,
+            cancel_requested=True,
+            cancel_message=message or "正在取消文章任务…",
+            finished_at=finished_at,
+        )
+    return get_article_task(task_id)
+
+
+def create_video_gen_task(
+    *,
+    mode: str,
+    topic: str | None,
+    script_text: str | None,
+    template_key: str,
+    scene_count: int,
+    prompt_prefix: str | None = None,
+    image_workflow: str | None = None,
+    tts_workflow: str | None = None,
+    bgm_volume: float | None = None,
+    output_dir: str | None = None,
+    task_id: str | None = None,
+) -> str:
+    task_id = task_id or _build_ai_task_id("video_gen")
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO video_gen_tasks
+               (task_id, mode, topic, script_text, template_key, template_name, scene_count,
+                prompt_prefix, image_workflow, tts_workflow, bgm_volume,
+                status, output_dir, stages_json, result_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, '{}', '{}', ?, ?)""",
+            (
+                task_id,
+                mode,
+                topic,
+                script_text,
+                template_key,
+                template_key,
+                scene_count,
+                prompt_prefix,
+                image_workflow,
+                tts_workflow,
+                bgm_volume,
+                output_dir,
+                now,
+                now,
+            ),
+        )
+    return task_id
+
+
+def update_video_gen_task(
+    task_id: str,
+    *,
+    mode=_UNSET,
+    topic=_UNSET,
+    script_text=_UNSET,
+    template_key=_UNSET,
+    prompt_prefix=_UNSET,
+    image_workflow=_UNSET,
+    tts_workflow=_UNSET,
+    bgm_volume=_UNSET,
+    scene_count=_UNSET,
+    status=_UNSET,
+    current_stage=_UNSET,
+    output_dir=_UNSET,
+    storyboard_path=_UNSET,
+    video_path=_UNSET,
+    duration_sec=_UNSET,
+    file_size=_UNSET,
+    stages=_UNSET,
+    result=_UNSET,
+    error=_UNSET,
+    cancel_requested=_UNSET,
+    cancel_message=_UNSET,
+    finished_at=_UNSET,
+) -> None:
+    fields = []
+    values = []
+    mapping = [
+        ("mode", mode),
+        ("topic", topic),
+        ("script_text", script_text),
+        ("prompt_prefix", prompt_prefix),
+        ("image_workflow", image_workflow),
+        ("tts_workflow", tts_workflow),
+        ("bgm_volume", bgm_volume),
+        ("scene_count", scene_count),
+        ("status", status),
+        ("current_stage", current_stage),
+        ("output_dir", output_dir),
+        ("storyboard_path", storyboard_path),
+        ("duration_sec", duration_sec),
+        ("file_size", file_size),
+        ("error", error),
+        ("cancel_message", cancel_message),
+        ("finished_at", finished_at),
+    ]
+    for field, value in mapping:
+        if value is not _UNSET:
+            fields.append(f"{field}=?")
+            values.append(value)
+    if template_key is not _UNSET:
+        fields.append("template_key=?")
+        values.append(template_key)
+        fields.append("template_name=?")
+        values.append(template_key)
+    if video_path is not _UNSET:
+        fields.append("video_path=?")
+        values.append(video_path)
+        fields.append("output_path=?")
+        values.append(video_path)
+    if stages is not _UNSET:
+        stages_payload = json.dumps(stages or {}, ensure_ascii=False)
+        fields.append("stages_json=?")
+        values.append(stages_payload)
+        fields.append("stage_json=?")
+        values.append(stages_payload)
+    if result is not _UNSET:
+        fields.append("result_json=?")
+        values.append(json.dumps(result or {}, ensure_ascii=False))
+    if cancel_requested is not _UNSET:
+        fields.append("cancel_requested=?")
+        values.append(int(bool(cancel_requested)))
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(task_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE video_gen_tasks SET {', '.join(fields)} WHERE task_id = ?", values)
+
+
+def get_video_gen_task(task_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM video_gen_tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+    return _normalize_video_gen_task_row(row)
+
+
+def list_video_gen_tasks(
+    *,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    where = []
+    params = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where) if where else "1=1"
+    with get_connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM video_gen_tasks WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT * FROM video_gen_tasks
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+    return ([_normalize_video_gen_task_row(row) for row in rows], total)
+
+
+def request_cancel_video_gen_task(task_id: str, message: str | None = None) -> dict | None:
+    task = get_video_gen_task(task_id)
+    if not task:
+        return None
+    if task.get("status") not in _AI_TASK_TERMINAL_STATUSES:
+        next_status = "cancelling" if task.get("status") != "pending" else "cancelled"
+        finished_at = now_iso() if next_status == "cancelled" else _UNSET
+        update_video_gen_task(
+            task_id,
+            status=next_status,
+            cancel_requested=True,
+            cancel_message=message or "正在取消视频生成任务…",
+            finished_at=finished_at,
+        )
+    return get_video_gen_task(task_id)
+
+
+def mark_incomplete_ai_content_tasks_interrupted() -> None:
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE article_tasks
+               SET status='interrupted',
+                   error=COALESCE(error, '服务重启导致任务中断'),
+                   finished_at=COALESCE(finished_at, ?),
+                   updated_at=?,
+                   cancel_requested=0
+               WHERE status IN ('running', 'cancelling')""",
+            (now, now),
+        )
+        conn.execute(
+            """UPDATE video_gen_tasks
+               SET status='interrupted',
+                   error=COALESCE(error, '服务重启导致任务中断'),
+                   finished_at=COALESCE(finished_at, ?),
+                   updated_at=?,
+                   cancel_requested=0
+               WHERE status IN ('running', 'cancelling')""",
+            (now, now),
+        )
+
+
+# ── wechat_publish_tasks CRUD ─────────────────────────────────
+
+def _normalize_wechat_publish_task_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    item["need_open_comment"] = bool(item.get("need_open_comment"))
+    item["only_fans_can_comment"] = bool(item.get("only_fans_can_comment"))
+    return item
+
+
+def create_wechat_publish_task(
+    draft_path: str,
+    title: str | None,
+    *,
+    article_task_id: str | None = None,
+    author: str | None = None,
+    theme: str = "default",
+    color: str = "blue",
+    need_open_comment: bool = True,
+    only_fans_can_comment: bool = False,
+    cover_image: str | None = None,
+    html_content: str | None = None,
+    publish_mode: str = "draft",
+) -> str:
+    """Create a WeChat publish task and return task_id."""
+    task_id = f"wechat_{uuid.uuid4().hex[:12]}"
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO wechat_publish_tasks
+               (task_id, article_task_id, draft_path, title, author,
+                theme, color, need_open_comment, only_fans_can_comment,
+                cover_image, html_content, publish_mode, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+            (
+                task_id,
+                article_task_id,
+                draft_path,
+                title,
+                author,
+                theme,
+                color,
+                int(bool(need_open_comment)),
+                int(bool(only_fans_can_comment)),
+                cover_image,
+                html_content,
+                publish_mode,
+                now,
+                now,
+            ),
+        )
+    return task_id
+
+
+def update_wechat_publish_task(
+    task_id: str,
+    *,
+    status=_UNSET,
+    wx_article_id=_UNSET,
+    wx_url=_UNSET,
+    error=_UNSET,
+    finished_at=_UNSET,
+    html_content=_UNSET,
+) -> None:
+    """Update a WeChat publish task."""
+    fields = []
+    values = []
+    mapping = [
+        ("status", status),
+        ("wx_article_id", wx_article_id),
+        ("wx_url", wx_url),
+        ("error", error),
+        ("finished_at", finished_at),
+        ("html_content", html_content),
+    ]
+    for field, value in mapping:
+        if value is not _UNSET:
+            fields.append(f"{field}=?")
+            values.append(value)
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(task_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE wechat_publish_tasks SET {', '.join(fields)} WHERE task_id = ?",
+            values,
+        )
+
+
+def get_wechat_publish_task(task_id: str) -> dict | None:
+    """Get one WeChat publish task."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM wechat_publish_tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+    return _normalize_wechat_publish_task_row(row)
+
+
+def list_wechat_publish_tasks(
+    *,
+    status: str | None = None,
+    article_task_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """List WeChat publish tasks with pagination."""
+    where = []
+    params = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if article_task_id:
+        where.append("article_task_id = ?")
+        params.append(article_task_id)
+    where_sql = " AND ".join(where) if where else "1=1"
+    with get_connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM wechat_publish_tasks WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT * FROM wechat_publish_tasks
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+    return ([_normalize_wechat_publish_task_row(row) for row in rows], total)
 
 
 # ── 工具函数 ─────────────────────────────────────────────────

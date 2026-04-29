@@ -1,0 +1,29 @@
+  <!-- 顶部栏 -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon" aria-hidden="true">监</div>
+        <span class="logo-text">YouTube Monitor</span>
+        <span class="logo-sub">视频监控</span>
+      </div>
+      <div id="statusChip" class="status-chip stopped">
+        <span class="status-dot"></span>
+        <span id="statusText">调度器已停止</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-ghost" onclick="openConfig()">⚙ 全局配置</button>
+      <button class="btn btn-ghost" onclick="openCache()">API 缓存</button>
+      <button class="btn btn-ghost" onclick="openApiKeys()">API Keys</button>
+      <button class="btn btn-ghost" onclick="openBatchDownload()">⬇ 批量下载</button>
+      <button class="btn btn-ghost" onclick="openClipHistory()">✂ 切片管理</button>
+      <button class="btn btn-ghost" onclick="openProxyPools()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        固定代理
+      </button>
+    </div>
+  </header>

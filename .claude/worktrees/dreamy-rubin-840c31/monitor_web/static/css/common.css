@@ -1,0 +1,183 @@
+/* ═══════════════════════════════════════════════════════════════════
+   common.css — Shared utility classes used across all component files
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Buttons (BEM) ──────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 150ms ease-out;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn--primary { background: var(--accent); color: var(--surface); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--success { background: var(--success); color: var(--surface); }
+.btn--success:hover { filter: brightness(1.1); }
+.btn--danger { background: var(--error); color: var(--surface); }
+.btn--danger:hover { filter: brightness(1.1); }
+.btn--warning { background: var(--warning); color: var(--surface); }
+.btn--warning:hover { filter: brightness(1.1); }
+.btn--info { background: var(--accent); color: var(--surface); opacity: 0.8; }
+.btn--info:hover { opacity: 1; }
+.btn--ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.btn--ghost:hover { background: var(--surface2); color: var(--text); }
+.btn--danger.btn--ghost {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+.btn--danger.btn--ghost:hover { background: var(--error-dim); color: var(--error); }
+.btn--sm { padding: 4px 12px; font-size: 12px; }
+.btn--icon {
+  width: 36px; height: 36px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 16px;
+}
+.btn--icon:hover { background: var(--surface3); color: var(--text); }
+
+/* Resource type filter tabs */
+.res-type-tab {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: var(--r-sm);
+  transition: all 150ms ease-out;
+}
+.res-type-tab:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.res-type-tab.active {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+
+/* ── Tags (BEM) ─────────────────────────────────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  font-weight: 500;
+}
+.tag--success { background: var(--success-dim); color: var(--success); }
+.tag--warning { background: var(--warning-dim); color: var(--warning); }
+.tag--error { background: var(--error-dim); color: var(--error); }
+.tag--info { background: var(--accent-dim); color: var(--accent); }
+.tag--muted { background: var(--surface3); color: var(--text-muted); }
+.tag--feishu { background: rgba(123,104,238,0.15); color: var(--feishu); }
+.tag--dingtalk { background: rgba(22,119,255,0.15); color: var(--dingtalk); }
+.tag--wecom { background: rgba(82,196,26,0.15); color: var(--wecom); }
+.tag--telegram { background: rgba(38,165,228,0.15); color: var(--telegram); }
+.tag--downloaded { background: rgba(63,185,80,0.15); color: var(--success); }
+.tag--download-pending { background: rgba(139,148,158,0.15); color: var(--text-muted); }
+.tag--download-failed { background: rgba(248,81,73,0.15); color: var(--error); }
+.tag--downloading { background: rgba(240,136,62,0.18); color: var(--accent); }
+
+/* ── Status (BEM) ──────────────────────────────────────────────────── */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  font-weight: 500;
+}
+.status__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status--running { background: var(--success-dim); color: var(--success); }
+.status--stopped { background: var(--surface2); color: var(--text-muted); }
+.status--running .status__dot { animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+/* ── Action Buttons Group ──────────────────────────────────────────── */
+.actions { display: flex; gap: 6px; align-items: center; }
+
+/* ── Scanning Animation ────────────────────────────────────────────── */
+.scanning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--accent-dim);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Custom Toggle Switch ──────────────────────────────────────────── */
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.toggle-switch input { display: none; }
+.toggle-track {
+  width: 36px; height: 20px;
+  background: var(--surface3);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+  position: relative;
+  display: inline-block;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all 0.2s ease;
+}
+.toggle-switch input:checked + .toggle-track {
+  background: var(--proxy-bg);
+  border-color: var(--proxy-border);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.06);
+}
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+  left: 18px;
+  background: var(--proxy-text);
+  box-shadow: 0 0 6px var(--proxy-dot-on);
+}
+
+/* ── Reduced Motion ────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

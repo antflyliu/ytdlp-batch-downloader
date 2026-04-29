@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Claude Code user config (sensitive)
+.claude/settings.json
+.claude/settings.local.json
+.claude/hooks/
+.claude/memory/
+.claude/plugins/
+.claude/projects/
+
+# Claude Code skills — keep all skill definitions tracked
+!.claude/skills/
+!.claude/skills/**
+
+.cocoindex_code
+
+__pycache__
+
+build
+
+dist
+
+venv_build
+
+videos
+
+YouTube批量下载器.spec
+
+*.zip
+
+*.xlsx
+*.txt
+# AI clipper prompt templates (keep these tracked)
+!scripts/prompts/
+
+# MCP (contains API keys)
+.mcp.json
+
+# Local agent/review artifacts
+.agents/
+node_modules/
+package*.json
+.full-review/
+.specstory/
+.vscode/
+logs/
+output/
+patch_provider_ui_obs.py
+
+# User data (sensitive)
+cookies.json
+channel_videos.csv
+proxy_config.json
+
+# SQLite database with API keys
+data/
+monitor/data/
+*.db
+
+# Test scripts
+scripts/test_*.py
+
+# Git worktrees
+.worktrees/
+
+# OMX / agent runtime state
+.omc/
+.omx/
+.superpowers/
+.cursor/

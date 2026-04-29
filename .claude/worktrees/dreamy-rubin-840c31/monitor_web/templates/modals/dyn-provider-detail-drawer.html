@@ -1,0 +1,22 @@
+<!-- 提供方运行详情：与切片任务详情同系 — 居中暖色卡片 -->
+<div class="modal-overlay" id="dynProviderDetailDrawer">
+  <div class="modal modal-dyn-detail">
+    <div class="dpd-header">
+      <h2 class="dpd-title" data-i18n="dynProviderDetail.title">提供方运行详情</h2>
+      <button type="button" class="ccd-close" onclick="closeDynamicProviderDetail()" title="关闭" aria-label="关闭"><span aria-hidden="true">×</span></button>
+    </div>
+    <div class="modal-body dpd-body">
+      <div id="dynProviderDetailError" class="dpd-alert dpd-alert--error" style="display:none"></div>
+      <div id="dynProviderDetailPreviewSummary" class="dpd-alert dpd-alert--preview" style="display:none"></div>
+      <div id="dynProviderDetailFailures" class="dpd-alert dpd-alert--warn" style="display:none">
+        <div class="dpd-fail-head">
+          <strong data-i18n="dynProviderDetail.recentFailures">最近失败原因</strong>
+          <button type="button" id="dynProviderDetailFailuresToggle" class="btn-sm dpd-toggle" onclick="toggleProviderFailureList()" data-i18n="dynProviderDetail.expand">展开</button>
+        </div>
+        <div id="dynProviderDetailFailuresList"></div>
+      </div>
+      <div id="dynProviderDetailActions" class="dpd-actions"></div>
+      <div id="dynProviderDetailBody"></div>
+    </div>
+  </div>
+</div>

@@ -368,3 +368,98 @@ CREATE TABLE IF NOT EXISTS clip_tasks (
 CREATE INDEX IF NOT EXISTS idx_clip_tasks_account ON clip_tasks(account_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clip_tasks_video ON clip_tasks(monitor_video_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clip_tasks_status ON clip_tasks(status, created_at DESC);
+
+-- ── AI 内容工作流任务表 ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS article_tasks (
+    task_id           TEXT PRIMARY KEY,
+    monitor_video_id  INTEGER,
+    video_id          TEXT,
+    video_url         TEXT,
+    video_title       TEXT,
+    status            TEXT    NOT NULL DEFAULT 'pending',
+    current_stage     TEXT,
+    source_lang       TEXT,
+    target_lang       TEXT    NOT NULL DEFAULT 'zh-Hans',
+    auto_translate    INTEGER NOT NULL DEFAULT 1,
+    output_dir        TEXT,
+    draft_path        TEXT,
+    transcript_path   TEXT,
+    optimized_path    TEXT,
+    summary_path      TEXT,
+    translated_path   TEXT,
+    stage_json        TEXT    NOT NULL DEFAULT '{}',
+    stages_json       TEXT    NOT NULL DEFAULT '{}',
+    result_json       TEXT    NOT NULL DEFAULT '{}',
+    error             TEXT,
+    cancel_requested  INTEGER NOT NULL DEFAULT 0,
+    cancel_message    TEXT,
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL,
+    finished_at       TEXT,
+    FOREIGN KEY (monitor_video_id) REFERENCES monitor_videos(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_tasks_created_at ON article_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_tasks_status ON article_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_tasks_video ON article_tasks(monitor_video_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS video_gen_tasks (
+    task_id           TEXT PRIMARY KEY,
+    mode              TEXT    NOT NULL DEFAULT 'generate',
+    topic             TEXT,
+    script_text       TEXT,
+    template_name     TEXT,
+    template_key      TEXT,
+    prompt_prefix     TEXT,
+    image_workflow    TEXT,
+    tts_workflow      TEXT,
+    bgm_volume        REAL,
+    scene_count       INTEGER NOT NULL DEFAULT 5,
+    status            TEXT    NOT NULL DEFAULT 'pending',
+    current_stage     TEXT,
+    output_dir        TEXT,
+    output_path       TEXT,
+    storyboard_path   TEXT,
+    video_path        TEXT,
+    duration_sec      REAL,
+    file_size         INTEGER,
+    stage_json        TEXT    NOT NULL DEFAULT '{}',
+    stages_json       TEXT    NOT NULL DEFAULT '{}',
+    result_json       TEXT    NOT NULL DEFAULT '{}',
+    error             TEXT,
+    cancel_requested  INTEGER NOT NULL DEFAULT 0,
+    cancel_message    TEXT,
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL,
+    finished_at       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_created_at ON video_gen_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_status ON video_gen_tasks(status, created_at DESC);
+
+-- ── 微信公众号发布任务表 ───────────────────────────────
+CREATE TABLE IF NOT EXISTS wechat_publish_tasks (
+    task_id           TEXT PRIMARY KEY,
+    article_task_id   TEXT,
+    draft_path        TEXT,
+    title             TEXT,
+    author            TEXT,
+    theme             TEXT NOT NULL DEFAULT 'default',
+    color             TEXT NOT NULL DEFAULT 'blue',
+    need_open_comment INTEGER NOT NULL DEFAULT 1,
+    only_fans_can_comment INTEGER NOT NULL DEFAULT 0,
+    cover_image       TEXT,
+    html_content      TEXT,
+    publish_mode      TEXT NOT NULL DEFAULT 'draft',
+    status            TEXT NOT NULL DEFAULT 'pending',
+    wx_article_id     TEXT,
+    wx_url            TEXT,
+    error             TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    finished_at       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_tasks_created_at ON wechat_publish_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wechat_tasks_status ON wechat_publish_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wechat_tasks_article ON wechat_publish_tasks(article_task_id, created_at DESC);

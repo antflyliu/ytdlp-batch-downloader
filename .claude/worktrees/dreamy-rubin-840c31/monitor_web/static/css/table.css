@@ -1,0 +1,593 @@
+/* ═══════════════════════════════════════════════════════════════════
+   table.css — Data tables, account rows, video detail rows,
+                log area, config grid, API key components
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Account Search Bar ──────────────────────────────────────────── */
+.card-account-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.card-account-search .form-input {
+  font-size: 13px;
+  background: var(--surface2);
+}
+
+/* 代理池：与账户搜索条同款，右侧为说明文案 */
+.card-proxy-pool-meta {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.card-proxy-pool-meta .pp-demo-note {
+  margin-right: auto;
+}
+.card-proxy-pool-meta__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  text-align: right;
+  max-width: 420px;
+}
+@media (max-width: 720px) {
+  .card-proxy-pool-meta__hint {
+    margin-left: 0;
+    text-align: left;
+    max-width: none;
+  }
+}
+
+/* 代理池列表：状态列（与账户列表中 proxy 列风格一致） */
+.proxy-pool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.proxy-pool-status__on { color: var(--success); }
+.proxy-pool-status__off { color: var(--text-dim); }
+
+/* 账户管理：监控账户卡片内表格区域独立纵向滚动，表头粘性 */
+.main .card.card--accounts-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+.card--accounts-scroll .table-wrap--accounts {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-cream);
+  background: var(--surface);
+  margin: 0 16px 16px;
+}
+.card--accounts-scroll .accounts-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-shadow: 0 1px 0 var(--border-cream);
+}
+.card--accounts-scroll .card-pagination-bar {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Table (BEM) ─────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: var(--r-md); }
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table__header-cell {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  white-space: nowrap;
+}
+.table__cell {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.table__row:last-child .table__cell { border-bottom: none; }
+.table__row:hover .table__cell { background: var(--bg); }
+
+/* Bare table styling (used in account list) */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+  background: var(--surface2);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+table tr:last-child td { border-bottom: none; }
+table tbody tr {
+  transition: background 120ms ease;
+}
+table tbody tr:hover td {
+  background: rgba(201,100,66,0.04);
+}
+table tbody tr:hover td:first-child {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+
+/* Table cell variants (preserved for backward compatibility) */
+.td-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.td-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.td-url {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 账户列表表：操作列按钮横向排列（避免窄列内文字竖排） ───────────── */
+table.accounts-table {
+  table-layout: auto;
+}
+table.accounts-table th:last-child,
+table.accounts-table td:last-child {
+  min-width: 18rem;
+  vertical-align: middle;
+}
+table.accounts-table .actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+}
+table.accounts-table .actions .btn-sm {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+table.accounts-table .actions .btn-sm:hover {
+  background: var(--surface3);
+  color: var(--text);
+}
+table.accounts-table .actions .btn-sm.info {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+table.accounts-table .actions .btn-sm.info:hover {
+  background: var(--accent);
+  color: var(--surface);
+}
+table.accounts-table .actions .btn-sm.danger {
+  background: var(--error-dim);
+  border-color: var(--error);
+  color: var(--error);
+}
+table.accounts-table .actions .btn-sm.danger:hover {
+  background: var(--error);
+  color: var(--surface);
+}
+table.accounts-table .actions .btn-sm.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+}
+table.accounts-table .actions .btn-sm.warning:hover {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--text);
+}
+table.accounts-table .actions .btn-sm.success {
+  background: var(--success-dim);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--success);
+}
+table.accounts-table .actions .btn-sm.success:hover {
+  background: rgba(34, 197, 94, 0.22);
+  color: var(--text);
+}
+
+/* 切片历史：仅「详情」一钮，操作列不必占满多按钮宽度 */
+table.accounts-table.clip-history-table th:last-child,
+table.accounts-table.clip-history-table td:last-child {
+  min-width: 5.5rem;
+}
+.clip-history-table .td-clip-account {
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-history-table .td-clip-video-title {
+  font-size: 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Log Area ──────────────────────────────────────────────────────── */
+.log-area {
+  background: var(--bg);
+  border-radius: var(--r-md);
+  padding: 12px 16px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--text-muted);
+}
+.log-line { display: flex; gap: 8px; }
+.log-time { color: var(--text-dim); flex-shrink: 0; }
+.log-msg { color: var(--text-muted); }
+.log-msg.ok { color: var(--success); }
+.log-msg.err { color: var(--error); }
+.log-msg.info { color: var(--accent); }
+
+/* ── Config Grid ──────────────────────────────────────────────────── */
+.config-grid { display: flex; flex-direction: column; gap: 14px; }
+.config-item {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.config-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.config-url { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+/* ── Video Detail Table ────────────────────────────────────────────── */
+.vd-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vd-table th {
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 12px;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--border);
+}
+.vd-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+/* 长文本列：省略号；首列复选框不可共用 overflow:hidden / max-width，否则多选框会被裁切 */
+.vd-table td:not(.vd-check) {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vd-table th:first-child,
+.vd-table td.vd-check {
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  box-sizing: border-box;
+  text-align: center;
+  padding: 10px 8px;
+  overflow: visible;
+  border-left: 2px solid transparent;
+}
+.vd-table tr:hover td { background: var(--surface2); }
+.vd-table tr:hover td.vd-check { border-left-color: var(--accent); }
+.vd-title { color: var(--text); cursor: pointer; }
+.vd-title:hover { color: var(--accent); text-decoration: underline; }
+.vd-url { color: var(--text-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-desc { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-num { font-family: var(--mono); color: var(--text-muted); font-size: 12px; text-align: right; }
+.vd-check { width: 48px; min-width: 48px; }
+
+/* Download Progress Bar */
+.vd-dl-bar { display:none; padding:8px 16px; border-bottom:1px solid var(--border); }
+.vd-dl-bar.show { display:block; }
+.vd-dl-bar .dl-info { font-size:12px; color:var(--text-muted); margin-bottom:4px; display:flex; justify-content:space-between; }
+.vd-dl-bar .dl-track { height:6px; background:var(--surface3); border-radius:3px; overflow:hidden; }
+.vd-dl-bar .dl-fill { height:100%; background:var(--accent); border-radius:3px; transition:width 0.3s ease; }
+.vd-dl-bar .dl-status { font-size:11px; color:var(--text-dim); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ── API Key Components ────────────────────────────────────────────── */
+.ak-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+.ak-card:hover {
+  border-color: rgba(99,102,241,0.4);
+  box-shadow: var(--ring-medium);
+}
+.ak-card .btn-sm svg { display: block; }
+
+/* API Key 配额环形图 */
+.ak-ring {
+  flex-shrink: 0;
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+.ak-ring svg {
+  transform: rotate(-90deg);
+  width: 56px;
+  height: 56px;
+}
+.ak-ring-bg {
+  fill: none;
+  stroke: var(--surface3);
+  stroke-width: 4;
+}
+.ak-ring-progress {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.4s ease-out, stroke 0.3s;
+}
+.ak-ring-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.ak-ring-pct {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.ak-ring-label {
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+/* API Key 详情区 */
+.ak-info {
+  flex: 1;
+  min-width: 0;
+}
+.ak-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ak-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ak-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  border: 1px solid;
+}
+.ak-status.active {
+  background: rgba(34,197,94,0.12);
+  color: var(--success);
+  border-color: rgba(34,197,94,0.2);
+}
+.ak-status.inactive {
+  background: rgba(239,68,68,0.12);
+  color: var(--error);
+  border-color: rgba(239,68,68,0.2);
+}
+.ak-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ak-key svg {
+  flex-shrink: 0;
+}
+
+/* API Key 配额进度条 */
+.ak-quota-bar {
+  height: 4px;
+  background: var(--surface3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.ak-quota-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease-out;
+}
+.ak-quota-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ak-quota-stats strong {
+  font-family: var(--mono);
+}
+.ak-quota-stats .used { color: var(--accent); }
+.ak-quota-stats .remaining { color: var(--success); }
+
+/* API Key 操作按钮 */
+.ak-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* API Key 空状态增强 */
+.ak-empty {
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--surface2);
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--border);
+}
+.ak-empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  background: var(--surface3);
+  border-radius: var(--r-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ak-empty-icon svg {
+  width: 28px;
+  height: 28px;
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+.ak-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.ak-empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+/* 表单模态框增强 */
+.ak-form-section {
+  margin-bottom: 20px;
+}
+.ak-form-section:last-child {
+  margin-bottom: 0;
+}
+.ak-form-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ak-form-section-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+}
+.ak-form-section.identity .ak-form-section-title::before {
+  background: var(--accent);
+}
+.ak-form-section.quota .ak-form-section-title::before {
+  background: var(--warning);
+}
+.ak-form-section.quota {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.ak-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ak-form-row .form-group:last-child {
+  padding-top: 26px;
+}
+
+/* 平台专属敏感字段（钉钉加签）：侧栏色带 + 弱衬底 */
+.form-group--dingtalk-addon {
+  margin-bottom: 18px;
+  padding: 12px 14px 14px;
+  background: rgba(22, 119, 255, 0.06);
+  border: 1px solid rgba(22, 119, 255, 0.22);
+  border-radius: var(--r-md);
+  border-left: 3px solid var(--dingtalk);
+}
+.form-group--dingtalk-addon .form-label--platform {
+  color: var(--dingtalk);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  font-size: 13px;
+}
+.form-group--dingtalk-addon .form-hint {
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 52ch;
+}
+.form-group--dingtalk-addon .form-input:focus-visible {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-dim);
+}

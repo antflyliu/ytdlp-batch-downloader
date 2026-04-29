@@ -1,0 +1,129 @@
+<div class="page-header">
+  <div>
+    <a class="settings-back-link" href="#/settings" data-i18n="settings.backToSettings">← 返回配置概览</a>
+    <div class="page-title" data-i18n="settings.dynamicTitle">系统默认动态代理</div>
+    <div class="page-desc" data-i18n="settings.dynamicDesc">系统级回退策略与提供方入口</div>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn btn--primary" onclick="saveConfig()" data-i18n="config.saveConfig">保存配置</button>
+  </div>
+</div>
+
+<div class="settings-page-grid settings-page-grid--single">
+  <div class="settings-col">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="card-title-icon" style="background:var(--accent-dim);color:var(--accent)">🌐</div>
+          <span data-i18n="settings.dynProxySettings">系统默认动态代理</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <label class="setting-label">
+            <span data-i18n="settings.dynProxyEnable">启用系统默认动态代理</span>
+            <span class="setting-desc" data-i18n="settings.dynProxyEnableDesc">当账户固定代理不可用时自动尝试</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="cfg_system_dynamic_proxy_enabled" onchange="onDynamicProxySettingChange()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">
+            <span data-i18n="settings.dynProxyNewAccount">新账户默认继承系统动态代理</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="cfg_apply_dynamic_proxy_to_new_accounts" onchange="onDynamicProxySettingChange()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">
+            <span data-i18n="settings.dynProxyExistingAccount">对现有账户启用系统回退</span>
+            <span class="setting-desc" style="color:var(--warning)" data-i18n="settings.dynProxyExistingWarn">注意：开启后将改变现有账户行为</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="cfg_apply_dynamic_proxy_to_existing_accounts" onchange="onDynamicProxySettingChange()">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <details class="settings-details">
+          <summary data-i18n="settings.advancedSettings">高级设置</summary>
+          <div style="padding-top:10px">
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.freeProxyManual">免费代理参与手动下载</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.freeProxyAuto">免费代理参与自动下载</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_for_auto_download" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.cookieNoFreeProxy">带 Cookie 下载禁止免费代理</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_allow_free_proxy_with_cookies" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.manualDirectFallback">手动下载允许直连兜底</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_manual_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.autoDirectFallback">自动下载允许直连兜底</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_auto_direct_fallback" onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.protocolOrder">协议优先级</label>
+              <select id="cfg_default_proxy_protocol_order" onchange="onDynamicProxySettingChange()" style="min-width:200px;padding:6px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+                <option value="http,https,socks5,socks4">HTTP → HTTPS → SOCKS5 → SOCKS4</option>
+                <option value="http,https,socks5">HTTP → HTTPS → SOCKS5</option>
+                <option value="socks5,https,http">SOCKS5 → HTTPS → HTTP</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.sessionMode">默认会话模式</label>
+              <select id="cfg_default_session_mode" onchange="onDynamicProxySettingChange()" style="padding:6px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+                <option value="sticky" data-i18n="settings.stickySession">粘性会话</option>
+                <option value="rotating" data-i18n="settings.rotatingSession">轮换会话</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.stickyMinutes">粘性会话时长（分钟）</label>
+              <input type="number" id="cfg_default_sticky_minutes" value="10" min="1" max="60" style="width:80px;padding:6px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text)" onchange="onDynamicProxySettingChange()">
+            </div>
+            <div class="setting-row">
+              <label class="setting-label" data-i18n="settings.maskProxyLogs">日志中掩码代理地址</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cfg_mask_proxy_in_logs" checked onchange="onDynamicProxySettingChange()">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+        </details>
+        <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:var(--r-md);border:1px solid var(--border)">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text)" data-i18n="settings.dynProviderManageTitle">动态代理提供方管理</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:2px" data-i18n="settings.dynProviderManageDesc">添加、编辑和测试动态代理提供方</div>
+          </div>
+          <button type="button" class="btn btn--sm btn--ghost" style="color:var(--accent);border-color:var(--accent)" onclick="openDynamicProviders()" data-i18n="settings.manageProviders">
+            管理提供方
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

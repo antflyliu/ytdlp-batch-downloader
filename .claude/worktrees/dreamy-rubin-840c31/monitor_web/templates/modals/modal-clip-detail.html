@@ -1,0 +1,53 @@
+<div class="modal-overlay" id="modalClipDetail">
+  <div class="modal-clip-detail">
+    <!-- Header -->
+    <div class="ccd-header">
+      <div class="ccd-header-left">
+        <!-- 勿在包裹 #ccdTaskId 的节点上使用 data-i18n：I18n.apply 会 textContent 覆盖并删除子节点 -->
+        <div class="ccd-eyebrow">
+          <span data-i18n="clipDetail.taskLabel">切片任务</span><span class="ccd-task-id-suffix"> #<span id="ccdTaskId"></span></span>
+        </div>
+        <h2 class="ccd-title" id="ccdVideoTitle"></h2>
+        <div class="ccd-meta">
+          <span class="ccd-badge" id="ccdStatus"></span>
+          <span class="ccd-dot"></span>
+          <span class="ccd-meta-item" id="ccdClipCount"></span>
+          <span class="ccd-dot"></span>
+          <span class="ccd-meta-item" id="ccdCreatedAt"></span>
+        </div>
+      </div>
+      <button class="ccd-close" onclick="closeModal('modalClipDetail')" title="关闭">&#x2715;</button>
+    </div>
+
+    <!-- Inline video player (hidden until play) -->
+    <div class="ccd-player" id="ccdPlayer" style="display:none">
+      <button class="ccd-player-close" onclick="ccdClosePlayer()" title="关闭">&#x2715;</button>
+      <video id="ccdVideoEl" controls playsinline></video>
+    </div>
+
+    <!-- Body: two-column -->
+    <div class="ccd-body" id="ccdBody">
+      <!-- Clips -->
+      <section class="ccd-section ccd-section--clips">
+        <div class="ccd-section-header">
+          <span class="ccd-section-icon">&#x2702;</span>
+          <h3 class="ccd-section-title" data-i18n="clipDetail.clips">切片</h3>
+          <span class="ccd-section-count" id="ccdClipsCount">0</span>
+        </div>
+        <div class="ccd-items" id="ccdClipsList"></div>
+        <div class="ccd-empty" id="ccdClipsEmpty" style="display:none" data-i18n="clipDetail.noClips">暂无切片</div>
+      </section>
+
+      <!-- Collections -->
+      <section class="ccd-section ccd-section--collections">
+        <div class="ccd-section-header">
+          <span class="ccd-section-icon">&#x25C6;</span>
+          <h3 class="ccd-section-title" data-i18n="clipDetail.collections">合集</h3>
+          <span class="ccd-section-count" id="ccdCollectionsCount">0</span>
+        </div>
+        <div class="ccd-items" id="ccdCollectionsList"></div>
+        <div class="ccd-empty" id="ccdCollectionsEmpty" style="display:none" data-i18n="clipDetail.noCollections">暂无合集</div>
+      </section>
+    </div>
+  </div>
+</div>

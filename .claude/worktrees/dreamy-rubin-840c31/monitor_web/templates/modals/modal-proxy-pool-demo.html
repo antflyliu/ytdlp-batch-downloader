@@ -1,0 +1,18 @@
+<!-- 固定代理 · 功能演示（iframe，与添加节点同款 sheet 壳层） -->
+<div class="modal-overlay" id="modalProxyPoolDemo" role="dialog" aria-modal="true" aria-labelledby="modalProxyPoolDemoTitle">
+  <div class="modal modal--account">
+    <div class="modal-header">
+      <div class="modal-title" id="modalProxyPoolDemoTitle" data-i18n="proxyPoolDemo.title">固定代理 · 功能演示</div>
+      <button type="button" class="modal-close" onclick="closeProxyDemo()" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body modal-body--proxy-demo">
+      <p class="proxy-demo-lead" data-i18n="proxyPoolDemo.lead">节点绑定 → 路由覆盖自动/批量下载 → 降低 429 限流风险</p>
+      <div class="proxy-demo-iframe-wrap">
+        <iframe id="ppDemoFrameModal" src="proxy-pool-feature.html" frameborder="0" allowfullscreen title="固定代理功能演示"></iframe>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeProxyDemo()" data-i18n="common.close">关闭</button>
+    </div>
+  </div>
+</div>
