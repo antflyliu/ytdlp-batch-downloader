@@ -53,6 +53,18 @@ const routes = [
     meta: { keepAlive: false },
     component: () => import('@/views/ClipHistory.vue'),
   },
+  {
+    path: '/ai-creation',
+    name: 'aiCreation',
+    meta: { keepAlive: false },
+    component: () => import('@/views/AiCreation.vue'),
+  },
+  {
+    path: '/wechat-collect',
+    name: 'wechatCollect',
+    meta: { keepAlive: false },
+    component: () => import('@/views/WechatCollect.vue'),
+  },
   // Settings hub — parent container
   {
     path: '/settings-hub',
@@ -88,6 +100,12 @@ const routes = [
         name: 'settingsAi',
         meta: { keepAlive: false },
         component: () => import('@/views/settings/AiSettings.vue'),
+      },
+      {
+        path: '/settings-hub/wechat',
+        name: 'settingsWechat',
+        meta: { keepAlive: false },
+        component: () => import('@/views/settings/WechatPublishSettings.vue'),
       },
       {
         path: '/settings-hub/dynamic',

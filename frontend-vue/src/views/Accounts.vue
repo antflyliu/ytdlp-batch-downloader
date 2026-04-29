@@ -510,6 +510,7 @@ import {
 import type { DataTableColumn } from 'naive-ui'
 import accountsApi from '@/api/accounts'
 import clipsApi from '@/api/clips'
+import aiContentApi from '@/api/aiContent'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -628,6 +629,7 @@ const detailSelectedRowKeys = ref<number[]>([])
 const detailDownloadSubtitles = ref(false)
 const detailDownloadTask = ref<DownloadTask | null>(null)
 const detailClippingVideoIds = ref<number[]>([])
+const detailArticleGeneratingVideoIds = ref<number[]>([])
 const detailFilters = ref({
   title_kw: '',
   url_kw: '',
@@ -1007,6 +1009,16 @@ const setVideoClipping = (videoId: number, clipping: boolean) => {
     : detailClippingVideoIds.value.filter(id => id !== videoId)
 }
 
+const canGenerateArticle = (row: AccountVideo) => Boolean(row.id && (row.url || row.video_id || row.title))
+
+const isVideoGeneratingArticle = (videoId: number) => detailArticleGeneratingVideoIds.value.includes(videoId)
+
+const setVideoGeneratingArticle = (videoId: number, generating: boolean) => {
+  detailArticleGeneratingVideoIds.value = generating
+    ? Array.from(new Set([...detailArticleGeneratingVideoIds.value, videoId]))
+    : detailArticleGeneratingVideoIds.value.filter(id => id !== videoId)
+}
+
 const triggerVideoClip = async (row: AccountVideo) => {
   if (!canClipVideo(row)) {
     message.warning(t('videoDetail.clipRequiresDownloaded'))
@@ -1029,6 +1041,47 @@ const triggerVideoClip = async (row: AccountVideo) => {
     message.error(errorMsg)
   } finally {
     setVideoClipping(row.id, false)
+  }
+}
+
+const generateArticle = async (row: AccountVideo) => {
+  if (!canGenerateArticle(row)) {
+    message.warning(t('videoDetail.generateArticleRequiresMetadata'))
+    return
+  }
+  setVideoGeneratingArticle(row.id, true)
+  try {
+    const res = await aiContentApi.createArticleTask({
+      monitor_video_id: row.id,
+      video_id: row.video_id,
+      video_url: row.url,
+      video_title: row.title,
+    })
+    const body = res.data || {}
+    if (body.error || body.ok === false) {
+      message.error(String(body.error || t('aiCreation.article.createFailed')))
+      return
+    }
+    const taskId = String(body.task_id || '')
+    message.success(t('videoDetail.generateArticleStarted', { id: taskId }))
+    showDetailModal.value = false
+    void router.push({
+      path: '/ai-creation',
+      query: {
+        tab: 'article',
+        taskId,
+        monitorVideoId: String(row.id),
+        videoId: row.video_id || '',
+        videoUrl: row.url || '',
+        videoTitle: row.title || '',
+        accountName: detailAccount.value?.name || '',
+      },
+    })
+  } catch (e: any) {
+    const errorMsg = e?.response?.data?.error || e?.message || t('aiCreation.article.createFailed')
+    message.error(errorMsg)
+  } finally {
+    setVideoGeneratingArticle(row.id, false)
   }
 }
 
@@ -1095,7 +1148,7 @@ const detailColumns = computed<DataTableColumn<AccountVideo>[]>(() => [
   {
     title: t('videoDetail.actions'),
     key: 'actions',
-    width: 148,
+    width: 250,
     fixed: 'right',
     render: (row) => h('div', { class: 'video-row-actions' }, [
       h(NButton, {
@@ -1114,7 +1167,17 @@ const detailColumns = computed<DataTableColumn<AccountVideo>[]>(() => [
         disabled: !canClipVideo(row) || isVideoClipping(row.id),
         loading: isVideoClipping(row.id),
         onClick: () => triggerVideoClip(row)
-      }, () => t('videoDetail.clip'))
+      }, () => t('videoDetail.clip')),
+      h(NButton, {
+        size: 'small',
+        tertiary: true,
+        type: 'primary',
+        class: 'video-article-action',
+        title: canGenerateArticle(row) ? t('videoDetail.generateArticle') : t('videoDetail.generateArticleRequiresMetadata'),
+        disabled: !canGenerateArticle(row) || isVideoGeneratingArticle(row.id),
+        loading: isVideoGeneratingArticle(row.id),
+        onClick: () => generateArticle(row)
+      }, () => t('videoDetail.generateArticle'))
     ])
   },
 ])
@@ -1549,19 +1612,23 @@ onUnmounted(() => {
 .account-detail-action {
   min-width: 76px;
 }
-.video-clip-action {
+.video-clip-action,
+.video-article-action {
   min-width: 52px;
 }
-.video-clip-action:not(.n-button--disabled) {
+.video-clip-action:not(.n-button--disabled),
+.video-article-action:not(.n-button--disabled) {
   color: var(--accent) !important;
   background: rgba(201, 100, 66, 0.12) !important;
   box-shadow: 0 0 0 1px rgba(201, 100, 66, 0.24) !important;
 }
-.video-clip-action:not(.n-button--disabled):hover {
+.video-clip-action:not(.n-button--disabled):hover,
+.video-article-action:not(.n-button--disabled):hover {
   color: #b95738 !important;
   background: rgba(201, 100, 66, 0.18) !important;
 }
-.video-clip-action :deep(.n-button__content) {
+.video-clip-action :deep(.n-button__content),
+.video-article-action :deep(.n-button__content) {
   color: inherit !important;
 }
 .form-section {

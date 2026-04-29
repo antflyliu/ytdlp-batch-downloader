@@ -40,6 +40,61 @@ export interface AppConfig {
   clip_thumbnail_quality?: number
   auto_clip_enabled?: boolean
   auto_clip_notify_enabled?: boolean
+  whisper_provider?: string
+  whisper_base_url?: string
+  whisper_api_key?: string
+  whisper_model?: string
+  article_output_dir?: string
+  article_tools_path?: string
+  article_default_target_lang?: string
+  article_target_lang?: string
+  article_subtitle_languages?: string
+  article_subtitle_proxy?: string
+  article_subtitle_proxy_mode?: string
+  article_subtitle_proxy_pool_id?: number | null
+  article_author?: string
+  article_llm_optimize_model?: string
+  article_llm_summary_model?: string
+  article_llm_translate_model?: string
+  comfyui_url?: string
+  comfyui_api_key?: string
+  runninghub_url?: string
+  runninghub_api_key?: string
+  tts_provider?: string
+  local_tts_url?: string
+  video_gen_output_dir?: string
+  video_gen_default_template?: string
+  video_gen_default_scene_count?: number
+  default_template?: string
+  default_scene_count?: number
+  video_gen_prompt_prefix?: string
+  image_generation_provider?: string
+  image_generation_fallback_order?: string
+  image_generation_timeout_seconds?: number
+  minimax_api_key?: string
+  minimax_base_url?: string
+  minimax_image_model?: string
+  openai_api_key?: string
+  openai_base_url?: string
+  openai_image_model?: string
+  openai_image_size?: string
+  openai_image_quality?: string
+  gemini_api_key?: string
+  gemini_base_url?: string
+  gemini_image_model?: string
+  wechat_app_id?: string
+  wechat_app_secret?: string
+  wechat_default_author?: string
+  wechat_default_theme?: string
+  wechat_default_color?: string
+  wechat_need_open_comment?: boolean
+  wechat_only_fans_can_comment?: boolean
+  wechat_exporter_base_url?: string
+  wechat_exporter_auth_key?: string
+  wechat_collection_output_dir?: string
+  wechat_collection_default_format?: string
+  wechat_collection_delay_seconds?: number
+  wechat_collection_max_articles?: number
 
   // Dynamic Proxy
   system_dynamic_proxy_enabled?: boolean
@@ -130,6 +185,14 @@ export default {
   listAccounts() {
     return request<{ id: number; name: string }[]>({
       url: '/api/accounts',
+      method: 'get',
+    })
+  },
+
+  // Proxy pools
+  listProxyPools() {
+    return request<{ id: number; name: string }[]>({
+      url: '/api/proxy-pools',
       method: 'get',
     })
   },
