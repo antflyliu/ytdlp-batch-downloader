@@ -1,3 +1,6 @@
+import json
+
+
 def test_config_endpoint_masks_sensitive_notification_tokens(monkeypatch):
     import server.__main__ as server_main
 
@@ -11,6 +14,9 @@ def test_config_endpoint_masks_sensitive_notification_tokens(monkeypatch):
             "global_telegram_token": "123456789:secret-token",
             "global_dingtalk_sign_secret": "SECsecret",
             "llm_api_key": "sk-secret",
+            "minimax_api_key": "minimax-secret",
+            "openai_api_key": "openai-secret",
+            "gemini_api_key": "gemini-secret",
             "global_telegram_chat_id": "-100123",
         },
     )
@@ -23,6 +29,9 @@ def test_config_endpoint_masks_sensitive_notification_tokens(monkeypatch):
                 "global_telegram_token": "***",
                 "global_dingtalk_sign_secret": "***",
                 "llm_api_key": "***",
+                "minimax_api_key": "***",
+                "openai_api_key": "***",
+                "gemini_api_key": "***",
                 "global_telegram_chat_id": "-100123",
             },
             200,
@@ -37,11 +46,17 @@ def test_masked_config_values_preserve_existing_secrets():
         "global_telegram_token": "123456789:old-token",
         "global_dingtalk_sign_secret": "SECold",
         "llm_api_key": "sk-old",
+        "minimax_api_key": "minimax-old",
+        "openai_api_key": "openai-old",
+        "gemini_api_key": "gemini-old",
     }
     new_cfg = {
         "global_telegram_token": "***",
         "global_dingtalk_sign_secret": "",
         "llm_api_key": "sk-new",
+        "minimax_api_key": "***",
+        "openai_api_key": "",
+        "gemini_api_key": "gemini-new",
     }
 
     merged = server_main._preserve_masked_config_values(new_cfg, old_cfg)
@@ -49,6 +64,48 @@ def test_masked_config_values_preserve_existing_secrets():
     assert merged["global_telegram_token"] == "123456789:old-token"
     assert merged["global_dingtalk_sign_secret"] == ""
     assert merged["llm_api_key"] == "sk-new"
+    assert merged["minimax_api_key"] == "minimax-old"
+    assert merged["openai_api_key"] == ""
+    assert merged["gemini_api_key"] == "gemini-new"
+
+
+def test_image_provider_keys_are_encrypted_at_rest(monkeypatch, tmp_path):
+    from cryptography.fernet import Fernet
+
+    import config.encryption as encryption
+    import config.settings as settings
+
+    cfg_path = tmp_path / "config.json"
+    data_dir = tmp_path / "data"
+    pkg_dir = tmp_path / "pkg"
+    key = Fernet.generate_key()
+    monkeypatch.setattr(settings, "get_config_path", lambda: str(cfg_path))
+    monkeypatch.setattr(settings, "get_data_dir", lambda: str(data_dir))
+    monkeypatch.setattr(settings, "get_pkg_dir", lambda: str(pkg_dir))
+    monkeypatch.setattr(encryption, "_get_webhook_enc_key", lambda: key)
+
+    cfg = settings._config_default()
+    cfg.update(
+        {
+            "minimax_api_key": "minimax-secret",
+            "openai_api_key": "openai-secret",
+            "gemini_api_key": "gemini-secret",
+            "wechat_app_secret": "wechat-secret",
+        }
+    )
+
+    settings.save_config(cfg)
+
+    raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    for key_name in ("minimax_api_key", "openai_api_key", "gemini_api_key", "wechat_app_secret"):
+        assert raw[key_name] != cfg[key_name]
+        assert raw[key_name].startswith("enc:")
+
+    loaded = settings.load_config()
+    assert loaded["minimax_api_key"] == "minimax-secret"
+    assert loaded["openai_api_key"] == "openai-secret"
+    assert loaded["gemini_api_key"] == "gemini-secret"
+    assert loaded["wechat_app_secret"] == "wechat-secret"
 
 
 def test_accounts_endpoint_masks_account_telegram_token(monkeypatch):
