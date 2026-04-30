@@ -41,6 +41,7 @@ def test_backend_config_save_whitelist_includes_ai_article_and_video_fields():
         text,
         [
             '"whisper_api_key"',
+            '"whisper_compute_type"',
             '"article_tools_path"',
             '"article_output_dir"',
             '"video_gen_output_dir"',
@@ -65,6 +66,7 @@ def test_frontend_app_config_includes_ai_article_and_video_fields():
         text,
         [
             "whisper_api_key?: string",
+            "whisper_compute_type?: string",
             "article_tools_path?: string",
             "article_output_dir?: string",
             "video_gen_output_dir?: string",
@@ -94,6 +96,7 @@ def test_ai_settings_masks_new_ai_workflow_secrets_with_round_trip_preservation(
             "openaiApiKeyInput",
             "geminiApiKeyInput",
             "payload.whisper_api_key = MASKED_SECRET_VALUE",
+            "whisper_compute_type",
             "payload.comfyui_api_key = MASKED_SECRET_VALUE",
             "payload.runninghub_api_key = MASKED_SECRET_VALUE",
             "payload.minimax_api_key = MASKED_SECRET_VALUE",

@@ -136,6 +136,17 @@ def test_wechat_collect_routes_and_frontend_nav_are_wired():
     assert "wechat_exporter_auth_key?: string" in config_api
 
 
+def test_existing_wechat_collect_route_remains_exporter_api_provider():
+    server = SERVER_MAIN.read_text(encoding="utf-8")
+    collector = (ROOT / "monitor" / "wechat_collector.py").read_text(encoding="utf-8")
+
+    assert '"/api/wechat-collect/start"' in server
+    assert "WechatExporterClient" in collector
+    assert "DEFAULT_EXPORTER_BASE_URL" in collector
+    assert "/api/public/v1/download" in collector
+    assert "/api/public/v1/article" in collector
+
+
 def test_wechat_collect_config_masks_and_preserves_auth_key(monkeypatch):
     import server.__main__ as server_main
 

@@ -1,6 +1,7 @@
 """Contract tests for AI article/video workflow schema and startup recovery."""
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -65,7 +66,7 @@ def test_init_db_bootstraps_ai_content_tables_and_indexes_on_fresh_database(db_m
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
         }
 
-    required_tables = {"article_tasks", "video_gen_tasks"}
+    required_tables = {"article_tasks", "video_gen_tasks", "wechat_publish_tasks"}
     required_indexes = {
         "idx_article_tasks_created_at",
         "idx_article_tasks_status",
@@ -231,11 +232,35 @@ def test_ai_content_startup_recovery_marks_stale_tasks_interrupted(db_module):
         )
         conn.execute(
             """
+            INSERT INTO article_tasks
+                (monitor_video_id, video_id, status, stage_json, output_dir, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (1, "yt-article-pending", "pending", "{}", "D:/output/article-pending", now, now),
+        )
+        conn.execute(
+            """
             INSERT INTO video_gen_tasks
                 (mode, status, template_name, stage_json, output_path, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             ("topic", "cancelling", "pixelle/basic", "{}", "D:/output/video-1.mp4", now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO video_gen_tasks
+                (mode, status, template_name, stage_json, output_path, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("topic", "pending", "pixelle/basic", "{}", "D:/output/video-pending.mp4", now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO wechat_publish_tasks
+                (task_id, draft_path, title, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wechat-publish-1", "D:/output/article-1/draft.md", "Contract publish", "running", now, now),
         )
 
     recovery_fn()
@@ -245,12 +270,65 @@ def test_ai_content_startup_recovery_marks_stale_tasks_interrupted(db_module):
             "SELECT status, error FROM article_tasks WHERE video_id = ?",
             ("yt-article-1",),
         ).fetchone()
+        pending_article = conn.execute(
+            "SELECT status, error FROM article_tasks WHERE video_id = ?",
+            ("yt-article-pending",),
+        ).fetchone()
         video = conn.execute(
             "SELECT status, error FROM video_gen_tasks WHERE output_path = ?",
             ("D:/output/video-1.mp4",),
         ).fetchone()
+        pending_video = conn.execute(
+            "SELECT status, error FROM video_gen_tasks WHERE output_path = ?",
+            ("D:/output/video-pending.mp4",),
+        ).fetchone()
+        wechat = conn.execute(
+            "SELECT status, error FROM wechat_publish_tasks WHERE task_id = ?",
+            ("wechat-publish-1",),
+        ).fetchone()
 
     assert article["status"] == "interrupted"
     assert "中断" in (article["error"] or "")
+    assert pending_article["status"] == "interrupted"
+    assert "中断" in (pending_article["error"] or "")
     assert video["status"] == "interrupted"
     assert "中断" in (video["error"] or "")
+    assert pending_video["status"] == "interrupted"
+    assert "中断" in (pending_video["error"] or "")
+    assert wechat["status"] == "interrupted"
+    assert "中断" in (wechat["error"] or "")
+
+
+def test_ai_content_terminal_task_does_not_expose_running_stage(db_module):
+    _init_db_or_xfail(db_module)
+    now = "2026-04-30T11:00:00+08:00"
+    stages = {
+        "source_media": {"status": "done", "message": "音频下载完成，准备 Whisper 转写"},
+        "whisper": {"status": "running", "message": "正在使用本地 Whisper 模型转写"},
+    }
+    with db_module.get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO article_tasks
+                (task_id, status, current_stage, stages_json, stage_json, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "article-stale-whisper",
+                "interrupted",
+                "whisper",
+                json.dumps(stages, ensure_ascii=False),
+                json.dumps(stages, ensure_ascii=False),
+                "服务重启导致任务中断",
+                now,
+                now,
+            ),
+        )
+
+    task = db_module.get_article_task("article-stale-whisper")
+
+    assert task["status"] == "interrupted"
+    assert task["stages"]["source_media"]["status"] == "done"
+    assert task["stages"]["whisper"]["status"] == "interrupted"
+    assert "Whisper" in task["stages"]["whisper"]["message"]
+    assert "中断" in task["stages"]["whisper"]["message"]

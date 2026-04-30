@@ -1,7 +1,12 @@
 """Contract tests for P0 AI content API routes and safe file constraints."""
 from __future__ import annotations
 
+import importlib
+import io
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 
@@ -80,3 +85,232 @@ def test_ai_content_api_defines_stable_error_responses_for_validation_and_cancel
         ],
         "Stable 400/404/409 AI content API responses are not visible in server source yet",
     )
+
+
+def test_article_generate_accepts_wechat_article_source_without_video_url():
+    server = SERVER_MAIN.read_text(encoding="utf-8")
+    generator = (ROOT / "scripts" / "article_generator.py").read_text(encoding="utf-8")
+    api = (ROOT / "frontend-vue" / "src" / "api" / "aiContent.ts").read_text(encoding="utf-8")
+
+    assert "source_type" in server
+    assert "wechat_article" in server
+    assert "wechat_artifact_id" in server
+    assert "resolve_artifact_path" in server
+    assert "article_source_path" in server or "article_text" in server
+    assert "wechat_artifact_id" in api
+    assert "wechat_article" in generator
+    assert "yt_dlp" in generator
+
+
+def test_article_generate_accepts_wechat_artifact_url_without_artifact_id(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    collect_root = tmp_path / "wechat-collect"
+    collect_root.mkdir()
+    article = collect_root / "article.md"
+    article.write_text("# article", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class FakeTaskService:
+        def resolve_artifact_path(self, artifact_id):
+            captured["artifact_id"] = artifact_id
+            return str(article)
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            captured["thread_name"] = kwargs.get("name")
+
+        def start(self):
+            captured["thread_started"] = True
+
+    def fake_create_article_task(*args, **kwargs):
+        captured["create_args"] = args
+        captured["create_kwargs"] = kwargs
+        return "article-task-1"
+
+    handler = object.__new__(server.MonitorHandler)
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+
+    monkeypatch.setattr(server, "_wechat_native_task_service", FakeTaskService())
+    monkeypatch.setattr(
+        server._db,
+        "load_config",
+        lambda: {
+            "wechat_collection_output_dir": str(collect_root),
+            "article_output_dir": str(tmp_path / "articles"),
+        },
+    )
+    monkeypatch.setattr(server._db, "create_article_task", fake_create_article_task)
+    monkeypatch.setattr(server.threading, "Thread", FakeThread)
+
+    handler._api_article_generate(
+        {
+            "source_type": "wechat_article",
+            "article_source_path": "http://127.0.0.1:5000/api/wechat-native/artifacts/wcn_test%3A1?download=1",
+            "source_url": "https://mp.weixin.qq.com/s/test",
+            "source_title": "标题",
+        }
+    )
+
+    assert captured["artifact_id"] == "wcn_test:1"
+    assert captured["create_kwargs"]["article_source_path"] == str(article)
+    assert captured["create_kwargs"]["source_url"] == "https://mp.weixin.qq.com/s/test"
+    assert captured["create_kwargs"]["source_title"] == "标题"
+    assert captured["payload"] == {"ok": True, "task_id": "article-task-1"}
+    assert captured["status"] == 202
+
+
+def test_article_get_exposes_intermediate_output_files(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    output_dir = tmp_path / "articles" / "article_task_1"
+    output_dir.mkdir(parents=True)
+    source_audio = output_dir / "whisper_source.webm"
+    source_audio.write_bytes(b"fake audio")
+    captured: dict[str, object] = {}
+
+    handler = object.__new__(server.MonitorHandler)
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+
+    monkeypatch.setattr(
+        server._db,
+        "get_article_task",
+        lambda task_id: {
+            "task_id": task_id,
+            "status": "running",
+            "current_stage": "whisper",
+            "output_dir": str(output_dir),
+            "stages": {"whisper": {"status": "running", "message": "正在使用本地 Whisper 模型转写"}},
+        },
+    )
+
+    handler._api_article_get("article_task_1")
+
+    payload = captured["payload"]
+    assert captured["status"] == 200
+    assert payload["output_files"][0]["name"] == "whisper_source.webm"
+    assert payload["output_files"][0]["size"] == len(b"fake audio")
+    assert payload["latest_output_file"]["path"].endswith("whisper_source.webm")
+
+
+def test_article_file_serves_project_relative_output_dir(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    output_root = tmp_path / "output" / "articles"
+    output_dir = output_root / "article_task_1"
+    output_dir.mkdir(parents=True)
+    draft = output_dir / "draft.md"
+    draft.write_text("# done", encoding="utf-8")
+    captured: dict[str, object] = {}
+    responses: list[tuple[str, object]] = []
+
+    handler = object.__new__(server.MonitorHandler)
+    handler.path = f"/api/article/file?path={quote(str(draft))}"
+    handler.wfile = io.BytesIO()
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+    handler._allowed_origin = lambda: None
+    handler.send_response = lambda status: responses.append(("status", status))
+    handler.send_header = lambda key, value: responses.append((key, value))
+    handler.end_headers = lambda: None
+
+    monkeypatch.setattr(server, "_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(server._db, "load_config", lambda: {"article_output_dir": "output/articles"})
+
+    handler._api_article_file()
+
+    assert captured == {}
+    assert ("status", 200) in responses
+    assert ("Cache-Control", "private, no-store") in responses
+    assert ("X-Content-Type-Options", "nosniff") in responses
+    assert ("Content-Security-Policy", "sandbox") in responses
+    assert handler.wfile.getvalue() == b"# done"
+
+
+def test_article_file_rejects_paths_outside_article_output_dir(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    output_root = tmp_path / "output" / "articles"
+    output_root.mkdir(parents=True)
+    outside = tmp_path / "secrets.txt"
+    outside.write_text("secret", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    handler = object.__new__(server.MonitorHandler)
+    handler.path = f"/api/article/file?path={quote(str(outside))}"
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+
+    monkeypatch.setattr(server, "_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(server._db, "load_config", lambda: {"article_output_dir": "output/articles"})
+
+    handler._api_article_file()
+
+    assert captured["status"] == 400
+    assert captured["payload"] == {"error": "无效的输出路径"}
+
+
+def test_article_output_path_accepts_project_relative_output_dir(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    output_root = tmp_path / "output" / "articles"
+    output_dir = output_root / "article_task_1"
+    output_dir.mkdir(parents=True)
+    draft = output_dir / "draft.md"
+    draft.write_text("# done", encoding="utf-8")
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(server, "_PROJECT_ROOT", str(tmp_path))
+
+    resolved = server.MonitorHandler._resolve_article_output_path(
+        str(draft),
+        {"article_output_dir": "output/articles"},
+    )
+
+    assert resolved == draft.resolve()
+
+
+def test_article_output_path_accepts_project_relative_artifact_path(monkeypatch, tmp_path):
+    server = importlib.import_module("server.__main__")
+    output_root = tmp_path / "output" / "articles"
+    output_dir = output_root / "article_task_1"
+    output_dir.mkdir(parents=True)
+    draft = output_dir / "draft.md"
+    draft.write_text("# done", encoding="utf-8")
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(server, "_PROJECT_ROOT", str(tmp_path))
+
+    resolved = server.MonitorHandler._resolve_article_output_path(
+        "output/articles/article_task_1/draft.md",
+        {"article_output_dir": "output/articles"},
+    )
+
+    assert resolved == draft.resolve()
+
+
+def test_article_background_runner_marks_uncaught_errors(monkeypatch):
+    server = importlib.import_module("server.__main__")
+    captured: dict[str, object] = {}
+
+    def failing_run_article_task(task_id, cfg=None):
+        assert task_id == "article-task-1"
+        assert cfg == {"whisper_provider": "local"}
+        raise RuntimeError("boom during import or startup")
+
+    def fake_update_article_task(task_id, **kwargs):
+        captured["task_id"] = task_id
+        captured.update(kwargs)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "scripts.article_generator",
+        SimpleNamespace(run_article_task=failing_run_article_task),
+    )
+    monkeypatch.setattr(server._db, "update_article_task", fake_update_article_task)
+    monkeypatch.setattr(server._db, "now_iso", lambda: "2026-04-30T11:00:00+08:00")
+
+    server._run_article_task_safely("article-task-1", {"whisper_provider": "local"})
+
+    assert captured["task_id"] == "article-task-1"
+    assert captured["status"] == "error"
+    assert captured["current_stage"] == "error"
+    assert captured["finished_at"] == "2026-04-30T11:00:00+08:00"
+    assert "boom during import or startup" in str(captured["error"])
