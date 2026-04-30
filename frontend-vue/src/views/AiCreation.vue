@@ -42,7 +42,14 @@
 
             <NForm :model="articleForm" label-placement="top">
               <div class="ai-form-grid">
-                <NFormItem :label="t('aiCreation.article.monitorVideoId')">
+                <NFormItem :label="t('aiCreation.article.sourceType')">
+                  <NSelect
+                    v-model:value="articleForm.source_type"
+                    :options="articleSourceTypeOptions"
+                  />
+                </NFormItem>
+
+                <NFormItem v-if="articleForm.source_type !== 'wechat_article'" :label="t('aiCreation.article.monitorVideoId')">
                   <NInputNumber
                     v-model:value="articleForm.monitor_video_id"
                     :show-button="false"
@@ -51,16 +58,36 @@
                   />
                 </NFormItem>
 
-                <NFormItem :label="t('aiCreation.article.videoId')">
+                <NFormItem v-if="articleForm.source_type !== 'wechat_article'" :label="t('aiCreation.article.videoId')">
                   <NInput v-model:value="articleForm.video_id" />
                 </NFormItem>
 
-                <NFormItem class="ai-form-grid__wide" :label="t('aiCreation.article.videoTitle')">
+                <NFormItem v-if="articleForm.source_type !== 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.videoTitle')">
                   <NInput v-model:value="articleForm.video_title" />
                 </NFormItem>
 
-                <NFormItem class="ai-form-grid__wide" :label="t('aiCreation.article.videoUrl')">
+                <NFormItem v-if="articleForm.source_type !== 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.videoUrl')">
                   <NInput v-model:value="articleForm.video_url" />
+                </NFormItem>
+
+                <NFormItem v-if="articleForm.source_type === 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.sourceTitle')">
+                  <NInput v-model:value="articleForm.source_title" />
+                </NFormItem>
+
+                <NFormItem v-if="articleForm.source_type === 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.articleSourcePath')">
+                  <NInput v-model:value="articleForm.article_source_path" />
+                </NFormItem>
+
+                <NFormItem v-if="articleForm.source_type === 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.sourceUrl')">
+                  <NInput v-model:value="articleForm.source_url" />
+                </NFormItem>
+
+                <NFormItem v-if="articleForm.source_type === 'wechat_article'" class="ai-form-grid__wide" :label="t('aiCreation.article.articleSourceText')">
+                  <NInput
+                    v-model:value="articleForm.article_text"
+                    type="textarea"
+                    :autosize="{ minRows: 4, maxRows: 10 }"
+                  />
                 </NFormItem>
 
                 <NFormItem :label="t('aiCreation.article.targetLang')">
@@ -259,6 +286,10 @@
       </div>
 
       <div v-else-if="selectedTask" class="task-detail">
+        <div v-if="taskStatus(selectedTask) === 'interrupted'" class="detail-interrupted-banner">
+          <span>{{ t('aiCreation.interruptedHint') }}</span>
+        </div>
+
         <div class="task-detail__hero">
           <div>
             <div class="task-detail__eyebrow">
@@ -320,6 +351,32 @@
           </div>
         </div>
 
+        <div v-if="selectedTaskOutputFiles.length" class="output-file-list">
+          <div class="output-file-list__title">{{ t('aiCreation.detail.outputFiles') }}</div>
+          <div
+            v-for="file in selectedTaskOutputFiles"
+            :key="file.path || file.name"
+            class="output-file"
+          >
+            <div>
+              <div class="output-file__name">{{ file.name || file.path }}</div>
+              <div class="output-file__meta">
+                <span>{{ formatFileSize(file.size) }}</span>
+                <span v-if="file.updated_at">{{ formatDateTime(file.updated_at) }}</span>
+              </div>
+            </div>
+            <NButton
+              v-if="taskOutputFileHref(file)"
+              text
+              type="primary"
+              size="small"
+              @click="openTaskLink(taskOutputFileHref(file))"
+            >
+              {{ t('aiCreation.detail.openOutput') }}
+            </NButton>
+          </div>
+        </div>
+
         <div v-if="selectedTask.error" class="detail-error">
           {{ selectedTask.error }}
         </div>
@@ -334,19 +391,43 @@
             <div v-if="wechatPublishError" class="wechat-publish-panel__error">
               {{ wechatPublishError }}
             </div>
+            <div v-if="wechatPublishHasDiagnostics" class="wechat-publish-panel__diagnostics">
+              <div v-if="wechatPublishRenderer" class="wechat-publish-panel__diagnostic">
+                <span>{{ t('aiCreation.wechatPublishRenderer') }}</span>
+                <strong>{{ wechatPublishRenderer }}</strong>
+              </div>
+              <div v-if="wechatPublishHtmlPath" class="wechat-publish-panel__diagnostic">
+                <span>{{ t('aiCreation.wechatPublishHtmlPath') }}</span>
+                <code>{{ wechatPublishHtmlPath }}</code>
+                <NButton
+                  v-if="wechatPublishHtmlHref"
+                  text
+                  type="primary"
+                  size="small"
+                  @click="openTaskLink(wechatPublishHtmlHref)"
+                >
+                  {{ t('aiCreation.wechatPublishOpenHtml') }}
+                </NButton>
+              </div>
+              <div v-if="wechatPublishWarnings.length" class="wechat-publish-panel__warning">
+                <div v-for="warning in wechatPublishWarnings" :key="warning">
+                  {{ warning }}
+                </div>
+              </div>
+            </div>
           </div>
           <div class="wechat-publish-panel__actions">
             <NButton
-              :loading="publishingWechat && wechatPublishMode === 'draft'"
-              :disabled="publishingWechat"
+              :loading="isWechatPublishBusy && wechatPublishMode === 'draft'"
+              :disabled="isWechatPublishBusy"
               @click="saveSelectedArticleToWechatDraft"
             >
               {{ t('aiCreation.saveToWechatDraft') }}
             </NButton>
             <NButton
               type="warning"
-              :loading="publishingWechat && wechatPublishMode === 'publish'"
-              :disabled="publishingWechat"
+              :loading="isWechatPublishBusy && wechatPublishMode === 'publish'"
+              :disabled="isWechatPublishBusy"
               @click="confirmPublishSelectedArticleNow"
             >
               {{ t('aiCreation.publishNow') }}
@@ -394,6 +475,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import aiContentApi, { type AiTemplateOption, type ArticleTaskCreatePayload, type VideoTaskCreatePayload } from '@/api/aiContent'
+import request from '@/api/request'
 import wechatPublishApi from '@/api/wechatPublish'
 
 type AiTab = 'article' | 'video'
@@ -409,6 +491,15 @@ interface StageItem {
 
 const POLL_INTERVAL_MS = 3000
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
+const AI_TASK_TERMINAL_STATUSES = new Set(['done', 'error', 'cancelled', 'interrupted'])
+const WECHAT_PUBLISH_TERMINAL_STATUSES = new Set(['done', 'error', 'cancelled', 'interrupted'])
+
+const normalizeTaskStatus = (value: unknown) => {
+  const rawStatus = String(value || '').toLowerCase()
+  if (!rawStatus) return 'pending'
+  if (rawStatus === 'processing') return 'running'
+  return rawStatus
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -436,16 +527,40 @@ const wechatPublishTaskId = ref('')
 const wechatPublishStatus = ref('')
 const wechatPublishMode = ref<'draft' | 'publish' | ''>('')
 const wechatPublishError = ref('')
+const wechatPublishRenderer = ref('')
+const wechatPublishHtmlPath = ref('')
+const wechatPublishWarnings = ref<string[]>([])
+const pendingWechatPublishMode = ref<'draft' | 'publish' | ''>('')
+const pendingWechatPublishTaskId = ref('')
+const pendingWechatPublishAutoSubmit = ref(false)
 let detailPollTimer: number | null = null
 let wechatPollTimer: number | null = null
 let formResizeObserver: ResizeObserver | null = null
 let lastPrefillToken = ''
 
+const clearPendingWechatPublishIntent = () => {
+  pendingWechatPublishMode.value = ''
+  pendingWechatPublishTaskId.value = ''
+  pendingWechatPublishAutoSubmit.value = false
+}
+
+const clearPendingWechatPublishForTask = (taskId: string) => {
+  if (!taskId || pendingWechatPublishTaskId.value === taskId) {
+    clearPendingWechatPublishIntent()
+  }
+}
+
 const articleForm = reactive<ArticleTaskCreatePayload>({
+  source_type: 'video',
   monitor_video_id: undefined,
   video_id: '',
   video_url: '',
   video_title: '',
+  wechat_artifact_id: '',
+  article_source_path: '',
+  article_text: '',
+  source_url: '',
+  source_title: '',
   target_lang: 'zh-Hans',
   auto_translate: true,
 })
@@ -467,12 +582,18 @@ const videoModeOptions = computed(() => [
   { label: t('aiCreation.video.modeFixed'), value: 'fixed' },
 ])
 
+const articleSourceTypeOptions = computed(() => [
+  { label: t('aiCreation.article.sourceVideo'), value: 'video' },
+  { label: t('aiCreation.article.sourceWechatArticle'), value: 'wechat_article' },
+])
+
 const statusFilterOptions = computed(() => [
   { label: t('aiCreation.filters.all'), value: '' },
   { label: t('aiCreation.status.pending'), value: 'pending' },
   { label: t('aiCreation.status.running'), value: 'running' },
   { label: t('aiCreation.status.done'), value: 'done' },
   { label: t('aiCreation.status.error'), value: 'error' },
+  { label: t('aiCreation.status.interrupted'), value: 'interrupted' },
   { label: t('aiCreation.status.cancelled'), value: 'cancelled' },
 ])
 
@@ -501,14 +622,46 @@ const articleSourceHint = computed(() => {
   const pieces: string[] = []
   const accountName = getQueryString('accountName')
   if (accountName) pieces.push(accountName)
+  if (articleForm.source_type === 'wechat_article') {
+    if (articleForm.source_title || articleForm.video_title) {
+      pieces.push(articleForm.source_title || articleForm.video_title || '')
+    }
+    if (!pieces.length) return ''
+    return t('aiCreation.article.prefilledFromWechat', { title: pieces.join(' · ') })
+  }
   if (articleForm.video_title) pieces.push(articleForm.video_title)
   if (!pieces.length) return ''
   return t('aiCreation.article.prefilledFromVideo', { title: pieces.join(' · ') })
 })
 
 const canSubmitArticle = computed(() => {
+  if (articleForm.source_type === 'wechat_article') {
+    return Boolean(
+      articleForm.wechat_artifact_id?.trim()
+      || articleForm.article_source_path?.trim()
+      || articleForm.article_text?.trim(),
+    )
+  }
   return Boolean(articleForm.monitor_video_id || articleForm.video_id?.trim() || articleForm.video_url?.trim())
 })
+
+function clearVideoArticleFields() {
+  articleForm.monitor_video_id = undefined
+  articleForm.video_id = ''
+  articleForm.video_url = ''
+  articleForm.video_title = ''
+}
+
+function clearWechatArticleFields() {
+  articleForm.wechat_artifact_id = ''
+  articleForm.article_source_path = ''
+  articleForm.article_text = ''
+  articleForm.source_url = ''
+  articleForm.source_title = ''
+  pendingWechatPublishMode.value = ''
+  pendingWechatPublishTaskId.value = ''
+  pendingWechatPublishAutoSubmit.value = false
+}
 
 const canSubmitVideo = computed(() => {
   if (videoForm.mode === 'fixed') {
@@ -536,6 +689,31 @@ const wechatPublishStatusLabel = computed(() => (
     : t('aiCreation.wechatPublishLabelDraft')
 ))
 
+const isWechatPublishBusy = computed(() => {
+  if (publishingWechat.value) return true
+  if (!wechatPublishTaskId.value) return false
+  return !WECHAT_PUBLISH_TERMINAL_STATUSES.has(normalizeTaskStatus(wechatPublishStatus.value))
+})
+
+const wechatPublishHtmlHref = computed(() => (
+  wechatPublishHtmlPath.value
+    ? `/api/article/file?path=${encodeURIComponent(wechatPublishHtmlPath.value)}`
+    : ''
+))
+
+const wechatPublishHasDiagnostics = computed(() => Boolean(
+  wechatPublishRenderer.value
+  || wechatPublishHtmlPath.value
+  || wechatPublishWarnings.value.length,
+))
+
+const normalizeWechatPublishIntent = (value: string): 'draft' | 'publish' | '' => {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'wechatdraft' || normalized === 'draft') return 'draft'
+  if (normalized === 'wechatpublish' || normalized === 'publish' || normalized === 'publishnow') return 'publish'
+  return ''
+}
+
 const normalizeArray = (value: unknown): any[] => {
   if (Array.isArray(value)) return value
   if (!value || typeof value !== 'object') return []
@@ -548,14 +726,35 @@ const normalizeArray = (value: unknown): any[] => {
   return []
 }
 
+const taskOutputFiles = (task: AiTaskRecord | null | undefined) => (
+  normalizeArray(task?.output_files)
+    .map((file) => file as Record<string, any>)
+    .filter((file) => file.name || file.path)
+)
+
+const selectedTaskOutputFiles = computed(() => taskOutputFiles(selectedTask.value))
+
+const taskOutputFileHref = (file: Record<string, any>) => {
+  const path = String(file?.path || '').trim()
+  if (!path || currentTab.value !== 'article') return ''
+  return `/api/article/file?path=${encodeURIComponent(path)}`
+}
+
+const formatFileSize = (value: unknown) => {
+  const size = Number(value || 0)
+  if (!Number.isFinite(size) || size <= 0) return '0 B'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
 const taskKey = (task: AiTaskRecord) => String(task?.task_id || task?.id || '')
 
-const taskStatus = (task: AiTaskRecord | null | undefined) => {
-  const rawStatus = String(task?.status || task?.state || task?.task_status || '').toLowerCase()
-  if (!rawStatus) return 'pending'
-  if (rawStatus === 'processing') return 'running'
-  return rawStatus
-}
+const taskStatus = (task: AiTaskRecord | null | undefined) => (
+  normalizeTaskStatus(task?.status || task?.state || task?.task_status || '')
+)
+
+const isTerminalTaskStatus = (status: string) => AI_TASK_TERMINAL_STATUSES.has(normalizeTaskStatus(status))
 
 const taskTimestamp = (task: AiTaskRecord | null | undefined) => (
   task?.created_at || task?.createdAt || task?.started_at || task?.updated_at || task?.updatedAt || ''
@@ -567,14 +766,14 @@ const taskUpdatedAt = (task: AiTaskRecord | null | undefined) => (
 
 const taskHeadline = (task: AiTaskRecord) => {
   if (currentTab.value === 'article') {
-    return firstTruthy(task.video_title, task.title, task.video_id, task.video_url, taskKey(task)) || taskKey(task)
+    return firstTruthy(task.source_title, task.video_title, task.title, task.video_id, task.source_url, task.video_url, taskKey(task)) || taskKey(task)
   }
   return firstTruthy(task.topic, task.title, task.template, taskKey(task)) || taskKey(task)
 }
 
 const taskSubline = (task: AiTaskRecord) => {
   if (currentTab.value === 'article') {
-    return firstTruthy(task.target_lang, task.video_id, task.video_url, task.monitor_video_id) || '—'
+    return firstTruthy(task.target_lang, task.source_type, task.article_source_path, task.video_id, task.video_url, task.monitor_video_id) || '—'
   }
   return firstTruthy(task.template, task.mode, task.n_scenes ? `${task.n_scenes} scenes` : '', task.image_workflow) || '—'
 }
@@ -644,7 +843,7 @@ const firstTruthy = (...values: Array<string | number | null | undefined>) => {
 
 const detailTargetLabel = (task: AiTaskRecord) => {
   if (currentTab.value === 'article') {
-    return firstTruthy(task.target_lang, task.video_id, task.monitor_video_id) || '—'
+    return firstTruthy(task.target_lang, task.source_type, task.video_id, task.monitor_video_id) || '—'
   }
   return firstTruthy(task.template, task.mode, task.n_scenes ? `${task.n_scenes}` : '') || '—'
 }
@@ -681,24 +880,20 @@ const formatDateTime = (value?: string) => {
   return date.toLocaleString()
 }
 
-const appendApiToken = (href: string) => {
-  const token = String((window as any).__MONITOR_API_TOKEN__ || '')
-  if (!token) return href
-  try {
-    const url = new URL(href)
-    if (url.pathname.startsWith('/api/') && !url.searchParams.has('api_token')) {
-      url.searchParams.set('api_token', token)
-    }
-    return url.toString()
-  } catch {
-    return href
-  }
+const resolveApiHref = (value: string) => {
+  if (/^https?:\/\//i.test(value)) return value
+  if (value.startsWith('/')) return new URL(value, API_BASE).toString()
+  return value
 }
 
-const resolveApiHref = (value: string) => {
-  if (/^https?:\/\//i.test(value)) return appendApiToken(value)
-  if (value.startsWith('/')) return appendApiToken(new URL(value, API_BASE).toString())
-  return value
+const isInternalApiHref = (href: string) => {
+  try {
+    const url = new URL(href, API_BASE)
+    const base = new URL(API_BASE)
+    return url.origin === base.origin && url.pathname.startsWith('/api/')
+  } catch {
+    return false
+  }
 }
 
 const detailLinks = (task: AiTaskRecord) => {
@@ -755,7 +950,11 @@ const stopWechatPolling = () => {
 
 const ensureDetailPolling = () => {
   stopDetailPolling()
-  if (!selectedTaskId.value || !selectedTask.value || !canCancelTask(selectedTask.value)) {
+  if (!selectedTaskId.value || !selectedTask.value) {
+    return
+  }
+  const status = taskStatus(selectedTask.value)
+  if (!canCancelTask(selectedTask.value) || status === 'interrupted') {
     return
   }
   detailPollTimer = window.setInterval(() => {
@@ -776,19 +975,54 @@ const applyRouteState = () => {
     currentTab.value = requestedTab
   }
 
-  const prefillToken = [
+  const prefillParts = [
+    getQueryString('sourceType'),
     getQueryString('monitorVideoId'),
     getQueryString('videoId'),
     getQueryString('videoUrl'),
     getQueryString('videoTitle'),
-  ].join('|')
+    getQueryString('articleArtifact'),
+    getQueryString('articlePath'),
+    getQueryString('articleUrl'),
+    getQueryString('articleTitle'),
+    getQueryString('publishIntent'),
+  ]
+  const prefillToken = prefillParts.join('|')
+  if (!prefillParts.some(Boolean)) return
   if (!prefillToken || prefillToken === lastPrefillToken) return
 
+  const sourceType = getQueryString('sourceType')
+  if (sourceType === 'wechatArticle') {
+    articleForm.source_type = 'wechat_article'
+    articleForm.monitor_video_id = undefined
+    articleForm.video_id = ''
+    articleForm.video_url = ''
+    articleForm.wechat_artifact_id = getQueryString('articleArtifact')
+    articleForm.article_source_path = getQueryString('articlePath')
+    articleForm.article_text = ''
+    articleForm.source_url = getQueryString('articleUrl')
+    articleForm.source_title = getQueryString('articleTitle')
+    articleForm.video_title = getQueryString('articleTitle')
+    pendingWechatPublishMode.value = normalizeWechatPublishIntent(getQueryString('publishIntent'))
+    pendingWechatPublishTaskId.value = ''
+    pendingWechatPublishAutoSubmit.value = Boolean(pendingWechatPublishMode.value)
+    currentTab.value = 'article'
+    lastPrefillToken = prefillToken
+    return
+  }
+
   const monitorVideoId = Number(getQueryString('monitorVideoId'))
+  articleForm.source_type = 'video'
   articleForm.monitor_video_id = Number.isFinite(monitorVideoId) && monitorVideoId > 0 ? monitorVideoId : undefined
   articleForm.video_id = getQueryString('videoId')
   articleForm.video_url = getQueryString('videoUrl')
   articleForm.video_title = getQueryString('videoTitle')
+  articleForm.wechat_artifact_id = ''
+  articleForm.article_source_path = ''
+  articleForm.article_text = ''
+  articleForm.source_url = ''
+  articleForm.source_title = ''
+  pendingWechatPublishAutoSubmit.value = false
   currentTab.value = 'article'
   lastPrefillToken = prefillToken
 }
@@ -834,6 +1068,7 @@ const refreshSelectedTask = async (silent = false) => {
       ? await aiContentApi.getArticleTask(selectedTaskId.value)
       : await aiContentApi.getVideoTask(selectedTaskId.value)
     if (res.status !== 200 || !res.data) {
+      clearPendingWechatPublishForTask(selectedTaskId.value)
       selectedTask.value = null
       stopDetailPolling()
       if (!silent) {
@@ -843,6 +1078,7 @@ const refreshSelectedTask = async (silent = false) => {
     }
     selectedTask.value = res.data as AiTaskRecord
     ensureDetailPolling()
+    await maybeSubmitPendingWechatPublish()
   } catch (error: any) {
     if (!silent) {
       message.error(error?.response?.data?.error || error?.message || t('aiCreation.detailLoadFailed'))
@@ -871,16 +1107,31 @@ const pickNewestTask = async () => {
 const submitArticleTask = async () => {
   submittingArticle.value = true
   try {
+    const sourceType = articleForm.source_type || 'video'
     const payload: ArticleTaskCreatePayload = {
-      monitor_video_id: articleForm.monitor_video_id,
-      video_id: articleForm.video_id?.trim() || undefined,
-      video_url: articleForm.video_url?.trim() || undefined,
-      video_title: articleForm.video_title?.trim() || undefined,
+      source_type: sourceType,
       target_lang: articleForm.target_lang?.trim() || undefined,
       auto_translate: articleForm.auto_translate ?? true,
     }
+    if (sourceType === 'wechat_article') {
+      payload.wechat_artifact_id = articleForm.wechat_artifact_id?.trim() || undefined
+      payload.article_source_path = articleForm.article_source_path?.trim() || undefined
+      payload.article_text = articleForm.article_text?.trim() || undefined
+      payload.source_url = articleForm.source_url?.trim() || undefined
+      payload.source_title = articleForm.source_title?.trim() || undefined
+    } else {
+      payload.monitor_video_id = articleForm.monitor_video_id
+      payload.video_id = articleForm.video_id?.trim() || undefined
+      payload.video_url = articleForm.video_url?.trim() || undefined
+      payload.video_title = articleForm.video_title?.trim() || undefined
+    }
     const res = await aiContentApi.createArticleTask(payload)
     const taskId = String((res.data || {}).task_id || (res.data || {}).id || '')
+    if (pendingWechatPublishMode.value && taskId) {
+      pendingWechatPublishTaskId.value = taskId
+    } else if (pendingWechatPublishMode.value && !taskId) {
+      clearPendingWechatPublishIntent()
+    }
     message.success(t('aiCreation.article.created'))
     await refreshCurrentTab()
     if (taskId) {
@@ -949,28 +1200,35 @@ const pollWechatStatus = async (taskId: string) => {
     const task = res.data || {}
     wechatPublishStatus.value = String(task.status || '')
     wechatPublishError.value = String(task.error || '')
-    if (wechatPublishStatus.value === 'done') {
+    const status = normalizeTaskStatus(wechatPublishStatus.value)
+    if (status === 'done') {
+      publishingWechat.value = false
       wechatPublishError.value = ''
       message.success(t('aiCreation.wechatPublishSuccess'))
       return
     }
-    if (wechatPublishStatus.value === 'error') {
+    if (status === 'error' || status === 'interrupted') {
+      publishingWechat.value = false
       message.error(`${t('aiCreation.wechatPublishFailed')}: ${task.error || ''}`.trim())
       return
     }
-    if (wechatPublishStatus.value === 'cancelled') {
+    if (status === 'cancelled') {
+      publishingWechat.value = false
       return
     }
+    publishingWechat.value = true
     wechatPollTimer = window.setTimeout(() => {
       void pollWechatStatus(taskId)
     }, POLL_INTERVAL_MS)
   } catch (error: any) {
+    publishingWechat.value = false
     message.error(error?.response?.data?.error || error?.message || t('aiCreation.wechatPublishFailed'))
   }
 }
 
 const submitWechatPublish = async (mode: 'draft' | 'publish') => {
   if (!selectedTask.value) return
+  if (isWechatPublishBusy.value) return
   const draftPath = articleDraftPath(selectedTask.value)
   if (!draftPath) {
     message.error(t('aiCreation.wechatDraftMissing'))
@@ -981,6 +1239,9 @@ const submitWechatPublish = async (mode: 'draft' | 'publish') => {
   wechatPublishTaskId.value = ''
   wechatPublishStatus.value = ''
   wechatPublishError.value = ''
+  wechatPublishRenderer.value = ''
+  wechatPublishHtmlPath.value = ''
+  wechatPublishWarnings.value = []
   try {
     const payload = {
       article_task_id: taskKey(selectedTask.value),
@@ -992,18 +1253,62 @@ const submitWechatPublish = async (mode: 'draft' | 'publish') => {
     const taskId = String((res.data || {}).task_id || '')
     wechatPublishTaskId.value = taskId
     wechatPublishStatus.value = String((res.data || {}).status || 'pending')
+    wechatPublishRenderer.value = String(res.data?.renderer || '')
+    wechatPublishHtmlPath.value = String(res.data?.html_path || '')
+    const warnings = Array.isArray(res.data?.warnings) ? res.data.warnings.filter(Boolean) : []
+    wechatPublishWarnings.value = warnings
+    if (warnings.length) {
+      message.warning(warnings.join('；'))
+    }
     if (taskId) {
       await pollWechatStatus(taskId)
+    } else {
+      publishingWechat.value = false
     }
   } catch (error: any) {
-    message.error(error?.response?.data?.error || error?.message || t('aiCreation.wechatPublishFailed'))
-  } finally {
     publishingWechat.value = false
+    message.error(error?.response?.data?.error || error?.message || t('aiCreation.wechatPublishFailed'))
   }
 }
 
 const saveSelectedArticleToWechatDraft = async () => {
   await submitWechatPublish('draft')
+}
+
+async function maybeAutoSubmitPendingWechatPublish() {
+  if (
+    !pendingWechatPublishAutoSubmit.value
+    || !pendingWechatPublishMode.value
+    || pendingWechatPublishTaskId.value
+    || submittingArticle.value
+    || currentTab.value !== 'article'
+    || articleForm.source_type !== 'wechat_article'
+    || !canSubmitArticle.value
+  ) {
+    return false
+  }
+  pendingWechatPublishAutoSubmit.value = false
+  await submitArticleTask()
+  return true
+}
+
+async function maybeSubmitPendingWechatPublish() {
+  if (!pendingWechatPublishMode.value || publishingWechat.value || !selectedTask.value) return
+  const selectedId = taskKey(selectedTask.value)
+  if (!pendingWechatPublishTaskId.value || pendingWechatPublishTaskId.value !== selectedId) return
+  const selectedStatus = taskStatus(selectedTask.value)
+  if (isTerminalTaskStatus(selectedStatus) && selectedStatus !== 'done') {
+    clearPendingWechatPublishIntent()
+    return
+  }
+  if (!canPublishSelectedArticle.value) return
+  const mode = pendingWechatPublishMode.value
+  clearPendingWechatPublishIntent()
+  if (mode === 'publish') {
+    confirmPublishSelectedArticleNow()
+    return
+  }
+  await submitWechatPublish(mode)
 }
 
 const confirmPublishSelectedArticleNow = () => {
@@ -1035,22 +1340,49 @@ const loadTemplates = async () => {
 }
 
 const clearArticlePrefill = async () => {
+  articleForm.source_type = 'video'
   articleForm.monitor_video_id = undefined
   articleForm.video_id = ''
   articleForm.video_url = ''
   articleForm.video_title = ''
+  articleForm.wechat_artifact_id = ''
+  articleForm.article_source_path = ''
+  articleForm.article_text = ''
+  articleForm.source_url = ''
+  articleForm.source_title = ''
   lastPrefillToken = ''
   const nextQuery = { ...route.query }
+  delete nextQuery.sourceType
   delete nextQuery.monitorVideoId
   delete nextQuery.videoId
   delete nextQuery.videoUrl
   delete nextQuery.videoTitle
   delete nextQuery.accountName
+  delete nextQuery.articleArtifact
+  delete nextQuery.articlePath
+  delete nextQuery.articleUrl
+  delete nextQuery.articleTitle
+  delete nextQuery.publishIntent
+  pendingWechatPublishMode.value = ''
+  pendingWechatPublishTaskId.value = ''
+  pendingWechatPublishAutoSubmit.value = false
   await router.replace({ query: nextQuery })
 }
 
-const openTaskLink = (href: string) => {
-  window.open(resolveApiHref(href), '_blank', 'noopener,noreferrer')
+const openTaskLink = async (href: string) => {
+  const target = resolveApiHref(href)
+  if (!isInternalApiHref(target)) {
+    window.open(target, '_blank', 'noopener,noreferrer')
+    return
+  }
+  try {
+    const res = await request.get<Blob>(target, { responseType: 'blob' })
+    const blobUrl = URL.createObjectURL(res.data)
+    window.open(blobUrl, '_blank', 'noopener,noreferrer')
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || error?.message || t('aiCreation.detailLoadFailed'))
+  }
 }
 
 const updateHistoryMaxHeight = () => {
@@ -1088,6 +1420,19 @@ watch(
   () => route.fullPath,
   () => {
     applyRouteState()
+    void maybeAutoSubmitPendingWechatPublish()
+  },
+)
+
+watch(
+  () => articleForm.source_type,
+  (sourceType, previousSourceType) => {
+    if (sourceType === previousSourceType) return
+    if (sourceType === 'wechat_article') {
+      clearVideoArticleFields()
+    } else {
+      clearWechatArticleFields()
+    }
   },
 )
 
@@ -1097,12 +1442,15 @@ onMounted(async () => {
   initHistoryHeightSync()
   await loadTemplates()
   await refreshCurrentTab()
-  const requestedTaskId = getQueryString('taskId')
-  if (requestedTaskId) {
-    selectedTaskId.value = requestedTaskId
-    await refreshSelectedTask()
-  } else {
-    await pickNewestTask()
+  const autoSubmitted = await maybeAutoSubmitPendingWechatPublish()
+  if (!autoSubmitted) {
+    const requestedTaskId = getQueryString('taskId')
+    if (requestedTaskId) {
+      selectedTaskId.value = requestedTaskId
+      await refreshSelectedTask()
+    } else {
+      await pickNewestTask()
+    }
   }
   await nextTick()
   updateHistoryMaxHeight()
@@ -1405,6 +1753,44 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
+.output-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 100, 66, 0.16);
+  border-radius: 14px;
+  background: rgba(250, 249, 245, 0.92);
+}
+
+.output-file-list__title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.output-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.output-file__name {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.output-file__meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .detail-actions,
 .detail-links {
   display: flex;
@@ -1420,6 +1806,16 @@ onUnmounted(() => {
   background: rgba(181, 51, 51, 0.08);
   color: var(--error);
   line-height: 1.5;
+}
+
+.detail-interrupted-banner {
+  padding: 12px 14px;
+  border: 1px solid rgba(173, 122, 0, 0.22);
+  border-radius: 14px;
+  background: rgba(173, 122, 0, 0.08);
+  color: #7a5400;
+  line-height: 1.5;
+  font-size: 13px;
 }
 
 .wechat-publish-panel {
@@ -1451,6 +1847,47 @@ onUnmounted(() => {
   max-width: 760px;
   color: var(--error);
   font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.wechat-publish-panel__diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  max-width: 760px;
+  font-size: 12px;
+}
+
+.wechat-publish-panel__diagnostic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.wechat-publish-panel__diagnostic strong,
+.wechat-publish-panel__diagnostic code {
+  color: var(--text);
+}
+
+.wechat-publish-panel__diagnostic code {
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.58);
+  overflow-wrap: anywhere;
+}
+
+.wechat-publish-panel__warning {
+  padding: 8px 10px;
+  border: 1px solid rgba(173, 122, 0, 0.22);
+  border-radius: 10px;
+  background: rgba(173, 122, 0, 0.08);
+  color: #7a5400;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -1495,6 +1932,7 @@ onUnmounted(() => {
   .task-item__top,
   .task-item__bottom,
   .task-detail__hero,
+  .output-file,
   .wechat-publish-panel {
     align-items: flex-start;
     flex-direction: column;
