@@ -1041,6 +1041,8 @@ def _render_with_baoyu(
     color: str | None = None,
     baoyu_script: str | Path | None = None,
     timeout_seconds: int = 60,
+    enable_ai_cover: bool = False,
+    enable_layout_modules: bool = False,
 ) -> WechatArticleRenderResult:
     script_path = _resolve_baoyu_script(baoyu_script)
     if not script_path:
@@ -1057,6 +1059,10 @@ def _render_with_baoyu(
     ]
     if color:
         command.extend(["--color", color])
+    if enable_layout_modules:
+        command.append("--layout-modules")
+    if enable_ai_cover:
+        command.append("--ai-cover")
     completed = subprocess.run(
         command,
         cwd=str(path.parent),
@@ -1084,6 +1090,9 @@ def _render_with_baoyu(
         content=content,
         html_path=str(html_path),
         renderer="baoyu-markdown-to-html",
+        cover_image_path=str(payload.get("coverImagePath") or "").strip() or None,
+        layout_modules_used=int(payload.get("layoutModulesUsed") or 0),
+        reading_time_minutes=float(payload.get("readingTimeMinutes")) if payload.get("readingTimeMinutes") else None,
     )
 
 
@@ -1094,6 +1103,8 @@ def render_md_to_html_for_wechat(
     color: str | None = None,
     renderer: str | None = None,
     baoyu_script: str | Path | None = None,
+    enable_ai_cover: bool = False,
+    enable_layout_modules: bool = False,
 ) -> WechatArticleRenderResult:
     """Render project draft markdown into WeChat-compatible HTML content."""
     path = Path(input_path)
@@ -1117,6 +1128,8 @@ def render_md_to_html_for_wechat(
                 theme=selected_theme,
                 color=selected_color,
                 baoyu_script=baoyu_script,
+                enable_ai_cover=enable_ai_cover,
+                enable_layout_modules=enable_layout_modules,
             )
         except Exception as exc:
             warnings.append(str(exc))
