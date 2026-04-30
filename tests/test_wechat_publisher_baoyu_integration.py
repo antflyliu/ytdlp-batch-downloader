@@ -34,3 +34,14 @@ def test_render_result_new_fields_accept_values():
     assert result.cover_image_path == "/path/to/cover.png"
     assert result.layout_modules_used == 3
     assert result.reading_time_minutes == 5.5
+
+
+def test_local_renderer_code_block():
+    """Verify local renderer handles code blocks."""
+    from monitor.wechat_publisher import _render_local_markdown
+    from pathlib import Path
+
+    md = "```python\nprint('hello')\n```"
+    html = _render_local_markdown(md, Path("."))
+    assert "hello" in html
+    assert "<pre" in html or "<code" in html

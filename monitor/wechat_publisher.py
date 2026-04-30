@@ -11,6 +11,15 @@ from typing import Any
 
 import html
 import ipaddress
+
+try:
+    from pygments import highlight
+    from pygments.lexers import get_lexer_by_name, TextLexer
+    from pygments.formatters import HtmlFormatter
+
+    _HAS_PYGMENTS = True
+except ImportError:
+    _HAS_PYGMENTS = False
 import json
 import logging
 import mimetypes
@@ -857,16 +866,31 @@ def _render_local_markdown(body: str, base_dir: Path) -> str:
         fence_match = re.match(r"^```([A-Za-z0-9_-]*)", stripped)
         if fence_match:
             if in_code:
-                lang_class = f' class="language-{html.escape(code_lang, quote=True)}"' if code_lang else ""
-                code_html = html.escape("\n".join(code_lines), quote=False)
-                html_parts.append(
-                    '<pre style="margin:16px 0;padding:12px;overflow:auto;background:#f6f4ef;border-radius:6px;'
-                    'line-height:1.55;"><code{lang_class}>{code}</code></pre>'.format(
-                        lang_class=lang_class,
-                        code=code_html,
+                if _HAS_PYGMENTS:
+                    try:
+                        lexer = get_lexer_by_name(code_lang) if code_lang else TextLexer()
+                        formatter = HtmlFormatter(nowrap=True, cssclass="codehilite")
+                        code_html = highlight(chr(92)+"n".join(code_lines), lexer, formatter)
+                        code_html = (
+                            f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                            f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                            f'{code_html}</pre>'
+                        )
+                    except Exception:
+                        code_html = html.escape(chr(92)+"n".join(code_lines))
+                        code_html = (
+                            f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                            f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                            f'<code>{code_html}</code></pre>'
+                        )
+                else:
+                    code_html = html.escape(chr(92)+"n".join(code_lines))
+                    code_html = (
+                        f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                        f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                        f'<code>{code_html}</code></pre>'
                     )
-                )
-                code_lines.clear()
+                html_parts.append(code_html)
                 code_lang = ""
                 in_code = False
             else:
