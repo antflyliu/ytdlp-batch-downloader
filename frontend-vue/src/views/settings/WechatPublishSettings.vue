@@ -87,6 +87,14 @@
         <NFormItem :label="t('wechatPublish.onlyFansCanComment')" path="wechat_only_fans_can_comment">
           <NSwitch v-model:value="form.wechat_only_fans_can_comment" />
         </NFormItem>
+
+        <NFormItem :label="t('wechatPublish.aiCover')" path="wechat_baoyu_ai_cover">
+          <NSwitch v-model:value="form.wechat_baoyu_ai_cover" />
+        </NFormItem>
+
+        <NFormItem :label="t('wechatPublish.layoutModules')" path="wechat_baoyu_layout_modules">
+          <NSwitch v-model:value="form.wechat_baoyu_layout_modules" />
+        </NFormItem>
       </NCard>
 
       <div class="settings-actions">
@@ -125,6 +133,8 @@ const form = reactive<AppConfig>({
   wechat_baoyu_markdown_to_html_script: '',
   wechat_need_open_comment: true,
   wechat_only_fans_can_comment: false,
+  wechat_baoyu_ai_cover: false,
+  wechat_baoyu_layout_modules: true,
   wechat_exporter_base_url: 'https://down.mptext.top',
   wechat_exporter_auth_key: '',
   wechat_collection_output_dir: '',
@@ -147,6 +157,12 @@ const themeOptions = computed(() => [
   { label: t('wechatPublish.themeSimple'), value: 'simple' },
   { label: t('wechatPublish.themeModern'), value: 'modern' },
 ])
+
+// 堡鱼主题列表
+export const WECHAT_BAOYU_THEMES = [
+  'default', 'grace', 'simple', 'modern',
+] as const
+type WechatBaoyuTheme = typeof WECHAT_BAOYU_THEMES[number]
 
 const colorOptions = [
   'blue', 'green', 'vermilion', 'yellow', 'purple', 'sky',

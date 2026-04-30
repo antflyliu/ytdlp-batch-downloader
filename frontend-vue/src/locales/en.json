@@ -1375,7 +1375,9 @@
     "baoyuScript": "baoyu Script Path",
     "baoyuScriptHint": "Leave empty for ~/.agents/skills/baoyu-markdown-to-html/scripts/main.ts",
     "needOpenComment": "Open comments",
-    "onlyFansCanComment": "Fans only comments"
+    "onlyFansCanComment": "Fans only comments",
+    "aiCover": "AI Cover",
+    "layoutModules": "Layout Modules"
   },
   "wechatCollect": {
     "title": "WeChat Collection",

@@ -1375,7 +1375,9 @@
     "baoyuScript": "baoyu 脚本路径",
     "baoyuScriptHint": "留空使用 ~/.agents/skills/baoyu-markdown-to-html/scripts/main.ts",
     "needOpenComment": "打开评论",
-    "onlyFansCanComment": "仅粉丝可评论"
+    "onlyFansCanComment": "仅粉丝可评论",
+    "aiCover": "AI 封面",
+    "layoutModules": "布局模块"
   },
   "wechatCollect": {
     "title": "公众号采集",
