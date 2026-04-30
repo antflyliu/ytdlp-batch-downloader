@@ -9,7 +9,6 @@ import argparse
 import json
 import mimetypes
 import os
-import pathlib
 import re
 import sys
 import tempfile
@@ -20,7 +19,7 @@ from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 # ── 项目路径注入（parent.parent = project root）────────────────────
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,13 +27,25 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import monitor.db as _db
-from config.encryption import _decrypt_config_value as _decrypt_config_value
+from config.encryption import _decrypt_config_value
 from monitor.video_paths import resolve_downloaded_video_path
 import monitor.scheduler as _scheduler
 import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import monitor.wechat_collector as _wechat_collector
+from monitor.wechat_collect.errors import (
+    WechatNativeError,
+    WechatSessionError,
+    WechatUpstreamError,
+    safe_error_message,
+)
+from monitor.wechat_collect.models import is_valid_mp_article_url
+from monitor.wechat_collect.native_login import NativeLoginManager
+from monitor.wechat_collect.providers import NativeMpProvider
+from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
+from monitor.wechat_collect.session_store import NativeSessionStore
+from monitor.wechat_collect.tasks import NativeCollectionTaskService, resolve_output_dir
 from go_proxy_manager import get_proxy_manager
 import logging_config
 from utils.paths import get_static_dir as _get_static_dir
@@ -55,7 +66,7 @@ from server.middleware.rate_limit import (
     _rate_limiter,
     _rate_limiter_lock,
 )
-from server.middleware.auth import get_api_token, verify_bearer_token
+from server.middleware.auth import verify_bearer_token
 
 _WEB_BATCH_ACCOUNT_NAME = "Web 批量下载"
 _MASKED_SECRET_VALUE = "***"
@@ -298,6 +309,12 @@ class _DownloadTaskManager:
 
 _task_mgr = _DownloadTaskManager()
 _wechat_collect_mgr = _wechat_collector.WechatCollectionTaskManager()
+_wechat_native_session_store = NativeSessionStore()
+_wechat_native_login_mgr = NativeLoginManager(
+    store=_wechat_native_session_store,
+    proxy_plan_factory=lambda: resolve_native_proxy_plan(cookies_present=True),
+)
+_wechat_native_task_service = NativeCollectionTaskService()
 
 class _BatchUploadStore:
     """缓存 Web 批量下载上传解析结果，避免前端持有完整 URL 集。"""
@@ -378,6 +395,43 @@ def _is_path_within(candidate: str, root: str) -> bool:
         return os.path.commonpath([candidate, root]) == root
     except ValueError:
         return False
+
+
+def _clean_background_error(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _run_article_task_safely(task_id: str, cfg: dict | None = None) -> None:
+    """Run an article task in a background thread and persist startup failures."""
+    try:
+        from scripts.article_generator import run_article_task
+
+        run_article_task(task_id, cfg=cfg)
+    except Exception as exc:
+        message = _clean_background_error(exc) or "文章生成任务异常退出"
+        _log.exception("[AI Article] task=%s 后台线程异常退出", task_id)
+        try:
+            _db.update_article_task(
+                task_id,
+                status="error",
+                current_stage="error",
+                error=message,
+                finished_at=_db.now_iso(),
+            )
+        except Exception:
+            _log.exception("[AI Article] task=%s 后台异常状态写入失败", task_id)
+
+
+def _wechat_native_artifact_id_from_url(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    path = parsed.path if parsed.scheme else raw.split("?", 1)[0]
+    prefix = "/api/wechat-native/artifacts/"
+    if not path.startswith(prefix):
+        return ""
+    return unquote(path[len(prefix):]).strip()
 
 
 def _resolve_download_output_path(requested_path: str, cfg: dict) -> str:
@@ -778,6 +832,31 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path == "/api/wechat-collect/config":
             self._api_wechat_collect_config()
             return
+        elif path == "/api/wechat-native/config":
+            self._api_wechat_native_config()
+            return
+        elif path == "/api/wechat-native/sessions":
+            self._api_wechat_native_sessions()
+            return
+        elif path.startswith("/api/wechat-native/login/") and path.endswith("/qrcode"):
+            login_id = path.split("/")[-2]
+            self._api_wechat_native_login_qrcode(login_id)
+            return
+        elif path.startswith("/api/wechat-native/login/") and path.endswith("/scan"):
+            login_id = path.split("/")[-2]
+            self._api_wechat_native_login_scan(login_id)
+            return
+        elif path == "/api/wechat-native/tasks":
+            self._api_wechat_native_tasks_list()
+            return
+        elif path.startswith("/api/wechat-native/artifacts/"):
+            artifact_id = unquote(path.split("/api/wechat-native/artifacts/", 1)[1])
+            self._api_wechat_native_artifact(artifact_id)
+            return
+        elif path.startswith("/api/wechat-native/tasks/"):
+            task_id = path.rsplit("/", 1)[-1]
+            self._api_wechat_native_task_status(task_id)
+            return
         elif path == "/api/wechat-collect/tasks":
             self._api_wechat_collect_tasks_list()
             return
@@ -948,6 +1027,28 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/wechat-collect/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_wechat_collect_cancel(task_id)
+        elif path == "/api/wechat-native/login/start":
+            self._api_wechat_native_login_start()
+        elif path.startswith("/api/wechat-native/login/") and path.endswith("/confirm"):
+            login_id = path.split("/")[-2]
+            self._api_wechat_native_login_confirm(login_id)
+        elif path.startswith("/api/wechat-native/sessions/") and path.endswith("/check"):
+            session_id = path.split("/")[-2]
+            self._api_wechat_native_session_check(session_id)
+        elif path.startswith("/api/wechat-native/sessions/") and path.endswith("/logout"):
+            session_id = path.split("/")[-2]
+            self._api_wechat_native_session_logout(session_id)
+        elif path == "/api/wechat-native/accounts/search":
+            self._api_wechat_native_accounts_search(body)
+        elif path == "/api/wechat-native/accounts/by-url":
+            self._api_wechat_native_account_by_url(body)
+        elif path == "/api/wechat-native/articles/preview":
+            self._api_wechat_native_preview(body)
+        elif path == "/api/wechat-native/tasks/start":
+            self._api_wechat_native_start(body)
+        elif path.startswith("/api/wechat-native/tasks/") and path.endswith("/cancel"):
+            task_id = path.split("/")[-2]
+            self._api_wechat_native_cancel(task_id)
         elif path == "/api/article/generate":
             self._api_article_generate(body)
         elif path.startswith("/api/article/") and path.endswith("/cancel"):
@@ -1269,6 +1370,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "wechat_default_author": cfg.get("wechat_default_author") or "",
             "wechat_default_theme": cfg.get("wechat_default_theme") or "default",
             "wechat_default_color": cfg.get("wechat_default_color") or "blue",
+            "wechat_markdown_renderer": cfg.get("wechat_markdown_renderer") or "auto",
+            "wechat_baoyu_markdown_to_html_script": cfg.get("wechat_baoyu_markdown_to_html_script") or "",
+            "wechat_publish_monthly_limit": self._wechat_publish_monthly_limit(cfg),
+            "publish_quota": self._wechat_publish_quota_status(cfg),
             "wechat_need_open_comment": bool(cfg.get("wechat_need_open_comment", True)),
             "wechat_only_fans_can_comment": bool(cfg.get("wechat_only_fans_can_comment", False)),
             "configured": bool(cfg.get("wechat_app_id") and cfg.get("wechat_app_secret")),
@@ -1417,6 +1522,280 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         self._send_json({"ok": True, "task_id": task_id, "status": "cancelling"})
 
+    def _api_wechat_native_config(self):
+        """GET /api/wechat-native/config — return native collection defaults safely."""
+        cfg = _db.load_config()
+        self._send_json({
+            "wechat_collection_output_dir": cfg.get("wechat_collection_output_dir") or "",
+            "wechat_collection_default_format": cfg.get("wechat_collection_default_format") or "markdown",
+            "wechat_collection_delay_seconds": cfg.get("wechat_collection_delay_seconds", 1.0),
+            "wechat_collection_max_articles": cfg.get("wechat_collection_max_articles", 50),
+        })
+
+    def _api_wechat_native_sessions(self):
+        self._send_json({"sessions": _wechat_native_session_store.list_public_sessions()})
+
+    def _send_wechat_native_error(self, exc: Exception, default_status: int = 400):
+        session_expired = isinstance(exc, WechatUpstreamError) and exc.session_expired
+        if isinstance(exc, WechatSessionError) or session_expired:
+            status = 401
+        elif isinstance(exc, WechatNativeError):
+            status = default_status
+        else:
+            status = 500 if default_status >= 500 else default_status
+        payload = {"error": safe_error_message(exc)}
+        if isinstance(exc, WechatUpstreamError):
+            if exc.code is not None:
+                payload["code"] = exc.code
+            if exc.session_expired:
+                payload["session_expired"] = True
+        self._send_json(payload, status)
+
+    def _wechat_native_proxy_context(self, body: dict | None = None) -> dict:
+        body = body or {}
+        context: dict[str, str] = {}
+        fakeid = str(body.get("fakeid") or "").strip()
+        account_name = str(body.get("account_name") or body.get("nickname") or "").strip()
+        if fakeid:
+            context["fakeid"] = fakeid
+        if account_name:
+            context["nickname"] = account_name
+        return context
+
+    def _wechat_native_provider(self, session_id: str, proxy_context: dict | None = None):
+        proxy_plan = resolve_native_proxy_plan(self._wechat_native_proxy_context(proxy_context), cookies_present=True)
+        return NativeMpProvider(
+            session_id=session_id,
+            store=_wechat_native_session_store,
+            proxy_plan=proxy_plan,
+        )
+
+    def _api_wechat_native_login_start(self):
+        try:
+            self._send_json(_wechat_native_login_mgr.start_login())
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 500)
+
+    def _api_wechat_native_login_qrcode(self, login_id: str):
+        try:
+            payload = _wechat_native_login_mgr.get_qrcode(login_id)
+            self.send_response(200)
+            self.send_header("Content-Type", payload.content_type)
+            self.send_header("Cache-Control", "no-store")
+            origin = self._allowed_origin()
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+            self.end_headers()
+            self.wfile.write(payload.body)
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 404)
+
+    def _api_wechat_native_login_scan(self, login_id: str):
+        try:
+            self._send_json(_wechat_native_login_mgr.poll_scan(login_id))
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 404)
+
+    def _api_wechat_native_login_confirm(self, login_id: str):
+        try:
+            self._send_json(_wechat_native_login_mgr.confirm_login(login_id))
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_session_check(self, session_id: str):
+        try:
+            provider = self._wechat_native_provider(session_id)
+            self._send_json(provider.check_session())
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 401)
+
+    def _api_wechat_native_session_logout(self, session_id: str):
+        try:
+            provider = self._wechat_native_provider(session_id)
+            self._send_json(provider.logout())
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 500)
+
+    def _api_wechat_native_accounts_search(self, body: dict):
+        body = body or {}
+        session_id = str(body.get("session_id") or "")
+        keyword = str(body.get("keyword") or "")
+        try:
+            begin = int(body.get("begin") or 0)
+            size = int(body.get("size") or 5)
+            provider = self._wechat_native_provider(session_id, body)
+            self._send_json({"accounts": provider.search_accounts(keyword, begin=begin, size=size)})
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_account_by_url(self, body: dict):
+        body = body or {}
+        try:
+            provider = self._wechat_native_provider(str(body.get("session_id") or ""), body)
+            account = provider.account_by_article_url(str(body.get("article_url") or ""))
+            self._send_json({"account": account})
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_preview(self, body: dict):
+        body = body or {}
+        try:
+            fakeid = str(body.get("fakeid") or "").strip()
+            article_url = str(body.get("article_url") or "").strip()
+            account = {}
+            if not fakeid and article_url:
+                if not is_valid_mp_article_url(article_url):
+                    raise ValueError("文章链接不合法")
+            provider = self._wechat_native_provider(str(body.get("session_id") or ""), body)
+            begin = max(0, int(body.get("begin") or 0))
+            page_size = max(1, min(int(body.get("page_size") or body.get("limit") or 20), 20))
+            if not fakeid and article_url:
+                account = provider.account_by_article_url(article_url)
+                fakeid = str(account.get("fakeid") or "").strip()
+                if not fakeid:
+                    raise ValueError("无法解析公众号 fakeid，请手动搜索公众号")
+            elif fakeid and body.get("account_name"):
+                account = {"fakeid": fakeid, "nickname": str(body.get("account_name") or "")}
+            if hasattr(provider, "list_article_page"):
+                page = provider.list_article_page(
+                    fakeid,
+                    keyword=str(body.get("keyword") or ""),
+                    begin=begin,
+                    page_size=page_size,
+                )
+                articles = page.get("articles") or []
+                self._send_json({
+                    "account": account,
+                    "articles": articles,
+                    "total": len(articles),
+                    "total_count": page.get("total_count") or len(articles),
+                    "begin": page.get("begin", begin),
+                    "page_size": page.get("page_size", page_size),
+                    "next_begin": page.get("next_begin"),
+                    "has_more": bool(page.get("has_more")),
+                })
+                return
+            articles = provider.list_articles(
+                fakeid,
+                keyword=str(body.get("keyword") or ""),
+                max_articles=page_size,
+                page_size=page_size,
+                begin=begin,
+            )
+            self._send_json({
+                "account": account,
+                "articles": articles,
+                "total": len(articles),
+                "begin": begin,
+                "page_size": page_size,
+                "next_begin": begin + page_size if len(articles) >= page_size else None,
+                "has_more": len(articles) >= page_size,
+            })
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_start(self, body: dict):
+        body = body or {}
+        if not body.get("session_id"):
+            self._send_json({"error": "session_id 不能为空"}, 400)
+            return
+        raw_urls = body.get("urls") or []
+        if raw_urls:
+            if not isinstance(raw_urls, list):
+                self._send_json({"error": "urls 必须是文章链接数组"}, 400)
+                return
+            urls = [str(url).strip() for url in raw_urls if str(url).strip()]
+            invalid_url = next((url for url in urls if not is_valid_mp_article_url(url)), "")
+            if invalid_url:
+                self._send_json({"error": "文章链接不合法"}, 400)
+                return
+            body = dict(body)
+            body["urls"] = urls
+        article_url = str(body.get("article_url") or "").strip()
+        if article_url and not is_valid_mp_article_url(article_url):
+            self._send_json({"error": "文章链接不合法"}, 400)
+            return
+        if not body.get("urls") and not body.get("fakeid") and not body.get("article_url"):
+            self._send_json({"error": "article_url、fakeid 或 urls 至少提供一个"}, 400)
+            return
+        cfg = _db.load_config()
+        data_dir = str(getattr(_db, "_DATA_DIR", os.path.join(_PROJECT_ROOT, "data")))
+        configured_root = cfg.get("wechat_collection_output_dir") or _wechat_collector.default_collection_output_dir(data_dir)
+        try:
+            output_dir = resolve_output_dir(body.get("output_dir"), configured_root)
+            payload = dict(body or {})
+            payload["provider"] = "native"
+            payload.setdefault("source_mode", "urls" if payload.get("urls") else "fakeid" if payload.get("fakeid") else "url")
+            payload.setdefault("format", cfg.get("wechat_collection_default_format") or "markdown")
+            payload.setdefault("delay_seconds", cfg.get("wechat_collection_delay_seconds", 1.0))
+            payload.setdefault("max_articles", cfg.get("wechat_collection_max_articles", 50))
+            task_id = _wechat_native_task_service.create_task(payload, output_dir=output_dir)
+            _wechat_native_task_service.start_background(task_id)
+            self._send_json({"ok": True, "task_id": task_id, "status": "pending"}, 202)
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_tasks_list(self):
+        self._send_json({"tasks": _wechat_native_task_service.list_tasks()})
+
+    def _api_wechat_native_task_status(self, task_id: str):
+        task = _wechat_native_task_service.get_task(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        self._send_json(task)
+
+    def _api_wechat_native_artifact(self, artifact_id: str):
+        try:
+            resolved = Path(_wechat_native_task_service.resolve_artifact_path(artifact_id)).expanduser().resolve()
+            cfg = _db.load_config()
+            data_dir = str(getattr(_db, "_DATA_DIR", os.path.join(_PROJECT_ROOT, "data")))
+            configured_root = (
+                cfg.get("wechat_collection_output_dir")
+                or _wechat_collector.default_collection_output_dir(data_dir)
+            )
+            allowed_root = Path(configured_root).expanduser().resolve()
+            resolved.relative_to(allowed_root)
+        except ValueError:
+            self._send_json({"error": "无效的公众号采集结果路径"}, 400)
+            return
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+            return
+        if not resolved.is_file():
+            self._send_json({"error": "文件不存在"}, 404)
+            return
+        ctype = mimetypes.guess_type(str(resolved))[0]
+        if not ctype:
+            ctype = {
+                ".md": "text/markdown",
+                ".markdown": "text/markdown",
+                ".txt": "text/plain",
+                ".json": "application/json",
+                ".html": "text/html",
+            }.get(resolved.suffix.lower(), "application/octet-stream")
+        if ctype.startswith("text/") and "charset=" not in ctype:
+            ctype = f"{ctype}; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(resolved.stat().st_size))
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(resolved.name, safe='')}")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.end_headers()
+        with resolved.open("rb") as f:
+            self.wfile.write(f.read())
+
+    def _api_wechat_native_cancel(self, task_id: str):
+        if not _wechat_native_task_service.request_cancel(task_id):
+            self._send_json({"error": "task not running"}, 409)
+            return
+        self._send_json({"ok": True})
+
     def _api_token_info(self):
         """GET /api/token — 返回当前 Bearer token（需认证）"""
         token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
@@ -1453,9 +1832,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "clip_thumbnail_quality",
             "auto_clip_enabled", "auto_clip_notify_enabled",
             # AI 文章与视频生成配置
-            "whisper_provider", "whisper_base_url", "whisper_api_key", "whisper_model",
+            "whisper_provider", "whisper_base_url", "whisper_api_key", "whisper_model", "whisper_compute_type",
             "article_output_dir", "article_default_target_lang", "article_target_lang",
             "article_subtitle_languages", "article_subtitle_proxy", "article_subtitle_proxy_mode", "article_subtitle_proxy_pool_id", "article_tools_path", "article_author",
+            "article_wechat_prompt_role", "article_wechat_prompt_reader_persona",
+            "article_wechat_prompt_style", "article_wechat_prompt_max_chars",
             "article_llm_optimize_model", "article_llm_summary_model", "article_llm_translate_model",
             "article_optimize_model", "article_summary_model", "article_translate_model",
             "comfyui_url", "comfyui_api_key", "runninghub_url", "runninghub_api_key",
@@ -1471,6 +1852,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             # 微信公众号发布配置
             "wechat_app_id", "wechat_app_secret", "wechat_default_author",
             "wechat_default_theme", "wechat_default_color",
+            "wechat_markdown_renderer", "wechat_baoyu_markdown_to_html_script",
             "wechat_need_open_comment", "wechat_only_fans_can_comment",
             # 微信公众号采集配置
             "wechat_exporter_base_url", "wechat_exporter_auth_key",
@@ -1527,6 +1909,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not ok_tz:
                 self._send_json({"error": err_tz}, 400)
                 return
+        if any(
+            key in body
+            for key in (
+                "wechat_markdown_renderer",
+                "wechat_baoyu_markdown_to_html_script",
+            )
+        ):
+            from config.validation import validate_wechat_renderer_config
+
+            renderer_errors = validate_wechat_renderer_config(cfg)
+            if renderer_errors:
+                self._send_json({"error": renderer_errors[0], "details": renderer_errors}, 400)
+                return
         try:
             _db.save_config(cfg)
         except ValueError as exc:
@@ -1561,6 +1956,83 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """POST /api/article/generate — create an article task and run it in background."""
         body = body or {}
         cfg = _db.load_config()
+        source_type = str(body.get("source_type") or "video").strip() or "video"
+        if source_type == "wechatArticle":
+            source_type = "wechat_article"
+        if source_type not in {"video", "wechat_article"}:
+            self._send_json({"error": "source_type 不支持"}, 400)
+            return
+
+        article_source_path = ""
+        article_text = ""
+        source_url = ""
+        source_title = ""
+        if source_type == "wechat_article":
+            wechat_artifact_id = str(body.get("wechat_artifact_id") or "").strip()
+            article_source_path = str(body.get("article_source_path") or "").strip()
+            article_text = str(body.get("article_text") or "").strip()
+            source_url = str(body.get("source_url") or "").strip()
+            source_title = str(body.get("source_title") or body.get("video_title") or "").strip()
+            if wechat_artifact_id:
+                try:
+                    article_source_path = _wechat_native_task_service.resolve_artifact_path(wechat_artifact_id)
+                except Exception as exc:
+                    self._send_json({"error": str(exc)}, 400)
+                    return
+            elif article_source_path:
+                artifact_alias = _wechat_native_artifact_id_from_url(article_source_path)
+                if artifact_alias:
+                    try:
+                        article_source_path = _wechat_native_task_service.resolve_artifact_path(artifact_alias)
+                    except Exception as exc:
+                        self._send_json({"error": str(exc)}, 400)
+                        return
+            if not article_source_path and not article_text:
+                self._send_json({"error": "wechat_artifact_id、article_source_path 或 article_text 至少提供一个"}, 400)
+                return
+            if article_source_path:
+                data_dir = str(getattr(_db, "_DATA_DIR", os.path.join(_PROJECT_ROOT, "data")))
+                configured_root = (
+                    cfg.get("wechat_collection_output_dir")
+                    or _wechat_collector.default_collection_output_dir(data_dir)
+                )
+                try:
+                    resolved_path = _normalize_fs_path(article_source_path)
+                    allowed_root = _normalize_fs_path(configured_root)
+                    if not _is_path_within(resolved_path, allowed_root):
+                        raise ValueError("文章路径必须位于公众号采集输出目录下")
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, 400)
+                    return
+            target_lang = (
+                body.get("target_lang")
+                or cfg.get("article_default_target_lang")
+                or cfg.get("article_target_lang")
+                or "zh-Hans"
+            )
+            task_id = _db.create_article_task(
+                monitor_video_id=None,
+                video_id=None,
+                video_url=None,
+                video_title=source_title,
+                source_type="wechat_article",
+                article_source_path=article_source_path,
+                article_text=article_text,
+                source_url=source_url,
+                source_title=source_title,
+                target_lang=target_lang,
+                auto_translate=bool(body.get("auto_translate", True)),
+            )
+
+            threading.Thread(
+                target=_run_article_task_safely,
+                args=(task_id, cfg),
+                name=f"article-task-{task_id}",
+                daemon=True,
+            ).start()
+            self._send_json({"ok": True, "task_id": task_id}, 202)
+            return
+
         monitor_video_id = body.get("monitor_video_id")
         if monitor_video_id in ("", None) and isinstance(body.get("video_id"), int):
             monitor_video_id = body.get("video_id")
@@ -1596,16 +2068,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             video_id=video_id,
             video_url=video_url,
             video_title=video_title,
+            source_type="video",
             target_lang=target_lang,
             auto_translate=bool(body.get("auto_translate", True)),
         )
 
-        def _run():
-            from scripts.article_generator import run_article_task
-
-            run_article_task(task_id, cfg=cfg)
-
-        threading.Thread(target=_run, name=f"article-task-{task_id}", daemon=True).start()
+        threading.Thread(
+            target=_run_article_task_safely,
+            args=(task_id, cfg),
+            name=f"article-task-{task_id}",
+            daemon=True,
+        ).start()
         self._send_json({"ok": True, "task_id": task_id}, 202)
 
     def _api_article_list(self):
@@ -1626,12 +2099,62 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         )
         self._send_json({"tasks": tasks, "total": total, "limit": limit, "offset": offset})
 
+    @staticmethod
+    def _resolve_article_output_root(value: str | None) -> Path:
+        root = Path(value or "output/articles").expanduser()
+        if not root.is_absolute():
+            root = Path(_PROJECT_ROOT) / root
+        return root.resolve()
+
+    @staticmethod
+    def _resolve_article_artifact_path(raw_path: str) -> Path:
+        requested = Path(raw_path).expanduser()
+        if not requested.is_absolute():
+            requested = Path(_PROJECT_ROOT) / requested
+        return requested.resolve()
+
+    @staticmethod
+    def _article_output_files(task: dict) -> list[dict]:
+        output_dir = str((task or {}).get("output_dir") or "").strip()
+        if not output_dir:
+            return []
+        root = Path(output_dir).expanduser()
+        if not root.is_absolute():
+            root = Path(_PROJECT_ROOT) / root
+        if not root.is_dir():
+            return []
+        files = []
+        for path in root.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append(
+                {
+                    "name": path.name,
+                    "path": str(path),
+                    "size": stat.st_size,
+                    "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                }
+            )
+        files.sort(key=lambda item: item["updated_at"], reverse=True)
+        return files
+
+    def _with_article_output_files(self, task: dict) -> dict:
+        enriched = dict(task)
+        output_files = self._article_output_files(enriched)
+        enriched["output_files"] = output_files
+        enriched["latest_output_file"] = output_files[0] if output_files else None
+        return enriched
+
     def _api_article_get(self, task_id: str):
         task = _db.get_article_task(task_id)
         if not task:
             self._send_json({"error": "任务不存在"}, 404)
             return
-        self._send_json(task)
+        self._send_json(self._with_article_output_files(task))
 
     def _api_article_file(self):
         """GET /api/article/file?path=... — serve article task artifacts safely."""
@@ -1643,13 +2166,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         cfg = _db.load_config()
         roots = [
-            Path(cfg.get("article_output_dir") or "output/articles"),
+            self._resolve_article_output_root(str(cfg.get("article_output_dir") or "output/articles")),
         ]
-        requested = Path(raw_path).expanduser().resolve()
+        requested = self._resolve_article_artifact_path(raw_path)
         allowed = False
         for root in roots:
             try:
-                requested.relative_to(root.expanduser().resolve())
+                requested.relative_to(root)
                 allowed = True
                 break
             except ValueError:
@@ -1661,9 +2184,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "文件不存在"}, 404)
             return
         ctype = mimetypes.guess_type(str(requested))[0] or "application/octet-stream"
+        if ctype.startswith("text/") and "charset=" not in ctype:
+            ctype = f"{ctype}; charset=utf-8"
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(requested.stat().st_size))
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(requested.name, safe='')}")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox")
         origin = self._allowed_origin()
         if origin:
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -1852,11 +2381,18 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
 
         draft_path = (body.get("draft_path") or (article_task or {}).get("draft_path") or "").strip()
-        content = (body.get("content") or "").strip()
-        title = (body.get("title") or (article_task or {}).get("video_title") or "").strip()
+        content = str(body.get("content") or "").strip()
+        title = str(body.get("title") or (article_task or {}).get("video_title") or "").strip()
+        author = str(body.get("author") or "").strip()
+        digest = str(body.get("digest") or "").strip()
+        theme = str(body.get("theme") or cfg.get("wechat_default_theme") or "default").strip()
+        color = str(body.get("color") or cfg.get("wechat_default_color") or "blue").strip()
+        renderer = str(body.get("renderer") or cfg.get("wechat_markdown_renderer") or "auto").strip()
+        baoyu_script = str(cfg.get("wechat_baoyu_markdown_to_html_script") or "").strip()
         cover_image = (body.get("cover_image") or "").strip() or None
         base_dir = None
         draft_file = None
+        render_result = None
         if draft_path:
             try:
                 draft_file = self._resolve_article_output_path(draft_path, cfg)
@@ -1869,19 +2405,37 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not draft_file.is_file():
                 self._send_json({"error": f"draft 文件不存在: {draft_file}"}, 400)
                 return
-            title_from_draft, content = wp.convert_md_to_html_for_wechat(draft_file)
-            title = title or title_from_draft
+            try:
+                render_result = wp.render_md_to_html_for_wechat(
+                    draft_file,
+                    theme=theme,
+                    color=color,
+                    renderer=renderer,
+                    baoyu_script=baoyu_script,
+                )
+            except Exception as exc:
+                self._send_json({"error": f"微信文章排版失败: {exc}"}, 400)
+                return
+            title = title or render_result.title
+            author = author or render_result.author or ""
+            digest = digest or render_result.digest or ""
+            content = render_result.content
         elif not content:
             self._send_json({"error": "content 或 draft_path 至少需要一个"}, 400)
             return
 
-        if not title:
-            self._send_json({"error": "title 不能为空"}, 400)
+        author = author or str(cfg.get("wechat_default_author") or "").strip()
+        digest = digest or wp._digest_from_html(content)
+        article_errors = wp.validate_wechat_article_payload(
+            title=title,
+            content=content,
+            author=author,
+            digest=digest,
+        )
+        if article_errors:
+            self._send_json({"error": article_errors[0], "details": article_errors}, 400)
             return
 
-        author = (body.get("author") or cfg.get("wechat_default_author") or "").strip()
-        theme = (body.get("theme") or cfg.get("wechat_default_theme") or "default").strip()
-        color = (body.get("color") or cfg.get("wechat_default_color") or "blue").strip()
         need_open_comment = self._coerce_bool(
             body.get("need_open_comment", cfg.get("wechat_need_open_comment", True))
         )
@@ -1903,18 +2457,21 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             publish_mode=publish_mode,
         )
 
+        article_output_root = self._resolve_article_output_root(str(cfg.get("article_output_dir") or "output/articles"))
+
         def _publish_task():
             try:
                 _db.update_wechat_publish_task(task_id, status="running")
                 publisher = wp.WechatPublisher(
                     app_id=cfg.get("wechat_app_id"),
                     app_secret=cfg.get("wechat_app_secret"),
-                    data_dir=cfg.get("article_output_dir"),
+                    data_dir=str(article_output_root),
                 )
                 kwargs = {
                     "title": title,
                     "content": content,
                     "author": author,
+                    "digest": digest,
                     "cover_image": cover_image,
                     "need_open_comment": need_open_comment,
                     "only_fans_can_comment": only_fans_can_comment,
@@ -1949,12 +2506,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 )
 
         threading.Thread(target=_publish_task, name=f"wechat-publish-{task_id}", daemon=True).start()
-        self._send_json({"task_id": task_id, "status": "pending"}, 202)
+        response = {"task_id": task_id, "status": "pending"}
+        if render_result:
+            response["renderer"] = render_result.renderer
+            response["html_path"] = render_result.html_path
+            response["warnings"] = render_result.warnings
+        self._send_json(response, 202)
 
     @staticmethod
     def _resolve_article_output_path(raw_path: str, cfg: dict) -> Path:
-        requested = Path(raw_path).expanduser().resolve()
-        roots = [Path(cfg.get("article_output_dir") or "output/articles").expanduser().resolve()]
+        requested = MonitorHandler._resolve_article_artifact_path(raw_path)
+        roots = [
+            MonitorHandler._resolve_article_output_root(str(cfg.get("article_output_dir") or "output/articles")),
+        ]
         for root in roots:
             try:
                 requested.relative_to(root)
@@ -2061,7 +2625,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
         account = _db.get_account(video.get("account_id"))
         account_name = account.get("name", "未知账户") if account else "未知账户"
-        account_proxy = _db.get_account_proxy(account) if account else None
 
         # 构建输出目录
         clip_output_dir = os.path.join(
@@ -3630,7 +4193,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         # 后台线程执行 yt-dlp 下载，避免阻塞 HTTP 请求
         def _bg_yt_dlp():
             try:
-                results = batch_download(
+                batch_download(
                     [download_url],
                     output_path,
                     resolution="best",
@@ -3694,7 +4257,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_res_events_stream(self):
         """GET /api/res-events — SSE 流式推送资源事件。"""
-        import urllib.request
         if not self._require_auth():
             return
         self.send_response(200)
@@ -3911,6 +4473,17 @@ def main():
 
     _db.init_db()
     _db.ensure_app_state_table()
+
+    # Restore interrupted article tasks from previous server restart
+    running_tasks, total = _db.list_article_tasks(status="running")
+    if running_tasks:
+        for task in running_tasks:
+            _db.update_article_task(
+                task["id"],
+                status="interrupted",
+                error="服务重启导致任务中断",
+            )
+        _log.info(f"[startup] {len(running_tasks)} 个 running 任务已标记为 interrupted")
 
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:

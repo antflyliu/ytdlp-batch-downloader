@@ -10,17 +10,20 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote, urlparse, urlunparse
 
 import requests
 
+import logging_config
 import monitor.db as db
 import monitor.proxy.router as proxy_router
 from monitor.video_paths import resolve_downloaded_video_path
 from scripts.llm_client import PROMPT_INPUT_PLACEHOLDER, create_llm_client
 
+_log = logging_config.get_logger("article_generator")
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".txt")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 _NETWORK_ERROR_KEYWORDS = (
@@ -52,6 +55,18 @@ _MISSING_SUBTITLE_KEYWORDS = (
     "No automatic captions",
     "This video has no subtitles",
 )
+_DEFAULT_WECHAT_PROMPT_ROLE = "资深科技自媒体作者"
+_DEFAULT_WECHAT_PROMPT_READER = "关注 AI、效率工具和内容创作的中文读者"
+_DEFAULT_WECHAT_PROMPT_STYLE = "信息密度高、短段落、有明确小标题，保留必要的列表、表格和代码块"
+_LOCAL_WHISPER_AUTO_COMPUTE_TYPES = ("float16", "float32", "int8")
+_LOCAL_WHISPER_COMPUTE_ALIASES = {
+    "fp16": "float16",
+    "half": "float16",
+    "fp32": "float32",
+    "float": "float32",
+    "flout32": "float32",
+    "int8_float": "int8_float32",
+}
 
 
 @dataclass
@@ -92,6 +107,52 @@ def _coerce_positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
+
+
+def _normalize_fs_path(path: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.path.expanduser(path))))
+
+
+def _is_path_within(candidate: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([candidate, root]) == root
+    except ValueError:
+        return False
+
+
+def _resolve_project_path(value: Any, default: str) -> Path:
+    path = Path(str(value or default)).expanduser()
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    return path.resolve()
+
+
+def _default_wechat_collection_output_dir() -> str:
+    try:
+        import monitor.wechat_collector as wechat_collector
+
+        data_dir = str(getattr(db, "_DATA_DIR", "data"))
+        return str(wechat_collector.default_collection_output_dir(data_dir) or "")
+    except Exception:
+        return ""
+
+
+def _wechat_collection_output_root(cfg: dict[str, Any]) -> str:
+    configured = str((cfg or {}).get("wechat_collection_output_dir") or "").strip()
+    return configured or _default_wechat_collection_output_dir()
+
+
+def _read_wechat_article_source(article_source_path: str, cfg: dict[str, Any]) -> str:
+    source = Path(article_source_path).expanduser()
+    if not source.is_file():
+        raise RuntimeError("公众号文章源文件不存在")
+    root = _wechat_collection_output_root(cfg)
+    if root:
+        resolved_path = _normalize_fs_path(str(source))
+        allowed_root = _normalize_fs_path(root)
+        if not _is_path_within(resolved_path, allowed_root):
+            raise RuntimeError("文章路径必须位于公众号采集输出目录下")
+    return source.read_text(encoding="utf-8", errors="ignore")
 
 
 def _mask_proxy_url(proxy: str | None) -> str:
@@ -231,9 +292,6 @@ def _resolve_article_subtitle_proxy_plan(
       - direct_only: no proxy (direct connection)
       - account_only: only configured/source-account static proxy
     """
-    import logging
-    _log = logging.getLogger("article_generator")
-
     if not cfg:
         _log.warning("[字幕代理] cfg为空，使用直连/系统代理")
         return SubtitleProxyPlan(source="direct", reason="cfg为空，使用直连/系统代理", direct_fallback=True)
@@ -338,12 +396,6 @@ def _resolve_article_subtitle_proxy_plan(
         user_forced_direct=False,
     )
     return _plan_from_route(result, direct_fallback=result.resolved_proxy_source == "direct")
-
-
-def _resolve_article_subtitle_proxy(cfg: dict[str, Any] | None) -> str:
-    """Backward-compatible helper returning the first resolved proxy URL."""
-    plan = _resolve_article_subtitle_proxy_plan(cfg)
-    return plan.proxies[0] if plan.proxies else ""
 
 
 class ArticleTaskCancelled(Exception):
@@ -588,9 +640,10 @@ def _download_audio_for_whisper(
     cfg: dict[str, Any] | None = None,
     *,
     account: dict[str, Any] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> str | None:
     try:
-        import yt_dlp
+        import yt_dlp  # noqa: F401  -- lazy import, avoids top-level dep
     except Exception as exc:
         raise SourceMediaDownloadError("yt-dlp 未安装，无法下载音频用于 Whisper") from exc
 
@@ -617,6 +670,8 @@ def _download_audio_for_whisper(
 
     try:
         for proxy_label, proxy in attempts:
+            if progress:
+                progress(f"正在下载 Whisper 音频（代理：{proxy_label}）")
             opts = dict(base_opts)
             if proxy:
                 opts["proxy"] = proxy
@@ -625,9 +680,14 @@ def _download_audio_for_whisper(
                     ydl.download([video_url])
                 media = _find_downloaded_media(output_dir, "whisper_source")
                 if media:
+                    if progress:
+                        progress(f"Whisper 音频下载完成：{media.name}（{media.stat().st_size} bytes）")
                     return str(media)
             except Exception as exc:
-                errors.append(f"{proxy_label}: {_clean_error_message(exc)}")
+                message = _clean_error_message(exc)
+                errors.append(f"{proxy_label}: {message}")
+                if progress:
+                    progress(f"Whisper 音频下载失败（代理：{proxy_label}）：{message[:180]}")
                 continue
     finally:
         _cleanup_temp_cookie(temp_cookie)
@@ -665,62 +725,145 @@ def _resolve_local_whisper_model_path(model_input: str) -> str:
     return str(hf_cache / "hub" / f"models--{value.replace('/', '--')}" / "models")
 
 
-def _local_whisper(video_path: str | None, cfg: dict[str, Any]) -> str | None:
-    """Run Whisper transcription locally using faster-whisper from HuggingFace cache."""
-    import logging as _log_local
-    _logger = _log_local.getLogger("article_generator")
+def _normalize_local_whisper_compute_type(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    return _LOCAL_WHISPER_COMPUTE_ALIASES.get(text, text)
 
+
+def _local_whisper_compute_candidates(cfg: dict[str, Any] | None) -> list[str]:
+    configured = str((cfg or {}).get("whisper_compute_type") or "").strip()
+    raw_candidates = re.split(r"[,;|\s]+", configured) if configured else ["auto"]
+    candidates: list[str] = []
+
+    def add(candidate: Any) -> None:
+        compute = _normalize_local_whisper_compute_type(candidate)
+        if not compute:
+            return
+        if compute in {"auto", "default"}:
+            for fallback in _LOCAL_WHISPER_AUTO_COMPUTE_TYPES:
+                add(fallback)
+            return
+        if compute not in candidates:
+            candidates.append(compute)
+
+    for raw in raw_candidates:
+        add(raw)
+    if configured:
+        # Keep an explicit user preference first, but still provide safe CPU
+        # fallbacks for machines where CTranslate2 rejects the preferred type.
+        add("float32")
+        add("int8")
+    return candidates or list(_LOCAL_WHISPER_AUTO_COMPUTE_TYPES)
+
+
+def _local_whisper(
+    video_path: str | None,
+    cfg: dict[str, Any],
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> str | None:
+    """Run Whisper transcription locally using faster-whisper from HuggingFace cache."""
     if not video_path or not Path(video_path).is_file():
         return None
+    _log.info("[Whisper] 开始本地转写 video_path=%s", video_path)
     try:
         from faster_whisper import WhisperModel
-    except Exception:
-        _logger.warning("[Whisper] faster-whisper 未安装或导入失败")
+    except Exception as exc:
+        message = _clean_error_message(exc)
+        if progress:
+            progress(f"faster-whisper 未安装或导入失败：{message[:180]}")
+        _log.warning("[Whisper] faster-whisper 未安装或导入失败: %s", message)
         return None
 
     model_path = _resolve_local_whisper_model_path(
         str(cfg.get("whisper_model") or "Systran/faster-distil-whisper-large-v2").strip()
     )
 
-    _logger.info(f"[Whisper] 使用本地模型: {model_path}")
+    _log.info("[Whisper] 使用本地模型: %s", model_path)
 
-    for compute in ("float16", "float32"):
+    compute_candidates = _local_whisper_compute_candidates(cfg)
+    failures: list[str] = []
+    for index, compute in enumerate(compute_candidates, start=1):
         try:
-            _logger.info(f"[Whisper] 尝试 compute_type={compute}")
+            if progress:
+                progress(f"正在尝试本地 Whisper compute_type={compute}（{index}/{len(compute_candidates)}）")
+            _log.info("[Whisper] 尝试 compute_type=%s", compute)
             model = WhisperModel(
                 model_size_or_path=model_path,
                 device="auto",
                 compute_type=compute,
             )
             segments, _ = model.transcribe(str(video_path), language=None)
-            return " ".join(seg.text for seg in segments)
+            transcript = " ".join(seg.text for seg in segments).strip()
+            _log.info("[Whisper] 本地转写完成 video_path=%s length=%d", video_path, len(transcript))
+            if progress:
+                progress(f"本地 Whisper compute_type={compute} 转写完成")
+            return transcript or None
         except Exception as e:
-            if "float16" in str(e) or "float16" not in compute:
-                _logger.warning(f"[Whisper] compute_type={compute} 失败: {e}")
-                continue
-            _logger.warning(f"[Whisper] compute_type={compute} 失败: {e}")
+            message = _clean_error_message(e)
+            failures.append(f"{compute}: {message}")
+            if index < len(compute_candidates):
+                next_compute = compute_candidates[index]
+                if progress:
+                    progress(f"本地 Whisper compute_type={compute} 失败，正在重试 {next_compute}：{message[:180]}")
+                _log.warning(
+                    "[Whisper] compute_type=%s 失败，继续尝试下一个候选: %s",
+                    compute,
+                    message,
+                )
+            else:
+                if progress:
+                    progress(f"本地 Whisper compute_type={compute} 失败，已无更多候选：{message[:180]}")
+                _log.warning(
+                    "[Whisper] compute_type=%s 失败，已无更多候选: %s",
+                    compute,
+                    message,
+                )
+    if failures:
+        if progress:
+            progress(
+                "本地 Whisper 转写失败，已尝试 compute_type="
+                f"{', '.join(compute_candidates)}；最后错误：{failures[-1][:180]}"
+            )
+        _log.error(
+            "[Whisper] 本地转写失败，已尝试 compute_type=%s；最后错误: %s",
+            ", ".join(compute_candidates),
+            failures[-1],
+        )
     return None
 
 
 def _remote_whisper(video_path: str | None, cfg: dict[str, Any]) -> str | None:
     base_url = str(cfg.get("whisper_base_url") or "").rstrip("/")
-    if not base_url or not video_path or not Path(video_path).is_file():
+    if not base_url:
+        raise RuntimeError(
+            "需要配置 whisper_base_url 才能使用远程 Whisper API，"
+            "请切换到本地 Whisper 或配置 base_url"
+        )
+    if not video_path or not Path(video_path).is_file():
         return None
+    _log.info("[Whisper] 开始远程转写 video_path=%s", video_path)
     headers = {}
     api_key = cfg.get("whisper_api_key") or ""
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    with open(video_path, "rb") as file_obj:
-        response = requests.post(
-            f"{base_url}/v1/audio/transcriptions",
-            headers=headers,
-            data={"model": cfg.get("whisper_model") or "base"},
-            files={"file": file_obj},
-            timeout=300,
-        )
-    response.raise_for_status()
-    payload = response.json()
-    return payload.get("text") or payload.get("transcript") or response.text
+    try:
+        with open(video_path, "rb") as file_obj:
+            response = requests.post(
+                f"{base_url}/v1/audio/transcriptions",
+                headers=headers,
+                data={"model": cfg.get("whisper_model") or "base"},
+                files={"file": file_obj},
+                timeout=300,
+            )
+        response.raise_for_status()
+        payload = response.json()
+        text = payload.get("text") or payload.get("transcript") or response.text
+        _log.info("[Whisper] 远程转写完成 video_path=%s length=%d", video_path, len(text))
+        return text
+    except Exception as exc:
+        _log.error("[Whisper] 远程转写失败: %s", exc)
+        raise
 
 
 def _llm_or_fallback(
@@ -757,6 +900,85 @@ def _llm_or_fallback(
     return f"{fallback_prefix}\n\n{text}".strip()
 
 
+@dataclass
+class WechatArticlePromptEngine:
+    role: str = _DEFAULT_WECHAT_PROMPT_ROLE
+    reader_persona: str = _DEFAULT_WECHAT_PROMPT_READER
+    style: str = _DEFAULT_WECHAT_PROMPT_STYLE
+    max_chars: int = 6000
+
+    @classmethod
+    def from_config(cls, cfg: dict[str, Any]) -> "WechatArticlePromptEngine":
+        try:
+            max_chars = int(cfg.get("article_wechat_prompt_max_chars") or 6000)
+        except (TypeError, ValueError):
+            max_chars = 6000
+        return cls(
+            role=str(cfg.get("article_wechat_prompt_role") or _DEFAULT_WECHAT_PROMPT_ROLE).strip()
+            or _DEFAULT_WECHAT_PROMPT_ROLE,
+            reader_persona=(
+                str(cfg.get("article_wechat_prompt_reader_persona") or _DEFAULT_WECHAT_PROMPT_READER).strip()
+                or _DEFAULT_WECHAT_PROMPT_READER
+            ),
+            style=str(cfg.get("article_wechat_prompt_style") or _DEFAULT_WECHAT_PROMPT_STYLE).strip()
+            or _DEFAULT_WECHAT_PROMPT_STYLE,
+            max_chars=min(max(max_chars, 1200), 20_000),
+        )
+
+    def _common_contract(self) -> str:
+        return (
+            f"你是{self.role}，正在为微信公众号读者写作。\n"
+            f"读者画像：{self.reader_persona}。\n"
+            f"风格要求：{self.style}。\n"
+            "输出必须是 Markdown，不要输出 HTML、<script>、<style> 或外链脚本。\n"
+            "段落要短，使用清晰的二级/三级标题；必要时保留列表、表格、引用和代码块。\n"
+            "不要编造事实、数据、来源或人物观点；原文不确定的信息要保守表述。\n"
+            "最终正文要适配微信公众号：标题建议不超过 32 个中文字符，摘要不超过 128 个字符，"
+            f"正文建议控制在 {self.max_chars} 字以内。\n"
+        )
+
+    def build_optimize_prompt(self) -> str:
+        return (
+            self._common_contract()
+            + "任务：将输入整理为可继续加工的中文公众号文章素材，修正明显错别字和断句，保留全部关键信息。\n"
+            + "请输出结构化 Markdown 正文，不要附加解释。\n\n"
+            + PROMPT_INPUT_PLACEHOLDER
+        )
+
+    def build_summary_prompt(self) -> str:
+        return (
+            self._common_contract()
+            + "任务：基于全文生成公众号发布前可用的摘要素材。\n"
+            + "请包含：1）一句话摘要；2）3-6 个关键要点；3）推荐章节结构；4）适合文末的互动引导。\n"
+            + "不要输出营销夸张语，不要复述无信息量的寒暄。\n\n"
+            + PROMPT_INPUT_PLACEHOLDER
+        )
+
+    def build_translate_prompt(self, target_lang: str) -> str:
+        return (
+            self._common_contract()
+            + f"任务：将输入整理/翻译为 {target_lang} 的微信公众号正文。\n"
+            + "保持信息完整和逻辑顺序，保留有价值的列表、表格、术语、代码块和引用。\n"
+            + "请直接输出可发布的 Markdown 正文。\n\n"
+            + PROMPT_INPUT_PLACEHOLDER
+        )
+
+
+def _yaml_scalar(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
+def _markdown_plain_text(value: str) -> str:
+    text = re.sub(r"```[\s\S]*?```", " ", value or "")
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[*_>#|~`-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 class ArticleGenerationPipeline:
     def __init__(self, task_id: str, cfg: dict[str, Any] | None = None):
         self.task_id = task_id
@@ -766,6 +988,7 @@ class ArticleGenerationPipeline:
     def _stage(self, key: str, status: str, message: str = "") -> None:
         self.stages[key] = {"status": status, "message": message}
         db.update_article_task(self.task_id, current_stage=key, stages=self.stages)
+        _log.info("[文章生成] task=%s stage=%s status=%s message=%s", self.task_id, key, status, message)
 
     def _check_cancelled(self) -> None:
         task = db.get_article_task(self.task_id)
@@ -785,107 +1008,137 @@ class ArticleGenerationPipeline:
             )
             return db.get_article_task(self.task_id) or {}
 
-        output_root = Path(self.cfg.get("article_output_dir") or "output/articles")
+        output_root = _resolve_project_path(self.cfg.get("article_output_dir"), "output/articles")
         output_dir = output_root / self.task_id
         output_dir.mkdir(parents=True, exist_ok=True)
         db.update_article_task(self.task_id, status="running", output_dir=str(output_dir))
 
         try:
-            monitor_video = (
-                db.get_monitor_video(int(task["monitor_video_id"]))
-                if task.get("monitor_video_id")
-                else None
-            )
-            account = None
-            if monitor_video and monitor_video.get("account_id"):
-                try:
-                    account = db.get_account(int(monitor_video["account_id"]))
-                except Exception:
-                    account = None
-            video_path = resolve_downloaded_video_path(monitor_video) if monitor_video else None
-            video_url = task.get("video_url") or (monitor_video or {}).get("url")
-            if not video_url and task.get("video_id"):
-                video_id_snapshot = str(task.get("video_id") or "").strip()
-                if video_id_snapshot.startswith(("http://", "https://")):
-                    video_url = video_id_snapshot
-                elif len(video_id_snapshot) == 11 and video_id_snapshot.replace("-", "").isalnum():
-                    # Heuristic: 11-char alphanumeric with hyphens is typical YouTube video ID
-                    video_url = f"https://www.youtube.com/watch?v={video_id_snapshot}"
-                # else: video_url stays None — subtitle download will be skipped via local path
-            video_title = task.get("video_title") or (monitor_video or {}).get("title") or task.get("video_id") or self.task_id
-
-            self._stage("subtitles", "running", "正在提取字幕")
-            transcript = None
-            transcript_source = ""
+            source_type = str(task.get("source_type") or "video").strip() or "video"
             subtitle_details: dict[str, Any] = {}
             subtitle_failure_message = ""
-            subtitle_path = _find_local_subtitle(video_path)
-            if subtitle_path:
-                transcript = _strip_subtitle_markup(subtitle_path.read_text(encoding="utf-8", errors="ignore"))
-                transcript_source = "local_subtitle"
-                subtitle_details = {"path": str(subtitle_path)}
-            if not transcript and video_url:
-                try:
-                    transcript, subtitle_details = _download_subtitles(
-                        video_url,
-                        output_dir,
-                        str(self.cfg.get("article_subtitle_languages") or ""),
-                        self.cfg,
-                        account=account,
-                    )
-                    if transcript:
-                        transcript_source = "remote_subtitle"
-                except SubtitleDownloadError as exc:
-                    subtitle_failure_message = _clean_error_message(exc)
-                    self._stage("subtitles", "done", f"字幕下载失败，已切换 Whisper：{subtitle_failure_message[:180]}")
-            self._check_cancelled()
+            transcript = None
+            transcript_source = ""
 
-            if not transcript:
-                if not video_path and video_url:
-                    self._stage("source_media", "running", "字幕不可用，正在下载音频用于 Whisper")
+            if source_type == "wechat_article":
+                self._stage("subtitles", "running", "正在读取公众号文章")
+                article_text = str(task.get("article_text") or "")
+                article_source_path = str(task.get("article_source_path") or "").strip()
+                if not article_text and article_source_path:
+                    article_text = _read_wechat_article_source(article_source_path, self.cfg)
+                if not article_text.strip():
+                    raise RuntimeError("公众号文章内容为空，无法生成 AI 文章")
+                transcript = article_text
+                transcript_source = "wechat_article"
+                subtitle_details = {
+                    "path": article_source_path,
+                    "source_url": task.get("source_url") or "",
+                }
+                video_url = task.get("source_url") or ""
+                video_title = task.get("source_title") or task.get("video_title") or self.task_id
+            else:
+                monitor_video = (
+                    db.get_monitor_video(int(task["monitor_video_id"]))
+                    if task.get("monitor_video_id")
+                    else None
+                )
+                account = None
+                if monitor_video and monitor_video.get("account_id"):
                     try:
-                        video_path = _download_audio_for_whisper(
+                        account = db.get_account(int(monitor_video["account_id"]))
+                    except Exception:
+                        account = None
+                video_path = resolve_downloaded_video_path(monitor_video) if monitor_video else None
+                video_url = task.get("video_url") or (monitor_video or {}).get("url")
+                if not video_url and task.get("video_id"):
+                    video_id_snapshot = str(task.get("video_id") or "").strip()
+                    if video_id_snapshot.startswith(("http://", "https://")):
+                        video_url = video_id_snapshot
+                    elif len(video_id_snapshot) == 11 and video_id_snapshot.replace("-", "").isalnum():
+                        # Heuristic: 11-char alphanumeric with hyphens is typical YouTube video ID
+                        video_url = f"https://www.youtube.com/watch?v={video_id_snapshot}"
+                    # else: video_url stays None — subtitle download will be skipped via local path
+                video_title = (
+                    task.get("video_title")
+                    or (monitor_video or {}).get("title")
+                    or task.get("video_id")
+                    or self.task_id
+                )
+
+                self._stage("subtitles", "running", "正在提取字幕")
+                subtitle_path = _find_local_subtitle(video_path)
+                if subtitle_path:
+                    transcript = _strip_subtitle_markup(subtitle_path.read_text(encoding="utf-8", errors="ignore"))
+                    transcript_source = "local_subtitle"
+                    subtitle_details = {"path": str(subtitle_path)}
+                if not transcript and video_url:
+                    try:
+                        transcript, subtitle_details = _download_subtitles(
                             video_url,
                             output_dir,
+                            str(self.cfg.get("article_subtitle_languages") or ""),
                             self.cfg,
                             account=account,
                         )
-                    except SourceMediaDownloadError as exc:
-                        message = _clean_error_message(exc)
-                        self._stage("source_media", "error", message[:220])
-                        if subtitle_failure_message:
-                            raise RuntimeError(f"{subtitle_failure_message}；{message}") from exc
-                        raise RuntimeError(message) from exc
-                    if video_path:
-                        self._stage("source_media", "done", "音频下载完成，准备 Whisper 转写")
-                    else:
-                        self._stage("source_media", "error", "没有可用于 Whisper 的本地视频或音频")
-                        raise RuntimeError("未找到可下载字幕，且无法获取本地视频或音频用于 Whisper")
-                if not video_path:
-                    if subtitle_failure_message:
-                        raise RuntimeError(
-                            f"{subtitle_failure_message}；当前任务没有本地视频或音频，无法切换 Whisper"
-                        )
-                    raise RuntimeError("未找到可用字幕，且当前任务没有本地视频或音频，无法切换 Whisper")
-                whisper_provider = str(self.cfg.get("whisper_provider") or "api").strip().lower()
-                if whisper_provider == "local":
-                    self._stage("whisper", "running", "正在使用本地 Whisper 模型转写")
-                    transcript = _local_whisper(video_path, self.cfg)
-                    if transcript:
-                        self._stage("whisper", "done", "本地 Whisper 转写完成")
-                        transcript_source = "local_whisper"
-                    else:
-                        self._stage("whisper", "error", "本地 Whisper 转写失败")
-                else:
-                    self._stage("whisper", "running", "正在使用远程 Whisper API 转写")
-                    transcript = _remote_whisper(video_path, self.cfg)
-                    if transcript:
-                        self._stage("whisper", "done", "远程 Whisper 转写完成")
-                        transcript_source = "remote_whisper"
-                    else:
-                        self._stage("whisper", "error", "远程 Whisper 转写失败")
+                        if transcript:
+                            transcript_source = "remote_subtitle"
+                    except SubtitleDownloadError as exc:
+                        subtitle_failure_message = _clean_error_message(exc)
+                        self._stage("subtitles", "done", f"字幕下载失败，已切换 Whisper：{subtitle_failure_message[:180]}")
+                self._check_cancelled()
+
                 if not transcript:
-                    raise RuntimeError("无法获取字幕或转写文本，请配置字幕来源或 Whisper 服务")
+                    if not video_path and video_url:
+                        self._stage("source_media", "running", "字幕不可用，正在下载音频用于 Whisper")
+                        try:
+                            video_path = _download_audio_for_whisper(
+                                video_url,
+                                output_dir,
+                                self.cfg,
+                                account=account,
+                                progress=lambda msg: self._stage("source_media", "running", msg),
+                            )
+                        except SourceMediaDownloadError as exc:
+                            message = _clean_error_message(exc)
+                            self._stage("source_media", "error", message[:220])
+                            if subtitle_failure_message:
+                                raise RuntimeError(f"{subtitle_failure_message}；{message}") from exc
+                            raise RuntimeError(message) from exc
+                        if video_path:
+                            self._stage("source_media", "done", "音频下载完成，准备 Whisper 转写")
+                        else:
+                            self._stage("source_media", "error", "没有可用于 Whisper 的本地视频或音频")
+                            raise RuntimeError("未找到可下载字幕，且无法获取本地视频或音频用于 Whisper")
+                    if not video_path:
+                        if subtitle_failure_message:
+                            raise RuntimeError(
+                                f"{subtitle_failure_message}；当前任务没有本地视频或音频，无法切换 Whisper"
+                            )
+                        raise RuntimeError("未找到可用字幕，且当前任务没有本地视频或音频，无法切换 Whisper")
+                    whisper_provider = str(self.cfg.get("whisper_provider") or "api").strip().lower()
+                    if whisper_provider == "local":
+                        self._stage("whisper", "running", "正在使用本地 Whisper 模型转写")
+                        transcript = _local_whisper(
+                            video_path,
+                            self.cfg,
+                            progress=lambda msg: self._stage("whisper", "running", msg),
+                        )
+                        if transcript:
+                            self._stage("whisper", "done", "本地 Whisper 转写完成")
+                            transcript_source = "local_whisper"
+                        else:
+                            whisper_message = str(self.stages.get("whisper", {}).get("message") or "").strip()
+                            self._stage("whisper", "error", whisper_message or "本地 Whisper 转写失败")
+                    else:
+                        self._stage("whisper", "running", "正在使用远程 Whisper API 转写")
+                        transcript = _remote_whisper(video_path, self.cfg)
+                        if transcript:
+                            self._stage("whisper", "done", "远程 Whisper 转写完成")
+                            transcript_source = "remote_whisper"
+                        else:
+                            self._stage("whisper", "error", "远程 Whisper 转写失败")
+                    if not transcript:
+                        raise RuntimeError("无法获取字幕或转写文本，请配置字幕来源或 Whisper 服务")
             transcript_path = _write_text(output_dir / "transcript.txt", transcript)
             db.update_article_task(
                 self.task_id,
@@ -902,16 +1155,19 @@ class ArticleGenerationPipeline:
                 )
             elif transcript_source == "local_subtitle":
                 self._stage("subtitles", "done", "已读取本地字幕文件")
+            elif transcript_source == "wechat_article":
+                self._stage("subtitles", "done", "已读取公众号文章正文")
             elif subtitle_failure_message:
                 self._stage("subtitles", "done", "字幕下载失败，已切换 Whisper 生成文本")
             else:
                 self._stage("subtitles", "done", "未找到可用字幕，已使用 Whisper 生成文本")
 
             self._check_cancelled()
+            prompt_engine = WechatArticlePromptEngine.from_config(self.cfg)
             self._stage("optimize", "running", "正在优化转写文本")
             optimized = _llm_or_fallback(
                 self.cfg,
-                "请纠错、分段并保留全部信息，输出适合文章加工的中文稿。\n\n" + PROMPT_INPUT_PLACEHOLDER,
+                prompt_engine.build_optimize_prompt(),
                 transcript,
                 model_key="article_llm_optimize_model",
                 fallback_prefix="以下为原始转写整理稿：",
@@ -924,7 +1180,7 @@ class ArticleGenerationPipeline:
             self._stage("summary", "running", "正在生成摘要")
             summary = _llm_or_fallback(
                 self.cfg,
-                "请基于全文生成关键点、章节划分、总结和结论。\n\n" + PROMPT_INPUT_PLACEHOLDER,
+                prompt_engine.build_summary_prompt(),
                 optimized,
                 model_key="article_llm_summary_model",
                 fallback_prefix="摘要：",
@@ -940,7 +1196,7 @@ class ArticleGenerationPipeline:
                 self._stage("translate", "running", "正在按目标语言生成正文")
                 translated = _llm_or_fallback(
                     self.cfg,
-                    f"请将以下内容整理/翻译为 {target_lang}，保持信息完整。\n\n" + PROMPT_INPUT_PLACEHOLDER,
+                    prompt_engine.build_translate_prompt(target_lang),
                     optimized,
                     model_key="article_llm_translate_model",
                     fallback_prefix=f"目标语言 {target_lang} 正文：",
@@ -978,15 +1234,10 @@ class ArticleGenerationPipeline:
                 transcript_source=transcript_source,
                 subtitle_details=subtitle_details,
             )
-            db.update_article_task(
-                self.task_id,
-                status="done",
-                current_stage="done",
-                draft_path=draft_path,
-                stages={**self.stages, "draft": {"status": "done", "message": "draft.md 已生成"}},
-                result=result,
-                finished_at=db.now_iso(),
-            )
+            if _generated_image_paths:
+                result["image_paths"] = _generated_image_paths
+            self._stage("draft", "done", "draft.md 已生成")
+            db.update_article_task(self.task_id, draft_path=draft_path, result=result)
 
             # 自动发布到微信公众号（如已配置）
             wechat_app_id = str(self.cfg.get("wechat_app_id") or "").strip()
@@ -994,18 +1245,42 @@ class ArticleGenerationPipeline:
             if wechat_app_id and wechat_app_secret:
                 self._stage("wechat", "running", "正在发布到微信公众号")
                 try:
-                    from monitor.wechat_publisher import WechatPublisher, convert_md_to_html_for_wechat as _md_to_html
+                    from monitor.wechat_publisher import (
+                        WechatPublisher,
+                        render_md_to_html_for_wechat,
+                        validate_wechat_article_payload,
+                    )
 
                     publisher = WechatPublisher(
                         app_id=wechat_app_id,
                         app_secret=wechat_app_secret,
-                        data_dir=str(self.cfg.get("article_output_dir") or ""),
+                        data_dir=str(output_root),
                     )
-                    title_for_wx, html_content = _md_to_html(draft_path)
+                    render_result = render_md_to_html_for_wechat(
+                        draft_path,
+                        theme=str(self.cfg.get("wechat_default_theme") or "default"),
+                        color=str(self.cfg.get("wechat_default_color") or "blue"),
+                        renderer=str(self.cfg.get("wechat_markdown_renderer") or "auto"),
+                        baoyu_script=str(self.cfg.get("wechat_baoyu_markdown_to_html_script") or ""),
+                    )
+                    author_for_wx = (
+                        render_result.author
+                        or str(self.cfg.get("wechat_default_author") or "").strip()
+                        or None
+                    )
+                    validation_errors = validate_wechat_article_payload(
+                        title=render_result.title,
+                        content=render_result.content,
+                        author=author_for_wx,
+                        digest=render_result.digest,
+                    )
+                    if validation_errors:
+                        raise RuntimeError("微信文章校验失败: " + "；".join(validation_errors))
                     wx_result = publisher.save_to_draft(
-                        title=title_for_wx,
-                        content=html_content,
-                        author=str(self.cfg.get("wechat_default_author") or "").strip() or None,
+                        title=render_result.title,
+                        content=render_result.content,
+                        author=author_for_wx,
+                        digest=render_result.digest,
                         need_open_comment=bool(self.cfg.get("wechat_need_open_comment", True)),
                         only_fans_can_comment=bool(self.cfg.get("wechat_only_fans_can_comment", False)),
                         base_dir=output_dir,
@@ -1017,12 +1292,19 @@ class ArticleGenerationPipeline:
                     else:
                         self._stage("wechat", "error", f"发布失败: {wx_result.error}")
                         result["wx_error"] = wx_result.error
-                    if _generated_image_paths:
-                        result["image_paths"] = _generated_image_paths
                     db.update_article_task(self.task_id, result=result)
                 except Exception as exc:
                     self._stage("wechat", "error", f"发布异常: {exc}")
 
+            db.update_article_task(
+                self.task_id,
+                status="done",
+                current_stage="done",
+                draft_path=draft_path,
+                stages=self.stages,
+                result=result,
+                finished_at=db.now_iso(),
+            )
             return db.get_article_task(self.task_id) or {}
         except ArticleTaskCancelled as exc:
             db.update_article_task(
@@ -1043,13 +1325,24 @@ class ArticleGenerationPipeline:
             return db.get_article_task(self.task_id) or {}
 
     def _build_draft(self, title: str, summary: str, body: str) -> str:
+        author = self.cfg.get("article_author") or self.cfg.get("wechat_default_author") or ""
+        digest = _markdown_plain_text(summary)[:128]
         meta = {
             "type": "article",
             "title": title,
-            "author": self.cfg.get("article_author") or "",
+            "author": author,
             "task_id": self.task_id,
         }
+        frontmatter = (
+            "---\n"
+            f"title: {_yaml_scalar(title)}\n"
+            f"author: {_yaml_scalar(author)}\n"
+            f"summary: {_yaml_scalar(digest)}\n"
+            "---\n\n"
+        )
         return (
+            frontmatter
+            +
             f"类型：文章\n选题：{title}\n生成时间：{db.now_iso()}\n\n"
             "```json\n"
             + json.dumps(meta, ensure_ascii=False, indent=2)
@@ -1081,6 +1374,25 @@ class ArticleGenerationPipeline:
                 "wechat": f"{tools_path.rstrip('/')}/md-to-wechat.html?open={encoded}",
                 "x": f"{tools_path.rstrip('/')}/md-to-x.html?open={encoded}",
             }
+        try:
+            from monitor.wechat_publisher import render_md_to_html_for_wechat
+
+            render_result = render_md_to_html_for_wechat(
+                draft_path,
+                theme=str(self.cfg.get("wechat_default_theme") or "default"),
+                color=str(self.cfg.get("wechat_default_color") or "blue"),
+                renderer=str(self.cfg.get("wechat_markdown_renderer") or "auto"),
+                baoyu_script=str(self.cfg.get("wechat_baoyu_markdown_to_html_script") or ""),
+            )
+            result["wechat_renderer"] = render_result.renderer
+            result["wechat_html_path"] = render_result.html_path
+            if render_result.html_path:
+                result["wechat_html_url"] = _generated_file_url(render_result.html_path)
+            result["wechat_digest"] = render_result.digest or ""
+            if render_result.warnings:
+                result["wechat_render_warnings"] = render_result.warnings
+        except Exception as exc:
+            result["wechat_render_error"] = _clean_error_message(exc)
         return result
 
 
