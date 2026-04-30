@@ -11,6 +11,15 @@ from typing import Any
 
 import html
 import ipaddress
+
+try:
+    from pygments import highlight
+    from pygments.lexers import get_lexer_by_name, TextLexer
+    from pygments.formatters import HtmlFormatter
+
+    _HAS_PYGMENTS = True
+except ImportError:
+    _HAS_PYGMENTS = False
 import json
 import logging
 import mimetypes
@@ -66,6 +75,9 @@ class WechatArticleRenderResult:
     author: Optional[str] = None
     digest: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+    cover_image_path: str | None = None
+    layout_modules_used: int = 0
+    reading_time_minutes: float | None = None
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -854,16 +866,31 @@ def _render_local_markdown(body: str, base_dir: Path) -> str:
         fence_match = re.match(r"^```([A-Za-z0-9_-]*)", stripped)
         if fence_match:
             if in_code:
-                lang_class = f' class="language-{html.escape(code_lang, quote=True)}"' if code_lang else ""
-                code_html = html.escape("\n".join(code_lines), quote=False)
-                html_parts.append(
-                    '<pre style="margin:16px 0;padding:12px;overflow:auto;background:#f6f4ef;border-radius:6px;'
-                    'line-height:1.55;"><code{lang_class}>{code}</code></pre>'.format(
-                        lang_class=lang_class,
-                        code=code_html,
+                if _HAS_PYGMENTS:
+                    try:
+                        lexer = get_lexer_by_name(code_lang) if code_lang else TextLexer()
+                        formatter = HtmlFormatter(nowrap=True, cssclass="codehilite")
+                        code_html = highlight("\n".join(code_lines), lexer, formatter)
+                        code_html = (
+                            f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                            f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                            f'{code_html}</pre>'
+                        )
+                    except Exception:
+                        code_html = html.escape("\n".join(code_lines))
+                        code_html = (
+                            f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                            f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                            f'<code>{code_html}</code></pre>'
+                        )
+                else:
+                    code_html = html.escape("\n".join(code_lines))
+                    code_html = (
+                        f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
+                        f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
+                        f'<code>{code_html}</code></pre>'
                     )
-                )
-                code_lines.clear()
+                html_parts.append(code_html)
                 code_lang = ""
                 in_code = False
             else:
@@ -1038,6 +1065,8 @@ def _render_with_baoyu(
     color: str | None = None,
     baoyu_script: str | Path | None = None,
     timeout_seconds: int = 60,
+    enable_ai_cover: bool = False,
+    enable_layout_modules: bool = False,
 ) -> WechatArticleRenderResult:
     script_path = _resolve_baoyu_script(baoyu_script)
     if not script_path:
@@ -1054,6 +1083,10 @@ def _render_with_baoyu(
     ]
     if color:
         command.extend(["--color", color])
+    if enable_layout_modules:
+        command.append("--layout-modules")
+    if enable_ai_cover:
+        command.append("--ai-cover")
     completed = subprocess.run(
         command,
         cwd=str(path.parent),
@@ -1081,6 +1114,9 @@ def _render_with_baoyu(
         content=content,
         html_path=str(html_path),
         renderer="baoyu-markdown-to-html",
+        cover_image_path=str(payload.get("coverImagePath") or "").strip() or None,
+        layout_modules_used=int(payload.get("layoutModulesUsed") or 0),
+        reading_time_minutes=float(payload.get("readingTimeMinutes")) if payload.get("readingTimeMinutes") else None,
     )
 
 
@@ -1091,6 +1127,9 @@ def render_md_to_html_for_wechat(
     color: str | None = None,
     renderer: str | None = None,
     baoyu_script: str | Path | None = None,
+    enable_ai_cover: bool = False,
+    enable_layout_modules: bool = False,
+    timeout_seconds: int = 120,
 ) -> WechatArticleRenderResult:
     """Render project draft markdown into WeChat-compatible HTML content."""
     path = Path(input_path)
@@ -1114,6 +1153,9 @@ def render_md_to_html_for_wechat(
                 theme=selected_theme,
                 color=selected_color,
                 baoyu_script=baoyu_script,
+                timeout_seconds=timeout_seconds,
+                enable_ai_cover=enable_ai_cover,
+                enable_layout_modules=enable_layout_modules,
             )
         except Exception as exc:
             warnings.append(str(exc))

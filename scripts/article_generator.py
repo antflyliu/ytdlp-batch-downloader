@@ -1278,10 +1278,17 @@ class ArticleGenerationPipeline:
                     )
                     if validation_errors:
                         raise RuntimeError("微信文章校验失败: " + "；".join(validation_errors))
+                    # AI 封面优先于显式封面
+                    effective_cover = (
+                        render_result.cover_image_path
+                        or str(self.cfg.get("wechat_cover_image") or "").strip()
+                        or None
+                    )
                     wx_result = publisher.save_to_draft(
                         title=render_result.title,
                         content=render_result.content,
                         author=author_for_wx,
+                        cover_image=effective_cover,
                         digest=render_result.digest,
                         need_open_comment=bool(self.cfg.get("wechat_need_open_comment", True)),
                         only_fans_can_comment=bool(self.cfg.get("wechat_only_fans_can_comment", False)),
@@ -1385,6 +1392,8 @@ class ArticleGenerationPipeline:
                 color=str(self.cfg.get("wechat_default_color") or "blue"),
                 renderer=str(self.cfg.get("wechat_markdown_renderer") or "auto"),
                 baoyu_script=str(self.cfg.get("wechat_baoyu_markdown_to_html_script") or ""),
+                enable_ai_cover=bool(self.cfg.get("wechat_baoyu_ai_cover")),
+                enable_layout_modules=bool(self.cfg.get("wechat_baoyu_layout_modules")),
             )
             result["wechat_renderer"] = render_result.renderer
             result["wechat_html_path"] = render_result.html_path
