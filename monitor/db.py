@@ -562,10 +562,15 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS article_tasks (
                 task_id           TEXT PRIMARY KEY,
+                source_type       TEXT    NOT NULL DEFAULT 'video',
                 monitor_video_id  INTEGER,
                 video_id          TEXT,
                 video_url         TEXT,
                 video_title       TEXT,
+                article_source_path TEXT,
+                article_text      TEXT,
+                source_url        TEXT,
+                source_title      TEXT,
                 status            TEXT NOT NULL DEFAULT 'pending',
                 current_stage     TEXT,
                 source_lang       TEXT,
@@ -710,6 +715,152 @@ def _migrate_monitor_accounts(conn) -> None:
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v18_wechat_publish_tasks", today),
         )
+
+    # v19: Native WeChat Official Account collection tables.
+    if "v19_wechat_native_collect" not in applied:
+        _ensure_wechat_native_collect_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v19_wechat_native_collect", today),
+        )
+
+    # v20: Article generation can consume local WeChat article exports directly.
+    if "v20_article_wechat_sources" not in applied:
+        _ensure_article_wechat_source_columns(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v20_article_wechat_sources", today),
+        )
+
+
+def _ensure_article_wechat_source_columns(conn) -> None:
+    tables = {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "article_tasks" not in tables:
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(article_tasks)").fetchall()}
+    for col, ddl in [
+        ("source_type", "TEXT NOT NULL DEFAULT 'video'"),
+        ("article_source_path", "TEXT"),
+        ("article_text", "TEXT"),
+        ("source_url", "TEXT"),
+        ("source_title", "TEXT"),
+    ]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE article_tasks ADD COLUMN {col} {ddl}")
+
+
+def _ensure_wechat_native_collect_schema(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS wechat_collect_sessions (
+            session_id      TEXT PRIMARY KEY,
+            token_enc       TEXT NOT NULL,
+            cookie_json_enc TEXT NOT NULL,
+            nickname        TEXT,
+            avatar          TEXT,
+            status          TEXT NOT NULL DEFAULT 'active',
+            expires_at      TEXT NOT NULL,
+            last_checked_at TEXT,
+            last_error      TEXT,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wechat_collect_sessions_status "
+        "ON wechat_collect_sessions(status, expires_at)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS wechat_collect_accounts (
+            fakeid         TEXT PRIMARY KEY,
+            nickname       TEXT,
+            alias          TEXT,
+            round_head_img TEXT,
+            service_type   INTEGER,
+            signature      TEXT,
+            verify_status  INTEGER,
+            raw_json       TEXT NOT NULL DEFAULT '{}',
+            last_synced_at TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS wechat_collect_articles (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            fakeid        TEXT NOT NULL,
+            aid           TEXT,
+            title         TEXT,
+            link          TEXT NOT NULL UNIQUE,
+            digest        TEXT,
+            cover         TEXT,
+            author_name   TEXT,
+            update_time   INTEGER,
+            create_time   INTEGER,
+            raw_json      TEXT NOT NULL DEFAULT '{}',
+            local_path    TEXT,
+            export_format TEXT,
+            status        TEXT NOT NULL DEFAULT 'listed',
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            FOREIGN KEY (fakeid) REFERENCES wechat_collect_accounts(fakeid) ON DELETE CASCADE
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wechat_collect_articles_fakeid_update "
+        "ON wechat_collect_articles(fakeid, update_time DESC)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS wechat_collect_tasks (
+            task_id          TEXT PRIMARY KEY,
+            provider         TEXT NOT NULL DEFAULT 'native',
+            session_id       TEXT,
+            source_mode      TEXT NOT NULL,
+            fakeid           TEXT,
+            article_url      TEXT,
+            account_name     TEXT,
+            urls_json        TEXT NOT NULL DEFAULT '[]',
+            keyword          TEXT,
+            export_format    TEXT NOT NULL DEFAULT 'markdown',
+            output_dir       TEXT,
+            max_articles     INTEGER NOT NULL DEFAULT 50,
+            page_size        INTEGER NOT NULL DEFAULT 20,
+            delay_seconds    REAL NOT NULL DEFAULT 1.0,
+            status           TEXT NOT NULL DEFAULT 'pending',
+            total            INTEGER NOT NULL DEFAULT 0,
+            completed        INTEGER NOT NULL DEFAULT 0,
+            success          INTEGER NOT NULL DEFAULT 0,
+            failed           INTEGER NOT NULL DEFAULT 0,
+            current          TEXT,
+            result_json      TEXT NOT NULL DEFAULT '[]',
+            error            TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL,
+            finished_at      TEXT
+        )"""
+    )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(wechat_collect_tasks)").fetchall()}
+    for col, ddl in [
+        ("max_articles", "INTEGER NOT NULL DEFAULT 50"),
+        ("page_size", "INTEGER NOT NULL DEFAULT 20"),
+        ("delay_seconds", "REAL NOT NULL DEFAULT 1.0"),
+    ]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE wechat_collect_tasks ADD COLUMN {col} {ddl}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_created_at "
+        "ON wechat_collect_tasks(created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_status "
+        "ON wechat_collect_tasks(status, created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_provider "
+        "ON wechat_collect_tasks(provider, created_at DESC)"
+    )
 
 
 def _migrate_legacy_api_keys(conn) -> None:
@@ -870,6 +1021,7 @@ def delete_api_key(key_id: int) -> None:
 def incr_api_key_quota(key_value: str, calls: int = 1, scans: int = 0) -> None:
     """增加 API Key 的配额使用"""
     import monitor.quota as _quota
+
     _quota.incr(key_value, calls=calls, scans=scans)
 
 
@@ -1149,7 +1301,6 @@ def _parse_provider_json(provider: dict) -> dict:
     """解析 config_json 字段为 dict，并解密敏感字段"""
     if provider and provider.get("config_json"):
         try:
-            import json
             provider = dict(provider)
             provider["config_json"] = _decrypt_config_secrets(json.loads(provider["config_json"]))
         except Exception:
@@ -1182,7 +1333,6 @@ def add_dynamic_proxy_provider(
     refresh_interval_minutes: int = 0,
 ) -> int:
     """新增动态代理提供方（config_json 敏感字段自动加密）"""
-    import json
     cfg_encrypted = _encrypt_config_secrets(config_json or {})
     cfg_str = json.dumps(cfg_encrypted)
     with get_connection() as conn:
@@ -1765,6 +1915,13 @@ def mark_incomplete_web_batch_tasks_interrupted() -> None:
 # ── AI 内容工作流任务 CRUD ────────────────────────────────
 
 _AI_TASK_TERMINAL_STATUSES = {"done", "error", "cancelled", "interrupted"}
+_AI_TASK_FAILED_TERMINAL_STATUSES = {"error", "cancelled", "interrupted"}
+_AI_TASK_ACTIVE_STAGE_STATUSES = {"pending", "running", "cancelling"}
+_AI_TASK_TERMINAL_STAGE_MESSAGES = {
+    "error": "任务失败",
+    "cancelled": "任务已取消",
+    "interrupted": "服务重启导致任务中断",
+}
 
 
 def _json_loads_or(raw, default):
@@ -1772,6 +1929,41 @@ def _json_loads_or(raw, default):
         return json.loads(raw) if raw not in (None, "") else default
     except Exception:
         return default
+
+
+def _normalize_ai_task_stages_for_status(
+    status: str | None,
+    current_stage: str | None,
+    stages,
+):
+    if status not in _AI_TASK_FAILED_TERMINAL_STATUSES or not isinstance(stages, dict):
+        return stages
+
+    normalized = dict(stages)
+    preferred_keys = [str(current_stage)] if current_stage and str(current_stage) in normalized else []
+    active_keys = [
+        key
+        for key, stage in normalized.items()
+        if isinstance(stage, dict)
+        and str(stage.get("status") or "").lower() in _AI_TASK_ACTIVE_STAGE_STATUSES
+        and key not in preferred_keys
+    ]
+    for key in preferred_keys + active_keys:
+        stage = normalized.get(key)
+        if not isinstance(stage, dict):
+            continue
+        if str(stage.get("status") or "").lower() not in _AI_TASK_ACTIVE_STAGE_STATUSES:
+            continue
+        next_stage = dict(stage)
+        terminal_message = _AI_TASK_TERMINAL_STAGE_MESSAGES.get(status, status)
+        current_message = str(next_stage.get("message") or "").strip()
+        next_stage["status"] = status
+        if current_message and terminal_message not in current_message:
+            next_stage["message"] = f"{current_message}；{terminal_message}"
+        else:
+            next_stage["message"] = current_message or terminal_message
+        normalized[key] = next_stage
+    return normalized
 
 
 def _build_ai_task_id(prefix: str) -> str:
@@ -1785,7 +1977,11 @@ def _normalize_article_task_row(row) -> dict | None:
     item["auto_translate"] = bool(item.get("auto_translate"))
     item["cancel_requested"] = bool(item.get("cancel_requested"))
     stages_json = item.pop("stages_json", None) or item.get("stage_json")
-    item["stages"] = _json_loads_or(stages_json, {})
+    item["stages"] = _normalize_ai_task_stages_for_status(
+        item.get("status"),
+        item.get("current_stage"),
+        _json_loads_or(stages_json, {}),
+    )
     item["result"] = _json_loads_or(item.pop("result_json", "{}"), {})
     return item
 
@@ -1796,7 +1992,11 @@ def _normalize_video_gen_task_row(row) -> dict | None:
     item = dict(row)
     item["cancel_requested"] = bool(item.get("cancel_requested"))
     stages_json = item.pop("stages_json", None) or item.get("stage_json")
-    item["stages"] = _json_loads_or(stages_json, {})
+    item["stages"] = _normalize_ai_task_stages_for_status(
+        item.get("status"),
+        item.get("current_stage"),
+        _json_loads_or(stages_json, {}),
+    )
     item["result"] = _json_loads_or(item.pop("result_json", "{}"), {})
     item["template_name"] = item.get("template_name") or item.get("template_key")
     item["output_path"] = item.get("output_path") or item.get("video_path")
@@ -1809,6 +2009,11 @@ def create_article_task(
     video_url: str | None,
     video_title: str | None,
     *,
+    source_type: str = "video",
+    article_source_path: str | None = None,
+    article_text: str | None = None,
+    source_url: str | None = None,
+    source_title: str | None = None,
     target_lang: str = "zh-Hans",
     auto_translate: bool = True,
     output_dir: str | None = None,
@@ -1819,16 +2024,22 @@ def create_article_task(
     with get_connection() as conn:
         conn.execute(
             """INSERT INTO article_tasks
-               (task_id, monitor_video_id, video_id, video_url, video_title,
+               (task_id, source_type, monitor_video_id, video_id, video_url, video_title,
+                article_source_path, article_text, source_url, source_title,
                 status, target_lang, auto_translate, output_dir,
                 stages_json, result_json, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
             (
                 task_id,
+                source_type or "video",
                 monitor_video_id,
                 video_id,
                 video_url,
                 video_title,
+                article_source_path,
+                article_text,
+                source_url,
+                source_title,
                 target_lang,
                 int(bool(auto_translate)),
                 output_dir,
@@ -2142,21 +2353,30 @@ def mark_incomplete_ai_content_tasks_interrupted() -> None:
         conn.execute(
             """UPDATE article_tasks
                SET status='interrupted',
-                   error=COALESCE(error, '服务重启导致任务中断'),
+                   error=CASE WHEN error IS NULL OR error = '' THEN '服务重启导致任务中断' ELSE error END,
                    finished_at=COALESCE(finished_at, ?),
                    updated_at=?,
                    cancel_requested=0
-               WHERE status IN ('running', 'cancelling')""",
+               WHERE status IN ('pending', 'running', 'cancelling')""",
             (now, now),
         )
         conn.execute(
             """UPDATE video_gen_tasks
                SET status='interrupted',
-                   error=COALESCE(error, '服务重启导致任务中断'),
+                   error=CASE WHEN error IS NULL OR error = '' THEN '服务重启导致任务中断' ELSE error END,
                    finished_at=COALESCE(finished_at, ?),
                    updated_at=?,
                    cancel_requested=0
-               WHERE status IN ('running', 'cancelling')""",
+               WHERE status IN ('pending', 'running', 'cancelling')""",
+            (now, now),
+        )
+        conn.execute(
+            """UPDATE wechat_publish_tasks
+               SET status='interrupted',
+                   error=CASE WHEN error IS NULL OR error = '' THEN '服务重启导致任务中断' ELSE error END,
+                   finished_at=COALESCE(finished_at, ?),
+                   updated_at=?
+               WHERE status IN ('pending', 'running', 'cancelling')""",
             (now, now),
         )
 
@@ -2293,6 +2513,27 @@ def list_wechat_publish_tasks(
             params + [limit, offset],
         ).fetchall()
     return ([_normalize_wechat_publish_task_row(row) for row in rows], total)
+
+
+def get_wechat_publish_monthly_usage(month_key: str | None = None) -> dict:
+    """Return local monthly WeChat freepublish usage tracked by this service."""
+    month = (month_key or now_iso()[:7]).strip()[:7]
+    with get_connection() as conn:
+        used = conn.execute(
+            """SELECT COUNT(*) FROM wechat_publish_tasks
+               WHERE publish_mode = 'publish'
+                 AND status = 'done'
+                 AND substr(COALESCE(finished_at, updated_at, created_at), 1, 7) = ?""",
+            (month,),
+        ).fetchone()[0]
+        active = conn.execute(
+            """SELECT COUNT(*) FROM wechat_publish_tasks
+               WHERE publish_mode = 'publish'
+                 AND status IN ('pending', 'running')
+                 AND substr(created_at, 1, 7) = ?""",
+            (month,),
+        ).fetchone()[0]
+    return {"month": month, "used": int(used or 0), "active": int(active or 0)}
 
 
 # ── 工具函数 ─────────────────────────────────────────────────
@@ -2736,13 +2977,11 @@ def get_scheduler_state() -> dict:
             "SELECT value FROM app_state WHERE key='scheduler_state'"
         ).fetchone()
         if row:
-            import json
             return json.loads(row[0])
         return {"running": False, "started_at": None}
 
 
 def set_scheduler_state(state: dict) -> None:
-    import json
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO app_state (key, value) VALUES ('scheduler_state', ?)""",

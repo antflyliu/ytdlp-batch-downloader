@@ -211,8 +211,6 @@ CREATE TABLE IF NOT EXISTS dynamic_proxy_providers (
 
 CREATE INDEX IF NOT EXISTS idx_dpp_enabled_priority ON dynamic_proxy_providers(enabled, priority);
 CREATE INDEX IF NOT EXISTS idx_dpp_health ON dynamic_proxy_providers(last_health_status, cooldown_until);
-CREATE INDEX IF NOT EXISTS idx_dynamic_proxy_enabled_priority ON dynamic_proxy_providers(enabled, priority);
-CREATE INDEX IF NOT EXISTS idx_dynamic_proxy_health ON dynamic_proxy_providers(last_health_status, cooldown_until);
 
 -- ── 动态代理候选节点表 ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS dynamic_proxy_candidates (
@@ -372,10 +370,15 @@ CREATE INDEX IF NOT EXISTS idx_clip_tasks_status ON clip_tasks(status, created_a
 -- ── AI 内容工作流任务表 ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS article_tasks (
     task_id           TEXT PRIMARY KEY,
+    source_type       TEXT    NOT NULL DEFAULT 'video',
     monitor_video_id  INTEGER,
     video_id          TEXT,
     video_url         TEXT,
     video_title       TEXT,
+    article_source_path TEXT,
+    article_text      TEXT,
+    source_url        TEXT,
+    source_title      TEXT,
     status            TEXT    NOT NULL DEFAULT 'pending',
     current_stage     TEXT,
     source_lang       TEXT,
@@ -463,3 +466,96 @@ CREATE TABLE IF NOT EXISTS wechat_publish_tasks (
 CREATE INDEX IF NOT EXISTS idx_wechat_tasks_created_at ON wechat_publish_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_wechat_tasks_status ON wechat_publish_tasks(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_wechat_tasks_article ON wechat_publish_tasks(article_task_id, created_at DESC);
+
+-- ── 微信公众号原生采集表 ───────────────────────────────
+CREATE TABLE IF NOT EXISTS wechat_collect_sessions (
+    session_id      TEXT PRIMARY KEY,
+    token_enc       TEXT NOT NULL,
+    cookie_json_enc TEXT NOT NULL,
+    nickname        TEXT,
+    avatar          TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    expires_at      TEXT NOT NULL,
+    last_checked_at TEXT,
+    last_error      TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_collect_sessions_status
+ON wechat_collect_sessions(status, expires_at);
+
+CREATE TABLE IF NOT EXISTS wechat_collect_accounts (
+    fakeid         TEXT PRIMARY KEY,
+    nickname       TEXT,
+    alias          TEXT,
+    round_head_img TEXT,
+    service_type   INTEGER,
+    signature      TEXT,
+    verify_status  INTEGER,
+    raw_json       TEXT NOT NULL DEFAULT '{}',
+    last_synced_at TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wechat_collect_articles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    fakeid        TEXT NOT NULL,
+    aid           TEXT,
+    title         TEXT,
+    link          TEXT NOT NULL UNIQUE,
+    digest        TEXT,
+    cover         TEXT,
+    author_name   TEXT,
+    update_time   INTEGER,
+    create_time   INTEGER,
+    raw_json      TEXT NOT NULL DEFAULT '{}',
+    local_path    TEXT,
+    export_format TEXT,
+    status        TEXT NOT NULL DEFAULT 'listed',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    FOREIGN KEY (fakeid) REFERENCES wechat_collect_accounts(fakeid) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_collect_articles_fakeid_update
+ON wechat_collect_articles(fakeid, update_time DESC);
+
+CREATE TABLE IF NOT EXISTS wechat_collect_tasks (
+    task_id          TEXT PRIMARY KEY,
+    provider         TEXT NOT NULL DEFAULT 'native',
+    session_id       TEXT,
+    source_mode      TEXT NOT NULL,
+    fakeid           TEXT,
+    article_url      TEXT,
+    account_name     TEXT,
+    urls_json        TEXT NOT NULL DEFAULT '[]',
+    keyword          TEXT,
+    export_format    TEXT NOT NULL DEFAULT 'markdown',
+    output_dir       TEXT,
+    max_articles     INTEGER NOT NULL DEFAULT 50,
+    page_size        INTEGER NOT NULL DEFAULT 20,
+    delay_seconds    REAL NOT NULL DEFAULT 1.0,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    total            INTEGER NOT NULL DEFAULT 0,
+    completed        INTEGER NOT NULL DEFAULT 0,
+    success          INTEGER NOT NULL DEFAULT 0,
+    failed           INTEGER NOT NULL DEFAULT 0,
+    current          TEXT,
+    result_json      TEXT NOT NULL DEFAULT '[]',
+    error            TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    finished_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_created_at
+ON wechat_collect_tasks(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_status
+ON wechat_collect_tasks(status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_provider
+ON wechat_collect_tasks(provider, created_at DESC);

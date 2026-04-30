@@ -16,14 +16,17 @@ import logging
 import mimetypes
 import os
 import re
+import shlex
+import shutil
 import socket
 import struct
+import subprocess
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +41,12 @@ _ACCESS_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
 _DEFAULT_COVER_FILENAME = "_wechat_default_cover.png"
 _MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024
 _ALLOWED_MARKDOWN_LINK_SCHEMES = {"http", "https", "mailto"}
+_WECHAT_TITLE_MAX_CHARS = 32
+_WECHAT_AUTHOR_MAX_CHARS = 16
+_WECHAT_DIGEST_MAX_CHARS = 128
+_WECHAT_CONTENT_MAX_CHARS = 20_000
+_WECHAT_CONTENT_MAX_BYTES = 1_000_000
+_BAOYU_SKILL_SCRIPT = Path.home() / ".agents" / "skills" / "baoyu-markdown-to-html" / "scripts" / "main.ts"
 
 
 @dataclass
@@ -46,6 +55,17 @@ class WechatPublishResult:
     wx_article_id: Optional[str] = None
     wx_url: Optional[str] = None
     error: Optional[str] = None
+
+
+@dataclass
+class WechatArticleRenderResult:
+    title: str
+    content: str
+    renderer: str
+    html_path: Optional[str] = None
+    author: Optional[str] = None
+    digest: Optional[str] = None
+    warnings: list[str] = field(default_factory=list)
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -428,17 +448,22 @@ class WechatPublisher:
         updated = content
         first_media_id = ""
         all_media_ids: list[str] = []
+        uploaded_by_ref: dict[str, dict] = {}
         for match in list(img_regex.finditer(content)):
             full_tag, src = match.group(0), match.group(1)
             if src.startswith("https://mmbiz.qpic.cn"):
                 continue
             local_match = re.search(r"data-local-path=[\"']([^\"']+)[\"']", full_tag)
             image_ref = local_match.group(1) if local_match else src
-            try:
-                payload = self._upload_image(image_ref, base_dir=base_dir)
-            except Exception as exc:
-                _log.warning("跳过无法上传的正文图片 %s: %s", image_ref, exc)
-                continue
+            payload = uploaded_by_ref.get(image_ref)
+            if payload is None:
+                try:
+                    payload = self._upload_image(image_ref, base_dir=base_dir)
+                except Exception as exc:
+                    _log.warning("跳过无法上传的正文图片 %s: %s", image_ref, exc)
+                    continue
+                if payload:
+                    uploaded_by_ref[image_ref] = payload
             if not payload:
                 continue
             media_id = payload.get("media_id") or ""
@@ -463,6 +488,16 @@ class WechatPublisher:
         need_open_comment: bool = True,
         only_fans_can_comment: bool = False,
     ) -> str:
+        title = (title or "").strip()
+        author = (author or "").strip() or None
+        digest = (digest or "").strip() or None
+        content = (content or "").strip()
+        _raise_for_invalid_wechat_article(
+            title=title,
+            content=content,
+            author=author,
+            digest=digest,
+        )
         token = self._get_access_token()
         article: dict[str, Any] = {
             "article_type": "news",
@@ -474,9 +509,9 @@ class WechatPublisher:
         if thumb_media_id:
             article["thumb_media_id"] = thumb_media_id
         if author:
-            article["author"] = author[:16]
+            article["author"] = author
         if digest:
-            article["digest"] = digest[:120]
+            article["digest"] = digest
         payload = self._api_post(f"{DRAFT_URL}?access_token={urllib.parse.quote(token)}", {"articles": [article]})
         if payload.get("errcode"):
             raise RuntimeError(_format_wechat_api_error("创建草稿", payload))
@@ -625,7 +660,67 @@ def _extract_title(frontmatter: dict[str, str], body: str, fallback: str) -> str
 def _digest_from_html(content: str) -> str:
     text = re.sub(r"<[^>]+>", "", content)
     text = html.unescape(re.sub(r"\s+", " ", text)).strip()
-    return text[:120]
+    return text[:_WECHAT_DIGEST_MAX_CHARS]
+
+
+def validate_wechat_article_payload(
+    *,
+    title: str,
+    content: str,
+    author: str | None = None,
+    digest: str | None = None,
+) -> list[str]:
+    """Validate WeChat draft/freepublish limits before calling the remote API."""
+    errors: list[str] = []
+    normalized_title = (title or "").strip()
+    normalized_content = (content or "").strip()
+    normalized_author = (author or "").strip()
+    normalized_digest = (digest or "").strip()
+
+    if not normalized_title:
+        errors.append("标题不能为空")
+    elif len(normalized_title) > _WECHAT_TITLE_MAX_CHARS:
+        errors.append(f"标题不能超过 {_WECHAT_TITLE_MAX_CHARS} 个字符，当前 {len(normalized_title)} 个字符")
+
+    if normalized_author and len(normalized_author) > _WECHAT_AUTHOR_MAX_CHARS:
+        errors.append(f"作者不能超过 {_WECHAT_AUTHOR_MAX_CHARS} 个字符，当前 {len(normalized_author)} 个字符")
+
+    if normalized_digest and len(normalized_digest) > _WECHAT_DIGEST_MAX_CHARS:
+        errors.append(f"摘要不能超过 {_WECHAT_DIGEST_MAX_CHARS} 个字符，当前 {len(normalized_digest)} 个字符")
+
+    if not normalized_content:
+        errors.append("正文不能为空")
+    else:
+        if len(normalized_content) > _WECHAT_CONTENT_MAX_CHARS:
+            errors.append(
+                f"正文不能超过 {_WECHAT_CONTENT_MAX_CHARS} 个字符，当前 {len(normalized_content)} 个字符"
+            )
+        content_bytes = len(normalized_content.encode("utf-8"))
+        if content_bytes > _WECHAT_CONTENT_MAX_BYTES:
+            errors.append(
+                f"正文不能超过 {_WECHAT_CONTENT_MAX_BYTES} 字节，当前 {content_bytes} 字节"
+            )
+        if re.search(r"<\s*(script|style)\b", normalized_content, re.I):
+            errors.append("正文包含微信公众号会过滤的 <script>/<style> 标签，请移除后再发布")
+
+    return errors
+
+
+def _raise_for_invalid_wechat_article(
+    *,
+    title: str,
+    content: str,
+    author: str | None = None,
+    digest: str | None = None,
+) -> None:
+    errors = validate_wechat_article_payload(
+        title=title,
+        content=content,
+        author=author,
+        digest=digest,
+    )
+    if errors:
+        raise ValueError("微信文章校验失败: " + "；".join(errors))
 
 
 def _inline_markdown(text: str) -> str:
@@ -651,55 +746,425 @@ def _safe_markdown_link(match: re.Match[str]) -> str:
     return f'<a href="{html.escape(raw_url, quote=True)}">{label}</a>'
 
 
-def build_article_content_from_draft(draft_path: str | Path) -> tuple[str, str]:
-    """Parse draft.md into a title and simple WeChat-compatible HTML."""
-    path = Path(draft_path)
+def _strip_internal_draft_metadata(body: str) -> str:
+    lines = body.splitlines()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith(("类型：", "类型:", "选题：", "选题:", "生成时间：", "生成时间:")):
+            index += 1
+            continue
+        break
+    if index < len(lines) and lines[index].strip().startswith("```json"):
+        end = index + 1
+        while end < len(lines) and not lines[end].strip().startswith("```"):
+            end += 1
+        if end < len(lines):
+            meta_block = "\n".join(lines[index + 1:end])
+            if '"type"' in meta_block and '"task_id"' in meta_block:
+                index = end + 1
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    return "\n".join(lines[index:])
+
+
+def _split_table_row(row: str) -> list[str]:
+    text = row.strip()
+    if text.startswith("|"):
+        text = text[1:]
+    if text.endswith("|"):
+        text = text[:-1]
+    return [cell.strip() for cell in text.split("|")]
+
+
+def _is_table_divider(row: str) -> bool:
+    cells = _split_table_row(row)
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in cells)
+
+
+def _render_table(rows: list[str]) -> str:
+    headers = _split_table_row(rows[0])
+    body_rows = [_split_table_row(row) for row in rows[2:]]
+    table_style = "width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;"
+    th_style = "border:1px solid #e5e1d8;padding:8px 10px;background:#f7f1e8;text-align:left;font-weight:600;"
+    td_style = "border:1px solid #e5e1d8;padding:8px 10px;vertical-align:top;"
+    header_html = "".join(f'<th style="{th_style}">{_inline_markdown(cell)}</th>' for cell in headers)
+    body_html = []
+    for row in body_rows:
+        padded = row + [""] * max(0, len(headers) - len(row))
+        cells = "".join(f'<td style="{td_style}">{_inline_markdown(cell)}</td>' for cell in padded[:len(headers)])
+        body_html.append(f"<tr>{cells}</tr>")
+    return (
+        f'<table style="{table_style}"><thead><tr>{header_html}</tr></thead>'
+        f"<tbody>{''.join(body_html)}</tbody></table>"
+    )
+
+
+def _image_html(alt: str, src: str, base_dir: Path) -> str:
+    image_path = src
+    if not re.match(r"^https?://", src):
+        image_path = str((base_dir / src).resolve())
+    return (
+        '<p style="margin:16px 0;text-align:center;">'
+        '<img src="{src}" alt="{alt}" data-local-path="{local}" style="max-width:100%;height:auto;display:block;margin:0 auto;"/>'
+        "</p>"
+    ).format(
+        src=html.escape(src, quote=True),
+        alt=html.escape(alt, quote=True),
+        local=html.escape(image_path, quote=True),
+    )
+
+
+def _render_local_markdown(body: str, base_dir: Path) -> str:
+    lines = body.splitlines()
+    html_parts: list[str] = []
+    paragraph: list[str] = []
+    current_list: str | None = None
+    in_code = False
+    code_lang = ""
+    code_lines: list[str] = []
+    index = 0
+
+    def flush_paragraph() -> None:
+        if not paragraph:
+            return
+        text = " ".join(part.strip() for part in paragraph if part.strip())
+        if text:
+            html_parts.append(f'<p style="margin:12px 0;line-height:1.78;">{_inline_markdown(text)}</p>')
+        paragraph.clear()
+
+    def close_list() -> None:
+        nonlocal current_list
+        if current_list:
+            html_parts.append(f"</{current_list}>")
+            current_list = None
+
+    def open_list(kind: str) -> None:
+        nonlocal current_list
+        if current_list == kind:
+            return
+        close_list()
+        html_parts.append(f'<{kind} style="margin:12px 0;padding-left:1.4em;line-height:1.75;">')
+        current_list = kind
+
+    while index < len(lines):
+        raw_line = lines[index].rstrip()
+        stripped = raw_line.strip()
+
+        fence_match = re.match(r"^```([A-Za-z0-9_-]*)", stripped)
+        if fence_match:
+            if in_code:
+                lang_class = f' class="language-{html.escape(code_lang, quote=True)}"' if code_lang else ""
+                code_html = html.escape("\n".join(code_lines), quote=False)
+                html_parts.append(
+                    '<pre style="margin:16px 0;padding:12px;overflow:auto;background:#f6f4ef;border-radius:6px;'
+                    'line-height:1.55;"><code{lang_class}>{code}</code></pre>'.format(
+                        lang_class=lang_class,
+                        code=code_html,
+                    )
+                )
+                code_lines.clear()
+                code_lang = ""
+                in_code = False
+            else:
+                flush_paragraph()
+                close_list()
+                in_code = True
+                code_lang = fence_match.group(1) or ""
+                code_lines.clear()
+            index += 1
+            continue
+
+        if in_code:
+            code_lines.append(raw_line)
+            index += 1
+            continue
+
+        if not stripped:
+            flush_paragraph()
+            close_list()
+            index += 1
+            continue
+
+        if stripped.startswith(("类型：", "类型:", "选题：", "选题:", "生成时间：", "生成时间:")):
+            index += 1
+            continue
+
+        if index + 1 < len(lines) and "|" in stripped and _is_table_divider(lines[index + 1].strip()):
+            table_rows = [stripped, lines[index + 1].strip()]
+            index += 2
+            while index < len(lines) and "|" in lines[index].strip() and lines[index].strip():
+                table_rows.append(lines[index].strip())
+                index += 1
+            flush_paragraph()
+            close_list()
+            html_parts.append(_render_table(table_rows))
+            continue
+
+        h_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if h_match:
+            flush_paragraph()
+            close_list()
+            level = min(6, max(2, len(h_match.group(1)) + 1))
+            style = "margin:22px 0 12px;line-height:1.35;font-weight:700;"
+            html_parts.append(f'<h{level} style="{style}">{_inline_markdown(h_match.group(2).strip())}</h{level}>')
+            index += 1
+            continue
+
+        img_match = re.match(r"!\[(.*?)\]\((\S+?)(?:\s+\".*?\")?\)", stripped)
+        if img_match:
+            flush_paragraph()
+            close_list()
+            alt, src = img_match.groups()
+            html_parts.append(_image_html(alt, src, base_dir))
+            index += 1
+            continue
+
+        if stripped.startswith(">"):
+            quote_lines = []
+            while index < len(lines) and lines[index].strip().startswith(">"):
+                quote_lines.append(lines[index].strip().lstrip(">").strip())
+                index += 1
+            flush_paragraph()
+            close_list()
+            quote = "<br/>".join(_inline_markdown(line) for line in quote_lines if line)
+            html_parts.append(
+                '<blockquote style="margin:16px 0;padding:10px 14px;border-left:4px solid #d97757;'
+                f'background:#faf6f0;color:#5f564b;line-height:1.7;">{quote}</blockquote>'
+            )
+            continue
+
+        if stripped in {"---", "***", "___"}:
+            flush_paragraph()
+            close_list()
+            html_parts.append('<hr style="border:0;border-top:1px solid #e5e1d8;margin:22px 0;"/>')
+            index += 1
+            continue
+
+        list_match = re.match(r"^([-*+])\s+(.+)$", stripped)
+        ordered_match = re.match(r"^\d+[.)]\s+(.+)$", stripped)
+        if list_match or ordered_match:
+            flush_paragraph()
+            kind = "ol" if ordered_match else "ul"
+            open_list(kind)
+            item = ordered_match.group(1) if ordered_match else list_match.group(2)
+            html_parts.append(f'<li style="margin:6px 0;">{_inline_markdown(item.strip())}</li>')
+            index += 1
+            continue
+
+        paragraph.append(stripped)
+        index += 1
+
+    if in_code:
+        code_html = html.escape("\n".join(code_lines), quote=False)
+        html_parts.append(
+            '<pre style="margin:16px 0;padding:12px;overflow:auto;background:#f6f4ef;border-radius:6px;'
+            f'line-height:1.55;"><code>{code_html}</code></pre>'
+        )
+    flush_paragraph()
+    close_list()
+    return "\n".join(html_parts)
+
+
+def _write_local_preview_html(path: Path, title: str, content: str) -> str:
+    preview_path = path.with_name(f"{path.stem}.wechat.html")
+    document = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        f"<title>{html.escape(title)}</title></head>"
+        f'<body style="max-width:720px;margin:32px auto;padding:0 20px;font-family:Arial,sans-serif;">{content}</body></html>'
+    )
+    preview_path.write_text(document, encoding="utf-8")
+    return str(preview_path)
+
+
+def _strip_unsupported_html_blocks(content: str) -> str:
+    cleaned = re.sub(r"<\s*(script|style)\b[^>]*>[\s\S]*?<\s*/\s*\1\s*>", "", content, flags=re.I)
+    cleaned = re.sub(r"\son[a-z]+\s*=\s*(['\"]).*?\1", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\shref\s*=\s*(['\"])\s*javascript:[^'\"]*\1", "", cleaned, flags=re.I)
+    return cleaned.strip()
+
+
+def _extract_body_html(raw_html: str) -> str:
+    match = re.search(r"<body\b[^>]*>([\s\S]*?)</body>", raw_html, flags=re.I)
+    if match:
+        return match.group(1).strip()
+    return raw_html.strip()
+
+
+def _extract_json_payload(stdout: str) -> dict[str, Any]:
+    text = stdout.strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start:end + 1])
+    return {}
+
+
+def _resolve_baoyu_script(baoyu_script: str | Path | None = None) -> Path | None:
+    raw_path = str(baoyu_script or os.environ.get("BAOYU_MARKDOWN_TO_HTML_SCRIPT") or "").strip()
+    candidate = Path(raw_path).expanduser() if raw_path else _BAOYU_SKILL_SCRIPT
+    return candidate if candidate.is_file() else None
+
+
+def _resolve_baoyu_runner() -> list[str]:
+    custom_command = str(os.environ.get("BAOYU_MARKDOWN_TO_HTML_COMMAND") or "").strip()
+    if custom_command:
+        return shlex.split(custom_command, posix=os.name != "nt")
+
+    for command_name in ("bun.cmd", "bun.exe", "bun"):
+        bun = shutil.which(command_name)
+        if bun:
+            return [bun]
+
+    if os.name == "nt":
+        raise RuntimeError("未找到本机 Bun，当前 Windows 环境不使用 npx -y bun 以避免不兼容的 bun.exe")
+
+    npx = shutil.which("npx.cmd") or shutil.which("npx")
+    if npx:
+        return [npx, "-y", "bun"]
+    raise RuntimeError("未找到 Bun 或 npx，无法调用 baoyu-markdown-to-html")
+
+
+def _render_with_baoyu(
+    path: Path,
+    *,
+    title: str,
+    theme: str,
+    color: str | None = None,
+    baoyu_script: str | Path | None = None,
+    timeout_seconds: int = 60,
+) -> WechatArticleRenderResult:
+    script_path = _resolve_baoyu_script(baoyu_script)
+    if not script_path:
+        raise RuntimeError("未找到 baoyu-markdown-to-html 脚本")
+
+    command = [
+        *_resolve_baoyu_runner(),
+        str(script_path),
+        str(path),
+        "--theme",
+        theme or "default",
+        "--title",
+        title,
+    ]
+    if color:
+        command.extend(["--color", color])
+    completed = subprocess.run(
+        command,
+        cwd=str(path.parent),
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(f"baoyu-markdown-to-html 转换失败: {message[:500]}")
+
+    payload = _extract_json_payload(completed.stdout)
+    html_path = Path(str(payload.get("htmlPath") or path.with_suffix(".html"))).expanduser()
+    if not html_path.is_absolute():
+        html_path = path.parent / html_path
+    if not html_path.is_file():
+        raise RuntimeError(f"baoyu-markdown-to-html 未生成 HTML 文件: {html_path}")
+    rendered = html_path.read_text(encoding="utf-8", errors="ignore")
+    content = _strip_unsupported_html_blocks(_extract_body_html(rendered))
+    return WechatArticleRenderResult(
+        title=str(payload.get("title") or title or path.stem).strip(),
+        author=str(payload.get("author") or "").strip() or None,
+        digest=str(payload.get("summary") or "").strip() or None,
+        content=content,
+        html_path=str(html_path),
+        renderer="baoyu-markdown-to-html",
+    )
+
+
+def render_md_to_html_for_wechat(
+    input_path: str | Path,
+    *,
+    theme: str | None = None,
+    color: str | None = None,
+    renderer: str | None = None,
+    baoyu_script: str | Path | None = None,
+) -> WechatArticleRenderResult:
+    """Render project draft markdown into WeChat-compatible HTML content."""
+    path = Path(input_path)
     raw = path.read_text(encoding="utf-8")
     frontmatter, body = _parse_frontmatter(raw)
     title = _extract_title(frontmatter, body, path.stem)
-    base_dir = path.parent
+    clean_body = _strip_internal_draft_metadata(body)
+    mode = (renderer or "local").strip().lower()
+    valid_renderers = {"auto", "local", "baoyu", "baoyu-markdown-to-html"}
+    if mode not in valid_renderers:
+        raise ValueError(f"不支持的微信 Markdown 渲染器: {mode}")
+    selected_theme = (theme or "default").strip() or "default"
+    selected_color = (color or "").strip() or None
+    warnings: list[str] = []
 
-    html_parts: list[str] = []
-    in_code = False
-    for raw_line in body.splitlines():
-        line = raw_line.rstrip()
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_code = not in_code
-            continue
-        if in_code or not stripped:
-            continue
-        if stripped.startswith("类型：") or stripped.startswith("类型:") or stripped.startswith("生成时间："):
-            continue
-        h_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
-        if h_match:
-            level = min(6, max(2, len(h_match.group(1)) + 1))
-            html_parts.append(f"<h{level}>{_inline_markdown(h_match.group(2).strip())}</h{level}>")
-            continue
-        img_match = re.match(r"!\[(.*?)\]\((.+?)\)", stripped)
-        if img_match:
-            alt, src = img_match.groups()
-            image_path = src
-            if not re.match(r"^https?://", src):
-                image_path = str((base_dir / src).resolve())
-            html_parts.append(
-                '<p><img src="{src}" alt="{alt}" data-local-path="{local}" style="max-width:100%;"/></p>'.format(
-                    src=html.escape(src, quote=True),
-                    alt=html.escape(alt, quote=True),
-                    local=html.escape(image_path, quote=True),
-                )
+    if mode in {"auto", "baoyu", "baoyu-markdown-to-html"}:
+        try:
+            return _render_with_baoyu(
+                path,
+                title=title,
+                theme=selected_theme,
+                color=selected_color,
+                baoyu_script=baoyu_script,
             )
-            continue
-        if stripped.startswith(">"):
-            html_parts.append(f"<blockquote>{_inline_markdown(stripped.lstrip('> ').strip())}</blockquote>")
-            continue
-        if stripped in {"---", "***"}:
-            continue
-        html_parts.append(f"<p>{_inline_markdown(stripped)}</p>")
+        except Exception as exc:
+            warnings.append(str(exc))
+            if mode in {"baoyu", "baoyu-markdown-to-html"}:
+                raise RuntimeError(f"baoyu-markdown-to-html 转换失败，且 renderer={mode} 禁止回退: {exc}") from exc
+            _log.warning("baoyu-markdown-to-html 不可用，回退本地渲染: %s", exc)
 
-    return title, "\n".join(html_parts)
+    content = _render_local_markdown(clean_body, path.parent)
+    digest = frontmatter.get("description") or frontmatter.get("summary") or _digest_from_html(content)
+    html_path = _write_local_preview_html(path, title, content)
+    return WechatArticleRenderResult(
+        title=title,
+        author=frontmatter.get("author") or None,
+        digest=digest,
+        content=content,
+        html_path=html_path,
+        renderer="local",
+        warnings=warnings,
+    )
 
 
-def convert_md_to_html_for_wechat(input_path: str | Path) -> tuple[str, str]:
+def build_article_content_from_draft(draft_path: str | Path) -> tuple[str, str]:
+    """Parse draft.md into a title and local WeChat-compatible HTML."""
+    result = render_md_to_html_for_wechat(draft_path, renderer="local")
+    return result.title, result.content
+
+
+def convert_md_to_html_for_wechat(
+    input_path: str | Path,
+    *,
+    theme: str | None = None,
+    color: str | None = None,
+    renderer: str | None = None,
+    baoyu_script: str | Path | None = None,
+) -> tuple[str, str]:
     """Compatibility wrapper used by the HTTP API layer."""
-    return build_article_content_from_draft(input_path)
+    if renderer is None or theme is None or color is None or baoyu_script is None:
+        try:
+            from config.settings import load_config  # noqa: F401  -- lazy import, avoids circular dep with wechat_publisher
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+        renderer = renderer or str(cfg.get("wechat_markdown_renderer") or "auto")
+        theme = theme or str(cfg.get("wechat_default_theme") or "default")
+        color = color or str(cfg.get("wechat_default_color") or "blue")
+        baoyu_script = baoyu_script or str(cfg.get("wechat_baoyu_markdown_to_html_script") or "")
+    result = render_md_to_html_for_wechat(
+        input_path,
+        theme=theme,
+        color=color,
+        renderer=renderer,
+        baoyu_script=baoyu_script,
+    )
+    return result.title, result.content
