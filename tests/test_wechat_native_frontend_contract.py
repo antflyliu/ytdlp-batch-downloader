@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,8 @@ def test_native_wechat_result_links_to_ai_creation():
     assert "articleArtifact" in native_view
     assert "articlePath" in native_view
     assert "getQrcodeBlob" in api
+    assert "cachedArticles" in api
+    assert "/api/wechat-native/articles/cache" in api
     assert "responseType: 'blob'" in api
     assert "loginQrObjectUrl" in native_view
     assert "api_token" not in native_view
@@ -56,6 +59,47 @@ def test_native_wechat_result_links_to_ai_creation():
     assert "confirmPublishSelectedArticleNow()" in ai_view
     assert "previewNextPage" in native_view
     assert "previewPreviousPage" in native_view
+
+
+def test_native_wechat_preview_controls_use_cached_article_api_after_refresh():
+    native_view = (ROOT / "frontend-vue" / "src" / "views" / "WechatNativeCollect.vue").read_text(encoding="utf-8")
+
+    page_size_handler = re.search(
+        r"function handlePreviewPageSizeChange\(value: number\) \{(?P<body>.*?)\n\}",
+        native_view,
+        re.S,
+    )
+    previous_handler = re.search(r"function previewPreviousPage\(\) \{(?P<body>.*?)\n\}", native_view, re.S)
+    next_handler = re.search(r"function previewNextPage\(\) \{(?P<body>.*?)\n\}", native_view, re.S)
+    cached_loader = native_view.split("async function loadCachedPreviewArticles", 1)[1].split(
+        "function normalizePreviewPageSize",
+        1,
+    )[0]
+
+    assert "async function loadCachedPreviewArticles" in native_view
+    assert "wechatNativeApi.cachedArticles" in native_view
+    assert "selectedAccountMetadata" in native_view
+    assert "account: selectedAccountPayload()" in native_view
+    assert "const previewQuery = ref<" in native_view
+    assert "previewQuery.value = fakeid ? { fakeid, keyword: form.keyword.trim() } : null" in native_view
+    assert "const snapshot = previewQuery.value" in cached_loader
+    assert "keyword: snapshot?.keyword || undefined" in cached_loader
+    assert "form.keyword.trim()" not in cached_loader
+    assert page_size_handler and "loadCachedPreviewArticles(0)" in page_size_handler.group("body")
+    assert page_size_handler and "previewArticles(0)" not in page_size_handler.group("body")
+    assert previous_handler and "loadCachedPreviewArticles(previousBegin)" in previous_handler.group("body")
+    assert next_handler and "loadCachedPreviewArticles(previewNextBegin.value)" in next_handler.group("body")
+
+
+def test_native_wechat_task_detail_spacing_is_scoped_and_compact():
+    native_view = (ROOT / "frontend-vue" / "src" / "views" / "WechatNativeCollect.vue").read_text(encoding="utf-8")
+
+    assert ".task-layout" in native_view
+    assert "grid-template-rows: auto minmax(0, 1fr);" in native_view
+    assert "align-content: start;" in native_view
+    assert ".task-list {\n  max-height: clamp(" in native_view
+    assert ".task-detail .detail-head" in native_view
+    assert ".task-detail .result-list" in native_view
 
 
 def test_native_wechat_account_results_are_bounded_scroll_panel():

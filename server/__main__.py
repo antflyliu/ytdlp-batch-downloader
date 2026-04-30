@@ -34,6 +34,7 @@ import monitor.provider_scheduler as _provider_scheduler
 import monitor.cache as _cache
 import monitor.quota as _quota
 import monitor.wechat_collector as _wechat_collector
+from monitor.db.queries import wechat_collect as _wechat_collect_queries
 from monitor.wechat_collect.errors import (
     WechatNativeError,
     WechatSessionError,
@@ -44,6 +45,7 @@ from monitor.wechat_collect.models import is_valid_mp_article_url
 from monitor.wechat_collect.native_login import NativeLoginManager
 from monitor.wechat_collect.providers import NativeMpProvider
 from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
+from monitor.wechat_collect.serializers import public_account_preview, public_article_preview
 from monitor.wechat_collect.session_store import NativeSessionStore
 from monitor.wechat_collect.tasks import NativeCollectionTaskService, resolve_output_dir
 from go_proxy_manager import get_proxy_manager
@@ -1044,6 +1046,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_wechat_native_account_by_url(body)
         elif path == "/api/wechat-native/articles/preview":
             self._api_wechat_native_preview(body)
+        elif path == "/api/wechat-native/articles/cache":
+            self._api_wechat_native_cached_articles(body)
         elif path == "/api/wechat-native/tasks/start":
             self._api_wechat_native_start(body)
         elif path.startswith("/api/wechat-native/tasks/") and path.endswith("/cancel"):
@@ -1637,6 +1641,50 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_wechat_native_error(exc, 400)
 
+    def _wechat_native_cached_article_payload(
+        self,
+        fakeid: str,
+        *,
+        keyword: str = "",
+        begin: int = 0,
+        page_size: int = 20,
+    ) -> dict:
+        page = _wechat_collect_queries.list_article_page(
+            fakeid,
+            keyword=keyword,
+            begin=begin,
+            page_size=page_size,
+        )
+        return {
+            "account": public_account_preview(_wechat_collect_queries.get_account(fakeid) or {"fakeid": fakeid}),
+            "articles": [public_article_preview(article) for article in page["articles"]],
+            "total": len(page["articles"]),
+            "total_count": page["total_count"],
+            "begin": page["begin"],
+            "page_size": page["page_size"],
+            "next_begin": page["next_begin"],
+            "has_more": page["has_more"],
+            "source": "local_cache",
+        }
+
+    def _wechat_native_store_account(self, fakeid: str, account: dict | None) -> dict:
+        existing = _wechat_collect_queries.get_account(fakeid) or {}
+        payload = public_account_preview(existing)
+        incoming = public_account_preview(account or {})
+        for key, value in incoming.items():
+            if value is not None and value != "":
+                payload[key] = value
+        payload["fakeid"] = fakeid
+        _wechat_collect_queries.upsert_account(payload)
+        return public_account_preview(_wechat_collect_queries.get_account(fakeid) or payload)
+
+    def _wechat_native_store_articles(self, fakeid: str, articles: list[dict]) -> None:
+        for article in articles:
+            link = str(article.get("link") or article.get("url") or "").strip()
+            if not link:
+                continue
+            _wechat_collect_queries.upsert_article(fakeid, article)
+
     def _api_wechat_native_preview(self, body: dict):
         body = body or {}
         try:
@@ -1648,49 +1696,60 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     raise ValueError("文章链接不合法")
             provider = self._wechat_native_provider(str(body.get("session_id") or ""), body)
             begin = max(0, int(body.get("begin") or 0))
-            page_size = max(1, min(int(body.get("page_size") or body.get("limit") or 20), 20))
+            page_size = max(1, min(int(body.get("page_size") or body.get("limit") or 20), 100))
+            max_articles = max(1, min(int(body.get("max_articles") or 50), 1000))
             if not fakeid and article_url:
                 account = provider.account_by_article_url(article_url)
                 fakeid = str(account.get("fakeid") or "").strip()
                 if not fakeid:
                     raise ValueError("无法解析公众号 fakeid，请手动搜索公众号")
-            elif fakeid and body.get("account_name"):
-                account = {"fakeid": fakeid, "nickname": str(body.get("account_name") or "")}
-            if hasattr(provider, "list_article_page"):
-                page = provider.list_article_page(
-                    fakeid,
-                    keyword=str(body.get("keyword") or ""),
-                    begin=begin,
-                    page_size=page_size,
-                )
-                articles = page.get("articles") or []
-                self._send_json({
-                    "account": account,
-                    "articles": articles,
-                    "total": len(articles),
-                    "total_count": page.get("total_count") or len(articles),
-                    "begin": page.get("begin", begin),
-                    "page_size": page.get("page_size", page_size),
-                    "next_begin": page.get("next_begin"),
-                    "has_more": bool(page.get("has_more")),
-                })
-                return
+            elif fakeid:
+                body_account = body.get("account") if isinstance(body.get("account"), dict) else {}
+                if str(body_account.get("fakeid") or "").strip() == fakeid:
+                    account = dict(body_account)
+                if body.get("account_name"):
+                    account = {
+                        **account,
+                        "fakeid": fakeid,
+                        "nickname": str(body.get("account_name") or ""),
+                    }
+            if not fakeid:
+                raise ValueError("fakeid 不能为空")
             articles = provider.list_articles(
                 fakeid,
                 keyword=str(body.get("keyword") or ""),
-                max_articles=page_size,
-                page_size=page_size,
-                begin=begin,
+                max_articles=max_articles,
+                page_size=20,
+                begin=0,
             )
-            self._send_json({
-                "account": account,
-                "articles": articles,
-                "total": len(articles),
-                "begin": begin,
-                "page_size": page_size,
-                "next_begin": begin + page_size if len(articles) >= page_size else None,
-                "has_more": len(articles) >= page_size,
-            })
+            stored_account = self._wechat_native_store_account(fakeid, account or {"fakeid": fakeid})
+            self._wechat_native_store_articles(fakeid, articles)
+            payload = self._wechat_native_cached_article_payload(
+                fakeid,
+                keyword=str(body.get("keyword") or ""),
+                begin=begin,
+                page_size=page_size,
+            )
+            payload["account"] = stored_account
+            payload["source"] = "upstream_refresh"
+            self._send_json(payload)
+        except Exception as exc:
+            self._send_wechat_native_error(exc, 400)
+
+    def _api_wechat_native_cached_articles(self, body: dict):
+        body = body or {}
+        try:
+            fakeid = str(body.get("fakeid") or "").strip()
+            if not fakeid:
+                raise ValueError("fakeid 不能为空")
+            begin = max(0, int(body.get("begin") or 0))
+            page_size = max(1, min(int(body.get("page_size") or body.get("limit") or 20), 100))
+            self._send_json(self._wechat_native_cached_article_payload(
+                fakeid,
+                keyword=str(body.get("keyword") or ""),
+                begin=begin,
+                page_size=page_size,
+            ))
         except Exception as exc:
             self._send_wechat_native_error(exc, 400)
 
@@ -3656,7 +3715,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "文件为空"}, 400)
                 return
 
-            suffix = pathlib.Path(filename).suffix
+            suffix = Path(filename).suffix
             with tempfile.NamedTemporaryFile(
                 suffix=suffix, delete=False, mode="wb"
             ) as tmp:

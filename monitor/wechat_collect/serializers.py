@@ -3,6 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 
+from monitor.wechat_collect.models import normalize_account_preview, normalize_article_preview
+
+
+PUBLIC_ACCOUNT_EXTRA_FIELDS = (
+    "article_biz",
+    "article_author",
+    "matched_name",
+    "lookup_mode",
+)
+
 
 def public_session(row: dict) -> dict:
     return {
@@ -16,6 +26,23 @@ def public_session(row: dict) -> dict:
         "created_at": row.get("created_at") or "",
         "updated_at": row.get("updated_at") or "",
     }
+
+
+def public_account_preview(account: dict | None) -> dict:
+    account = account or {}
+    public = normalize_account_preview(account)
+    for field in PUBLIC_ACCOUNT_EXTRA_FIELDS:
+        value = account.get(field)
+        if value is not None and value != "":
+            public[field] = value
+    return public
+
+
+def public_article_preview(article: dict | None) -> dict:
+    article = article or {}
+    public = normalize_article_preview(article)
+    public["url"] = public.get("link") or ""
+    return public
 
 
 def public_task(task: dict) -> dict:

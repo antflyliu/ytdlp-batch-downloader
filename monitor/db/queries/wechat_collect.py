@@ -171,6 +171,22 @@ def upsert_account(account: dict) -> None:
         )
 
 
+def get_account(fakeid: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM wechat_collect_accounts WHERE fakeid = ?",
+            (fakeid,),
+        ).fetchone()
+    if not row:
+        return None
+    item = dict(row)
+    raw = _json_loads(item.get("raw_json"), {})
+    if isinstance(raw, dict):
+        item = {**raw, **item}
+    item["raw_json"] = raw
+    return item
+
+
 def upsert_article(
     fakeid: str,
     article: dict,
@@ -199,7 +215,10 @@ def upsert_article(
                  raw_json=excluded.raw_json,
                  local_path=COALESCE(NULLIF(excluded.local_path, ''), wechat_collect_articles.local_path),
                  export_format=COALESCE(NULLIF(excluded.export_format, ''), wechat_collect_articles.export_format),
-                 status=excluded.status,
+                 status=CASE
+                   WHEN excluded.status = 'listed' THEN wechat_collect_articles.status
+                   ELSE excluded.status
+                 END,
                  updated_at=excluded.updated_at""",
             (
                 fakeid,
@@ -219,6 +238,79 @@ def upsert_article(
                 now,
             ),
         )
+
+
+def _article_where(fakeid: str, keyword: str = "") -> tuple[str, list[Any]]:
+    where = ["fakeid = ?"]
+    params: list[Any] = [fakeid]
+    keyword = (keyword or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        where.append("(title LIKE ? OR digest LIKE ? OR author_name LIKE ? OR link LIKE ?)")
+        params.extend([like, like, like, like])
+    return " AND ".join(where), params
+
+
+def _normalize_article_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    raw = _json_loads(item.get("raw_json"), {})
+    merged = raw if isinstance(raw, dict) else {}
+    merged = {**merged, **item}
+    merged["raw_json"] = raw
+    merged["link"] = merged.get("link") or merged.get("url") or ""
+    merged["url"] = merged.get("url") or merged.get("link") or ""
+    return merged
+
+
+def count_articles(fakeid: str, *, keyword: str = "") -> int:
+    where_sql, params = _article_where(fakeid, keyword)
+    with get_connection() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM wechat_collect_articles WHERE {where_sql}",
+            params,
+        ).fetchone()
+    return int(row[0] if row else 0)
+
+
+def list_articles(
+    fakeid: str,
+    *,
+    keyword: str = "",
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    where_sql, params = _article_where(fakeid, keyword)
+    limit = max(1, min(int(limit or 20), 100))
+    offset = max(0, int(offset or 0))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""SELECT *
+                FROM wechat_collect_articles
+                WHERE {where_sql}
+                ORDER BY COALESCE(update_time, create_time, 0) DESC, id DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+    return [item for row in rows if (item := _normalize_article_row(row))]
+
+
+def list_article_page(fakeid: str, *, keyword: str = "", begin: int = 0, page_size: int = 20) -> dict:
+    begin = max(0, int(begin or 0))
+    page_size = max(1, min(int(page_size or 20), 100))
+    total_count = count_articles(fakeid, keyword=keyword)
+    articles = list_articles(fakeid, keyword=keyword, limit=page_size, offset=begin)
+    next_begin = begin + page_size
+    has_more = next_begin < total_count
+    return {
+        "articles": articles,
+        "total_count": total_count,
+        "begin": begin,
+        "page_size": page_size,
+        "next_begin": next_begin if has_more else None,
+        "has_more": has_more,
+    }
 
 
 def create_task(payload: dict, *, task_id: str, output_dir: str) -> None:

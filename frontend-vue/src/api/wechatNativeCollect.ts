@@ -64,6 +64,7 @@ export interface WechatNativeStartPayload {
   session_id: string
   article_url?: string
   fakeid?: string
+  account?: Record<string, any>
   account_name?: string
   urls?: string[]
   keyword?: string
@@ -126,6 +127,23 @@ export default {
       has_more?: boolean
     }>(
       '/api/wechat-native/articles/preview',
+      payload,
+    )
+  },
+
+  cachedArticles(payload: { fakeid: string; keyword?: string; begin?: number; page_size?: number; limit?: number }) {
+    return request.post<{
+      account: Record<string, any>
+      articles: Array<Record<string, any>>
+      total: number
+      total_count?: number
+      begin?: number
+      page_size?: number
+      next_begin?: number | null
+      has_more?: boolean
+      source?: string
+    }>(
+      '/api/wechat-native/articles/cache',
       payload,
     )
   },

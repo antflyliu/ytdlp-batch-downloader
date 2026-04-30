@@ -334,3 +334,29 @@ def test_native_proxy_policy_uses_auto_mode_for_unsaved_native_context(monkeypat
     assert plan.source == "direct"
     assert seen["account"]["download_proxy_mode"] == "auto"
     assert seen["cookies_file_present"] is True
+
+
+def test_native_proxy_policy_disallows_rotating_proxy_with_login_cookies(monkeypatch):
+    from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
+
+    class Route:
+        proxy = "http://rotating.example.test:8080"
+        proxy_pool = None
+        resolved_proxy_source = "system_paid"
+        provider_tier = "paid"
+        reason = "paid rotating"
+        warnings = ["route warning"]
+        masked_proxy_endpoint = "http://rotating.example.test:8080"
+        session_mode = "rotating"
+
+    def fake_resolve(account, is_auto_download=False, cookies_file_present=False, user_forced_direct=False):
+        return Route()
+
+    monkeypatch.setattr("monitor.wechat_collect.proxy_policy.proxy_router.resolve_proxy_download", fake_resolve)
+
+    plan = resolve_native_proxy_plan({"download_proxy_mode": "auto"}, cookies_present=True)
+
+    assert plan.proxies == []
+    assert plan.source == "direct"
+    assert plan.session_mode == "rotating"
+    assert "Sticky Session" in " ".join(plan.warnings)
