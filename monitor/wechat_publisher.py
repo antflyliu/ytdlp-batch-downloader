@@ -66,6 +66,9 @@ class WechatArticleRenderResult:
     author: Optional[str] = None
     digest: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+    cover_image_path: str | None = None
+    layout_modules_used: int = 0
+    reading_time_minutes: float | None = None
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
