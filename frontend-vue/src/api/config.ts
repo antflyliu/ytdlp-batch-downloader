@@ -44,6 +44,7 @@ export interface AppConfig {
   whisper_base_url?: string
   whisper_api_key?: string
   whisper_model?: string
+  whisper_compute_type?: string
   article_output_dir?: string
   article_tools_path?: string
   article_default_target_lang?: string
@@ -53,6 +54,10 @@ export interface AppConfig {
   article_subtitle_proxy_mode?: string
   article_subtitle_proxy_pool_id?: number | null
   article_author?: string
+  article_wechat_prompt_role?: string
+  article_wechat_prompt_reader_persona?: string
+  article_wechat_prompt_style?: string
+  article_wechat_prompt_max_chars?: number
   article_llm_optimize_model?: string
   article_llm_summary_model?: string
   article_llm_translate_model?: string
@@ -87,6 +92,8 @@ export interface AppConfig {
   wechat_default_author?: string
   wechat_default_theme?: string
   wechat_default_color?: string
+  wechat_markdown_renderer?: string
+  wechat_baoyu_markdown_to_html_script?: string
   wechat_need_open_comment?: boolean
   wechat_only_fans_can_comment?: boolean
   wechat_exporter_base_url?: string

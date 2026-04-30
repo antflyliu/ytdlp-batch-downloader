@@ -6,8 +6,10 @@ export interface WechatPublishPayload {
   title?: string
   content?: string
   author?: string
+  digest?: string
   theme?: string
   color?: string
+  renderer?: string
   cover_image?: string
   need_open_comment?: boolean
   only_fans_can_comment?: boolean
@@ -30,6 +32,14 @@ export interface WechatPublishTask {
   finished_at?: string
 }
 
+export interface WechatPublishResponse {
+  task_id: string
+  status: string
+  renderer?: string
+  html_path?: string
+  warnings?: string[]
+}
+
 export default {
   getConfig() {
     return request<{
@@ -37,6 +47,8 @@ export default {
       wechat_default_author: string
       wechat_default_theme: string
       wechat_default_color: string
+      wechat_markdown_renderer: string
+      wechat_baoyu_markdown_to_html_script: string
       wechat_need_open_comment: boolean
       wechat_only_fans_can_comment: boolean
       configured: boolean
@@ -47,7 +59,7 @@ export default {
   },
 
   saveToDraft(data: WechatPublishPayload) {
-    return request<{ task_id: string; status: string }>({
+    return request<WechatPublishResponse>({
       url: '/api/wechat/draft',
       method: 'post',
       data,
@@ -55,7 +67,7 @@ export default {
   },
 
   publishNow(data: WechatPublishPayload) {
-    return request<{ task_id: string; status: string }>({
+    return request<WechatPublishResponse>({
       url: '/api/wechat/publish',
       method: 'post',
       data,

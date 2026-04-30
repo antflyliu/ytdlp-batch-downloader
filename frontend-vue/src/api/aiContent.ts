@@ -1,10 +1,16 @@
 import request from '@/api/request'
 
 export interface ArticleTaskCreatePayload {
+  source_type?: 'video' | 'wechat_article'
   monitor_video_id?: number
   video_id?: string
   video_url?: string
   video_title?: string
+  wechat_artifact_id?: string
+  article_source_path?: string
+  article_text?: string
+  source_url?: string
+  source_title?: string
   target_lang?: string
   auto_translate?: boolean
 }
