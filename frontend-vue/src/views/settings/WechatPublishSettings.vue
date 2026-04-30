@@ -69,6 +69,17 @@
           <NSelect v-model:value="form.wechat_default_color" :options="colorOptions" style="width: 220px" />
         </NFormItem>
 
+        <NFormItem :label="t('wechatPublish.markdownRenderer')" path="wechat_markdown_renderer">
+          <NSelect v-model:value="form.wechat_markdown_renderer" :options="rendererOptions" style="width: 260px" />
+        </NFormItem>
+
+        <NFormItem :label="t('wechatPublish.baoyuScript')" path="wechat_baoyu_markdown_to_html_script">
+          <NInput
+            v-model:value="form.wechat_baoyu_markdown_to_html_script"
+            :placeholder="t('wechatPublish.baoyuScriptHint')"
+          />
+        </NFormItem>
+
         <NFormItem :label="t('wechatPublish.needOpenComment')" path="wechat_need_open_comment">
           <NSwitch v-model:value="form.wechat_need_open_comment" />
         </NFormItem>
@@ -110,6 +121,8 @@ const form = reactive<AppConfig>({
   wechat_default_author: '',
   wechat_default_theme: 'default',
   wechat_default_color: 'blue',
+  wechat_markdown_renderer: 'auto',
+  wechat_baoyu_markdown_to_html_script: '',
   wechat_need_open_comment: true,
   wechat_only_fans_can_comment: false,
   wechat_exporter_base_url: 'https://down.mptext.top',
@@ -140,6 +153,16 @@ const colorOptions = [
   'rose', 'olive', 'black', 'gray', 'pink', 'red', 'orange',
 ].map((value) => ({ label: value, value }))
 
+const rendererOptions = computed(() => [
+  { label: t('wechatPublish.rendererAuto'), value: 'auto' },
+  { label: t('wechatPublish.rendererBaoyu'), value: 'baoyu-markdown-to-html' },
+  { label: t('wechatPublish.rendererLocal'), value: 'local' },
+])
+
+const normalizeRenderer = (value?: string) => (
+  value === 'baoyu' ? 'baoyu-markdown-to-html' : (value || 'auto')
+)
+
 const collectFormatOptions = [
   { label: 'Markdown', value: 'markdown' },
   { label: 'HTML', value: 'html' },
@@ -159,6 +182,12 @@ const load = async () => {
     form.wechat_default_author = data.wechat_default_author || ''
     form.wechat_default_theme = data.wechat_default_theme || 'default'
     form.wechat_default_color = data.wechat_default_color || 'blue'
+    form.wechat_markdown_renderer = normalizeRenderer(data.wechat_markdown_renderer || fullConfig.wechat_markdown_renderer)
+    form.wechat_baoyu_markdown_to_html_script = (
+      data.wechat_baoyu_markdown_to_html_script
+      || fullConfig.wechat_baoyu_markdown_to_html_script
+      || ''
+    )
     form.wechat_need_open_comment = data.wechat_need_open_comment ?? true
     form.wechat_only_fans_can_comment = data.wechat_only_fans_can_comment ?? false
     form.wechat_exporter_base_url = fullConfig.wechat_exporter_base_url || 'https://down.mptext.top'

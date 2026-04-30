@@ -12,6 +12,10 @@
       </div>
     </div>
 
+    <NAlert type="info" :bordered="false">
+      {{ t('wechatCollect.exporterNotice') }}
+    </NAlert>
+
     <div class="wechat-collect-grid">
       <div ref="sourcePanelRef" class="collect-source-panel">
         <NCard class="collect-card" :title="t('wechatCollect.sourceTitle')">

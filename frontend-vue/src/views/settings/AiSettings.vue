@@ -71,6 +71,14 @@
           <NInput v-model:value="form.whisper_model" />
         </NFormItem>
 
+        <NFormItem :label="t('config.whisperComputeType')" path="whisper_compute_type">
+          <NSelect
+            v-model:value="form.whisper_compute_type"
+            :options="whisperComputeTypeOptions"
+            style="width: 240px"
+          />
+        </NFormItem>
+
         <NFormItem :label="t('config.articleOutputDir')" path="article_output_dir">
           <NInput v-model:value="form.article_output_dir" />
         </NFormItem>
@@ -383,6 +391,13 @@ const whisperProviderOptions = [
   { label: t('config.whisperProviderLocal'), value: 'local' },
 ]
 
+const whisperComputeTypeOptions = [
+  { label: t('config.whisperComputeAuto'), value: 'auto' },
+  { label: 'float32', value: 'float32' },
+  { label: 'float16', value: 'float16' },
+  { label: 'int8', value: 'int8' },
+]
+
 const subtitleProxyModeOptions = [
   { label: t('config.subtitleProxyModeAuto'), value: 'auto' },
   { label: t('config.subtitleProxyModeSystemOnly'), value: 'system_only' },
@@ -410,6 +425,7 @@ const form = reactive<AppConfig>({
   whisper_base_url: '',
   whisper_api_key: '',
   whisper_model: 'base',
+  whisper_compute_type: 'auto',
   article_output_dir: '',
   article_tools_path: '',
   article_default_target_lang: 'zh-Hans',
@@ -476,6 +492,7 @@ const loadConfig = async () => {
     form.whisper_provider = data.whisper_provider || 'api'
     form.whisper_api_key = hydrateSecret(data.whisper_api_key || '', whisperApiKeyInput, hasSavedWhisperApiKey)
     form.whisper_model = data.whisper_model || 'base'
+    form.whisper_compute_type = data.whisper_compute_type || 'auto'
     form.article_output_dir = data.article_output_dir || ''
     form.article_tools_path = data.article_tools_path || ''
     form.article_default_target_lang = data.article_default_target_lang || data.article_target_lang || 'zh-Hans'
