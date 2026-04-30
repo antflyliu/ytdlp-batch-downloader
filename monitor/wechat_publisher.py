@@ -1129,6 +1129,7 @@ def render_md_to_html_for_wechat(
     baoyu_script: str | Path | None = None,
     enable_ai_cover: bool = False,
     enable_layout_modules: bool = False,
+    timeout_seconds: int = 120,
 ) -> WechatArticleRenderResult:
     """Render project draft markdown into WeChat-compatible HTML content."""
     path = Path(input_path)
@@ -1152,6 +1153,7 @@ def render_md_to_html_for_wechat(
                 theme=selected_theme,
                 color=selected_color,
                 baoyu_script=baoyu_script,
+                timeout_seconds=timeout_seconds,
                 enable_ai_cover=enable_ai_cover,
                 enable_layout_modules=enable_layout_modules,
             )
