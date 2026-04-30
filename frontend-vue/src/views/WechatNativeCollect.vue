@@ -168,8 +168,8 @@
       <NCard class="native-card native-preview-card" :title="t('wechatNativeCollect.previewTitle')">
         <template #header-extra>
           <div class="preview-controls">
-            <NTag v-if="previewList.length" size="small" :bordered="false" type="success">
-              {{ t('wechatNativeCollect.articleCount', { n: previewList.length }) }}
+            <NTag v-if="previewTotalCount" size="small" :bordered="false" type="success">
+              {{ t('wechatNativeCollect.articleCount', { n: previewTotalCount }) }}
             </NTag>
             <div class="preview-size-control">
               <span>{{ t('wechatNativeCollect.pageSize') }}</span>
@@ -289,8 +289,8 @@
 
               <div v-if="selectedTask.error" class="error-box">{{ selectedTask.error }}</div>
 
-              <div class="result-list">
-                <div v-for="item in selectedTask.results || []" :key="item.artifact_id || item.url" class="result-item">
+              <div v-if="selectedTask.results && selectedTask.results.length" class="result-list">
+                <div v-for="item in selectedTask.results" :key="item.artifact_id || item.url" class="result-item">
                   <NTag size="small" :bordered="false" :type="item.status === 'success' ? 'success' : 'error'">
                     {{ item.status === 'success' ? t('wechatNativeCollect.success') : t('wechatNativeCollect.failed') }}
                   </NTag>
@@ -386,6 +386,9 @@ const previewBegin = ref(0)
 const previewPageSize = ref(8)
 const previewNextBegin = ref<number | null>(null)
 const previewHasMore = ref(false)
+const previewTotalCount = ref(0)
+const selectedAccountMetadata = ref<Record<string, any> | null>(null)
+const previewQuery = ref<{ fakeid: string; keyword: string } | null>(null)
 const tasks = ref<WechatNativeTask[]>([])
 const selectedTaskId = ref('')
 const selectedTask = ref<WechatNativeTask | null>(null)
@@ -450,11 +453,31 @@ const progressPercent = computed(() => {
 const previewRangeStart = computed(() => (previewList.value.length ? previewBegin.value + 1 : 0))
 const previewRangeEnd = computed(() => previewBegin.value + previewList.value.length)
 
+function applyPreviewPayload(data: Record<string, any> | undefined, fallbackBegin: number, fallbackPageSize: number) {
+  const payload = data || {}
+  previewAccount.value = payload.account || previewAccount.value || {}
+  previewList.value = Array.isArray(payload.articles) ? payload.articles : []
+  previewBegin.value = Number(payload.begin ?? fallbackBegin)
+  previewPageSize.value = normalizePreviewPageSize(payload.page_size ?? fallbackPageSize)
+  previewNextBegin.value = payload.next_begin == null ? null : Number(payload.next_begin)
+  previewHasMore.value = Boolean(payload.has_more)
+  previewTotalCount.value = Number(payload.total_count ?? payload.total ?? previewList.value.length)
+}
+
+function selectedAccountPayload() {
+  if (sourceMode.value !== 'fakeid') return undefined
+  const fakeid = form.fakeid.trim()
+  const selectedFakeid = String(selectedAccountMetadata.value?.fakeid || '').trim()
+  if (!fakeid || fakeid !== selectedFakeid) return undefined
+  return selectedAccountMetadata.value || undefined
+}
+
 function basePayload() {
   return {
     session_id: selectedSessionId.value,
     article_url: sourceMode.value === 'url' ? form.article_url.trim() : undefined,
     fakeid: sourceMode.value === 'fakeid' ? form.fakeid.trim() : undefined,
+    account: selectedAccountPayload(),
     account_name: sourceMode.value === 'fakeid' ? form.account_name.trim() : undefined,
     urls: sourceMode.value === 'urls' ? parsedUrls.value : undefined,
     keyword: form.keyword.trim() || undefined,
@@ -630,6 +653,7 @@ async function searchAccounts() {
 function selectAccount(account: Record<string, any>) {
   form.fakeid = String(account.fakeid || '')
   form.account_name = String(account.nickname || account.alias || '')
+  selectedAccountMetadata.value = account && account.fakeid ? { ...account } : null
   if (form.fakeid) {
     sourceMode.value = 'fakeid'
   }
@@ -640,6 +664,8 @@ async function previewArticles(begin = 0) {
   previewError.value = ''
   previewAccount.value = {}
   previewList.value = []
+  previewTotalCount.value = 0
+  previewQuery.value = null
   try {
     const maxArticles = Math.max(1, Math.min(Number(form.max_articles || 50), 1000))
     const pageSize = Math.min(normalizePreviewPageSize(previewPageSize.value), maxArticles)
@@ -649,16 +675,37 @@ async function previewArticles(begin = 0) {
       page_size: pageSize,
       limit: pageSize,
     })
-    previewAccount.value = res.data?.account || {}
-    previewList.value = Array.isArray(res.data?.articles) ? res.data.articles : []
-    previewBegin.value = Number(res.data?.begin ?? begin)
-    previewPageSize.value = normalizePreviewPageSize(res.data?.page_size ?? pageSize)
-    previewNextBegin.value = res.data?.next_begin == null ? null : Number(res.data.next_begin)
-    previewHasMore.value = Boolean(res.data?.has_more)
+    applyPreviewPayload(res.data, begin, pageSize)
+    const fakeid = String(previewAccount.value?.fakeid || '').trim()
+    previewQuery.value = fakeid ? { fakeid, keyword: form.keyword.trim() } : null
   } catch (error: any) {
     previewBegin.value = 0
     previewNextBegin.value = null
     previewHasMore.value = false
+    previewTotalCount.value = 0
+    previewError.value = error?.response?.data?.error || error?.message || t('wechatNativeCollect.previewFailed')
+  } finally {
+    previewing.value = false
+  }
+}
+
+async function loadCachedPreviewArticles(begin = 0) {
+  const snapshot = previewQuery.value
+  const fakeid = String(snapshot?.fakeid || '').trim()
+  if (!fakeid) return
+  previewing.value = true
+  previewError.value = ''
+  try {
+    const pageSize = normalizePreviewPageSize(previewPageSize.value)
+    const res = await wechatNativeApi.cachedArticles({
+      fakeid,
+      keyword: snapshot?.keyword || undefined,
+      begin,
+      page_size: pageSize,
+      limit: pageSize,
+    })
+    applyPreviewPayload(res.data, begin, pageSize)
+  } catch (error: any) {
     previewError.value = error?.response?.data?.error || error?.message || t('wechatNativeCollect.previewFailed')
   } finally {
     previewing.value = false
@@ -674,18 +721,18 @@ function normalizePreviewPageSize(value: unknown) {
 function handlePreviewPageSizeChange(value: number) {
   previewPageSize.value = normalizePreviewPageSize(value)
   if (previewList.value.length || previewAccount.value.fakeid) {
-    void previewArticles(0)
+    void loadCachedPreviewArticles(0)
   }
 }
 
 function previewPreviousPage() {
   const previousBegin = Math.max(0, previewBegin.value - previewPageSize.value)
-  void previewArticles(previousBegin)
+  void loadCachedPreviewArticles(previousBegin)
 }
 
 function previewNextPage() {
   if (previewNextBegin.value == null) return
-  void previewArticles(previewNextBegin.value)
+  void loadCachedPreviewArticles(previewNextBegin.value)
 }
 
 async function startCollect() {
@@ -1101,8 +1148,9 @@ onUnmounted(() => {
 .task-layout {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: minmax(150px, 0.78fr) minmax(0, 1.22fr);
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
   min-height: 0;
   height: 100%;
 }
@@ -1116,12 +1164,30 @@ onUnmounted(() => {
   scrollbar-gutter: stable;
 }
 
+.task-list {
+  max-height: clamp(124px, 22vh, 220px);
+}
+
 .task-detail {
+  min-height: 0;
+  gap: 10px;
   overflow: hidden;
 }
 
+.task-detail .detail-head {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.task-detail .result-list {
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
 .progress-card {
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-alt);

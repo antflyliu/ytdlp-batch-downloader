@@ -159,7 +159,7 @@ const themeOptions = computed(() => [
 ])
 
 // 堡鱼主题列表
-export const WECHAT_BAOYU_THEMES = [
+const WECHAT_BAOYU_THEMES = [
   'default', 'grace', 'simple', 'modern',
 ] as const
 type WechatBaoyuTheme = typeof WECHAT_BAOYU_THEMES[number]
