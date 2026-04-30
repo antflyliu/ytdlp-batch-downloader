@@ -1,5 +1,8 @@
 # WeChat Article Exporter Integration
 
+> This document covers the third-party `wechat-article-exporter` path exposed as `/api/wechat-collect/*`.
+> For the first-party QR-login collector exposed as `/api/wechat-native/*`, see [wechat-native-collector.md](wechat-native-collector.md).
+
 ## Why this project fits
 
 `wechat-article-exporter` is built around the same workflow we need here: discover Official Account articles, cache article metadata, and export content as `html`, `json`, `excel`, `txt`, `md`, `docx`, or `pdf`. Its README calls out HTML fidelity and an open API surface, plus Docker and Cloudflare deployment options, so this project can point at the hosted service or a private deployment without carrying the whole Nuxt app inside this Python/Vue monitor.
