@@ -65,6 +65,12 @@ const routes = [
     meta: { keepAlive: false },
     component: () => import('@/views/WechatCollect.vue'),
   },
+  {
+    path: '/wechat-native-collect',
+    name: 'wechatNativeCollect',
+    meta: { keepAlive: false },
+    component: () => import('@/views/WechatNativeCollect.vue'),
+  },
   // Settings hub — parent container
   {
     path: '/settings-hub',

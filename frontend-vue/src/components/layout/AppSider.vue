@@ -160,6 +160,7 @@ const navItems = [
   { key: 'clipHistory', path: '/clip-history', icon: clipHistoryIcon },
   { key: 'aiCreation', path: '/ai-creation', icon: aiCreationIcon },
   { key: 'wechatCollect', path: '/wechat-collect', icon: wechatCollectIcon },
+  { key: 'wechatNativeCollect', path: '/wechat-native-collect', icon: wechatCollectIcon },
   { key: 'resources', path: '/resources', icon: resourceIcon },
 ]
 
@@ -176,6 +177,7 @@ const settingsSubItems = [
 const explicitNavLabels: Record<string, string> = {
   aiCreation: 'nav.aiCreation',
   wechatCollect: 'nav.wechatCollect',
+  wechatNativeCollect: 'nav.wechatNativeCollect',
 }
 
 const navLabel = (key: string) => {

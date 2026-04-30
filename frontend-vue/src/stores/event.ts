@@ -12,7 +12,7 @@ export const useEventStore = defineStore('ws-store', () => {
             if (handles.value.hasOwnProperty(data.type)) {
                 handles.value[data.type](data.data)
             } else {
-                console.log("找不到该类型的消息处理器")
+                console.warn("event: no handler for unknown event type")
             }
         })
     }
