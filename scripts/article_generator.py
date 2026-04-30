@@ -1262,6 +1262,8 @@ class ArticleGenerationPipeline:
                         color=str(self.cfg.get("wechat_default_color") or "blue"),
                         renderer=str(self.cfg.get("wechat_markdown_renderer") or "auto"),
                         baoyu_script=str(self.cfg.get("wechat_baoyu_markdown_to_html_script") or ""),
+                        enable_ai_cover=bool(self.cfg.get("wechat_baoyu_ai_cover")),
+                        enable_layout_modules=bool(self.cfg.get("wechat_baoyu_layout_modules")),
                     )
                     author_for_wx = (
                         render_result.author
@@ -1390,6 +1392,8 @@ class ArticleGenerationPipeline:
                 color=str(self.cfg.get("wechat_default_color") or "blue"),
                 renderer=str(self.cfg.get("wechat_markdown_renderer") or "auto"),
                 baoyu_script=str(self.cfg.get("wechat_baoyu_markdown_to_html_script") or ""),
+                enable_ai_cover=bool(self.cfg.get("wechat_baoyu_ai_cover")),
+                enable_layout_modules=bool(self.cfg.get("wechat_baoyu_layout_modules")),
             )
             result["wechat_renderer"] = render_result.renderer
             result["wechat_html_path"] = render_result.html_path

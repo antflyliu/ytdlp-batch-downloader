@@ -870,21 +870,21 @@ def _render_local_markdown(body: str, base_dir: Path) -> str:
                     try:
                         lexer = get_lexer_by_name(code_lang) if code_lang else TextLexer()
                         formatter = HtmlFormatter(nowrap=True, cssclass="codehilite")
-                        code_html = highlight(chr(92)+"n".join(code_lines), lexer, formatter)
+                        code_html = highlight("\n".join(code_lines), lexer, formatter)
                         code_html = (
                             f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
                             f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
                             f'{code_html}</pre>'
                         )
                     except Exception:
-                        code_html = html.escape(chr(92)+"n".join(code_lines))
+                        code_html = html.escape("\n".join(code_lines))
                         code_html = (
                             f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
                             f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
                             f'<code>{code_html}</code></pre>'
                         )
                 else:
-                    code_html = html.escape(chr(92)+"n".join(code_lines))
+                    code_html = html.escape("\n".join(code_lines))
                     code_html = (
                         f'<pre style="margin:16px 0;padding:12px;overflow:auto;'
                         f'background:#f6f4ef;border-radius:6px;line-height:1.55;">'
