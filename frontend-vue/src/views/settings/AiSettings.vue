@@ -71,11 +71,37 @@
           <NInput v-model:value="form.whisper_model" />
         </NFormItem>
 
+        <NFormItem :label="t('config.whisperLanguage')" path="whisper_language">
+          <NSelect
+            v-model:value="form.whisper_language"
+            :options="whisperLanguageOptions"
+            style="width: 240px"
+          />
+        </NFormItem>
+
         <NFormItem :label="t('config.whisperComputeType')" path="whisper_compute_type">
           <NSelect
             v-model:value="form.whisper_compute_type"
             :options="whisperComputeTypeOptions"
             style="width: 240px"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.whisperDevice')" path="whisper_device">
+          <NSelect
+            v-model:value="form.whisper_device"
+            :options="whisperDeviceOptions"
+            style="width: 240px"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.whisperChunkSeconds')" path="whisper_chunk_seconds">
+          <NInputNumber
+            v-model:value="form.whisper_chunk_seconds"
+            :min="30"
+            :max="60"
+            :step="5"
+            style="width: 140px"
           />
         </NFormItem>
 
@@ -357,6 +383,7 @@ const geminiApiKeyPlaceholder = computed(() => (
 const providerOptions = [
   { label: t('config.llmQwen'), value: 'qwen' },
   { label: t('config.llmOpenai'), value: 'openai' },
+  { label: t('config.llmAnthropic'), value: 'anthropic' },
   { label: t('config.llmOllama'), value: 'ollama' },
   { label: t('config.llmGroq'), value: 'groq' },
 ]
@@ -396,6 +423,21 @@ const whisperComputeTypeOptions = [
   { label: 'float32', value: 'float32' },
   { label: 'float16', value: 'float16' },
   { label: 'int8', value: 'int8' },
+  { label: 'int8_float32', value: 'int8_float32' },
+]
+
+const whisperDeviceOptions = [
+  { label: t('config.whisperDeviceAuto'), value: 'auto' },
+  { label: 'CUDA', value: 'cuda' },
+  { label: 'CPU', value: 'cpu' },
+]
+
+const whisperLanguageOptions = [
+  { label: t('config.whisperLanguageAuto'), value: 'auto' },
+  { label: t('config.whisperLanguageZh'), value: 'zh' },
+  { label: t('config.whisperLanguageEn'), value: 'en' },
+  { label: t('config.whisperLanguageJa'), value: 'ja' },
+  { label: t('config.whisperLanguageKo'), value: 'ko' },
 ]
 
 const subtitleProxyModeOptions = [
@@ -426,6 +468,9 @@ const form = reactive<AppConfig>({
   whisper_api_key: '',
   whisper_model: 'base',
   whisper_compute_type: 'auto',
+  whisper_device: 'auto',
+  whisper_chunk_seconds: 30,
+  whisper_language: 'auto',
   article_output_dir: '',
   article_tools_path: '',
   article_default_target_lang: 'zh-Hans',
@@ -447,7 +492,7 @@ const form = reactive<AppConfig>({
   image_generation_fallback_order: 'minimax,openai,gemini,local',
   image_generation_timeout_seconds: 300,
   minimax_api_key: '',
-  minimax_base_url: 'https://api.minimax.io',
+  minimax_base_url: 'https://api.minimaxi.com',
   minimax_image_model: 'image-01',
   openai_api_key: '',
   openai_base_url: 'https://api.openai.com/v1',
@@ -493,6 +538,9 @@ const loadConfig = async () => {
     form.whisper_api_key = hydrateSecret(data.whisper_api_key || '', whisperApiKeyInput, hasSavedWhisperApiKey)
     form.whisper_model = data.whisper_model || 'base'
     form.whisper_compute_type = data.whisper_compute_type || 'auto'
+    form.whisper_device = data.whisper_device || 'auto'
+    form.whisper_chunk_seconds = data.whisper_chunk_seconds || 30
+    form.whisper_language = data.whisper_language || 'auto'
     form.article_output_dir = data.article_output_dir || ''
     form.article_tools_path = data.article_tools_path || ''
     form.article_default_target_lang = data.article_default_target_lang || data.article_target_lang || 'zh-Hans'
@@ -514,7 +562,7 @@ const loadConfig = async () => {
     form.image_generation_fallback_order = data.image_generation_fallback_order || 'minimax,openai,gemini,local'
     form.image_generation_timeout_seconds = data.image_generation_timeout_seconds || 300
     form.minimax_api_key = hydrateSecret(data.minimax_api_key || '', minimaxApiKeyInput, hasSavedMinimaxApiKey)
-    form.minimax_base_url = data.minimax_base_url || 'https://api.minimax.io'
+    form.minimax_base_url = data.minimax_base_url || 'https://api.minimaxi.com'
     form.minimax_image_model = data.minimax_image_model || 'image-01'
     form.openai_api_key = hydrateSecret(data.openai_api_key || '', openaiApiKeyInput, hasSavedOpenaiApiKey)
     form.openai_base_url = data.openai_base_url || 'https://api.openai.com/v1'

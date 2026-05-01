@@ -45,6 +45,9 @@ export interface AppConfig {
   whisper_api_key?: string
   whisper_model?: string
   whisper_compute_type?: string
+  whisper_device?: string
+  whisper_chunk_seconds?: number
+  whisper_language?: string
   article_output_dir?: string
   article_tools_path?: string
   article_default_target_lang?: string
