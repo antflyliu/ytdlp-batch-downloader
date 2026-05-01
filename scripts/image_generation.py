@@ -10,7 +10,6 @@ import base64
 import json
 import re
 import struct
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -72,22 +71,71 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
         raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
 
 
+def _append_api_endpoint(base_url: str, endpoint_path: str) -> str:
+    base = str(base_url or "").rstrip("/")
+    endpoint = "/" + endpoint_path.strip("/")
+    if not base:
+        return endpoint
+    parsed = urllib.parse.urlparse(base)
+    path = parsed.path.rstrip("/")
+    if path.endswith(endpoint):
+        return base
+    if path.endswith("/v1") and endpoint.startswith("/v1/"):
+        return base + endpoint[len("/v1"):]
+    return base + endpoint
+
+
 def _save_base64_image(path: Path, data: str) -> Path:
     value = data.strip()
     if "," in value and value.startswith("data:"):
         value = value.split(",", 1)[1]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(base64.b64decode(value))
-    return path
+    return _write_image_bytes(path, base64.b64decode(value))
 
 
 def _download_url(url: str, path: Path, headers: dict[str, str] | None = None) -> Path:
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=180) as resp:
         content = resp.read()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
+    return _write_image_bytes(path, content)
+
+
+def _image_suffix_and_mime(data: bytes) -> tuple[str | None, str | None]:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png", "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg", "image/jpeg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return ".gif", "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None, None
+
+
+def _path_for_image_bytes(path: Path, data: bytes) -> Path:
+    suffix, _mime_type = _image_suffix_and_mime(data)
+    if suffix and path.suffix.lower() != suffix:
+        return path.with_suffix(suffix)
     return path
+
+
+def _write_image_bytes(path: Path, data: bytes) -> Path:
+    output_path = _path_for_image_bytes(path, data)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(data)
+    return output_path
+
+
+def _mime_type_for_path(path: Path, fallback: str = "image/png") -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".gif":
+        return "image/gif"
+    if suffix == ".png":
+        return "image/png"
+    return fallback
 
 
 def _output_path(request: ImageGenerationRequest) -> Path:
@@ -173,6 +221,23 @@ def _first_string(payload: Any, keys: tuple[str, ...]) -> str | None:
     return None
 
 
+def _response_failed_count(response: Any) -> int:
+    if not isinstance(response, dict):
+        return 0
+    for container_key in ("metadata", "data"):
+        container = response.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        value = container.get("failed_count")
+        if value in (None, ""):
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 class MiniMaxImageProvider(ImageProvider):
     name = "minimax"
 
@@ -181,7 +246,7 @@ class MiniMaxImageProvider(ImageProvider):
 
     def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         api_key = str(self.cfg.get("minimax_api_key") or "").strip()
-        base_url = str(self.cfg.get("minimax_base_url") or "https://api.minimax.io").rstrip("/")
+        base_url = str(self.cfg.get("minimax_base_url") or "https://api.minimaxi.com").rstrip("/")
         model = str(self.cfg.get("minimax_image_model") or "image-01")
         payload = {
             "model": model,
@@ -189,9 +254,11 @@ class MiniMaxImageProvider(ImageProvider):
             "aspect_ratio": request.aspect_ratio,
             "response_format": "base64",
             "n": 1,
+            "prompt_optimizer": bool(self.cfg.get("minimax_prompt_optimizer", True)),
+            "aigc_watermark": False,
         }
         response = _post_json(
-            f"{base_url}/v1/image_generation",
+            _append_api_endpoint(base_url, "/v1/image_generation"),
             payload,
             {"Authorization": f"Bearer {api_key}"},
             timeout=int(self.cfg.get("image_generation_timeout_seconds") or 180),
@@ -199,18 +266,23 @@ class MiniMaxImageProvider(ImageProvider):
         base_resp = response.get("base_resp") if isinstance(response, dict) else None
         if isinstance(base_resp, dict) and base_resp.get("status_code") not in (None, 0):
             raise RuntimeError(str(base_resp.get("status_msg") or response))
-        if isinstance(response.get("data"), dict) and response["data"].get("failed_count"):
+        if _response_failed_count(response):
             raise RuntimeError(f"MiniMax 图片生成部分失败: {response}")
         image_data = _first_string(response, ("image_base64", "image_base64s", "base64"))
         image_url = _first_string(response, ("image_urls", "url", "image_url"))
         path = _output_path(request)
         if image_data:
-            _save_base64_image(path, image_data)
+            path = _save_base64_image(path, image_data)
         elif image_url:
-            _download_url(image_url, path)
+            path = _download_url(image_url, path)
         else:
             raise RuntimeError(f"MiniMax 未返回图片数据: {response}")
-        return ImageGenerationResult(provider=self.name, path=path, raw_metadata=response)
+        return ImageGenerationResult(
+            provider=self.name,
+            path=path,
+            mime_type=_mime_type_for_path(path),
+            raw_metadata=response,
+        )
 
 
 class OpenAIImageProvider(ImageProvider):
@@ -264,10 +336,17 @@ class OpenAIImageProvider(ImageProvider):
             "model": model,
             "prompt": request.prompt,
             "n": 1,
-            "size": request.size or self.cfg.get("openai_image_size") or _openai_size_for_ratio(request.aspect_ratio),
-            "quality": request.quality or self.cfg.get("openai_image_quality") or "medium",
+            "size": request.size or self.cfg.get("openai_image_size") or _openai_size_for_model(model, request.aspect_ratio),
         }
-        if request.output_format:
+        quality = request.quality or self.cfg.get("openai_image_quality") or ("standard" if model.startswith("dall-e") else "medium")
+        if model.startswith("dall-e-3"):
+            payload["response_format"] = "url"
+            payload["quality"] = quality
+        elif model.startswith("dall-e"):
+            payload["response_format"] = "url"
+        else:
+            payload["quality"] = quality
+        if request.output_format and not model.startswith("dall-e"):
             payload["output_format"] = request.output_format
         response = _post_json(
             f"{base_url}/images/generations",
@@ -279,12 +358,17 @@ class OpenAIImageProvider(ImageProvider):
         image_url = _first_string(response, ("url",))
         path = _output_path(request)
         if image_data:
-            _save_base64_image(path, image_data)
+            path = _save_base64_image(path, image_data)
         elif image_url:
-            _download_url(image_url, path, {"Authorization": f"Bearer {api_key}"})
+            path = _download_url(image_url, path, {"Authorization": f"Bearer {api_key}"})
         else:
             raise RuntimeError(f"OpenAI 未返回图片数据: {response}")
-        return ImageGenerationResult(provider=self.name, path=path, raw_metadata=response)
+        return ImageGenerationResult(
+            provider=self.name,
+            path=path,
+            mime_type=_mime_type_for_path(path),
+            raw_metadata=response,
+        )
 
 
 class GeminiImageProvider(ImageProvider):
@@ -315,12 +399,17 @@ class GeminiImageProvider(ImageProvider):
         image_url = _first_string(response, ("url", "image_url"))
         path = _output_path(request)
         if image_data:
-            _save_base64_image(path, image_data)
+            path = _save_base64_image(path, image_data)
         elif image_url:
-            _download_url(image_url, path)
+            path = _download_url(image_url, path)
         else:
             raise RuntimeError(f"Gemini 未返回图片数据: {response}")
-        return ImageGenerationResult(provider=self.name, path=path, raw_metadata=response)
+        return ImageGenerationResult(
+            provider=self.name,
+            path=path,
+            mime_type=_mime_type_for_path(path),
+            raw_metadata=response,
+        )
 
 
 class LocalPlaceholderImageProvider(ImageProvider):
@@ -337,6 +426,18 @@ def _openai_size_for_ratio(aspect_ratio: str) -> str:
     if aspect_ratio in {"9:16", "3:4"}:
         return "1024x1536"
     return "1536x1024"
+
+
+def _openai_size_for_model(model: str, aspect_ratio: str) -> str:
+    if model.startswith("dall-e-3"):
+        if aspect_ratio in {"9:16", "3:4"}:
+            return "1024x1792"
+        if aspect_ratio in {"16:9", "4:3", "2.35:1"}:
+            return "1792x1024"
+        return "1024x1024"
+    if model.startswith("dall-e"):
+        return "1024x1024"
+    return _openai_size_for_ratio(aspect_ratio)
 
 
 def _build_provider(name: str, cfg: dict[str, Any]) -> ImageProvider:
