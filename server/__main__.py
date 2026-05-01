@@ -1384,6 +1384,39 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         }
         self._send_json(safe)
 
+    @staticmethod
+    def _wechat_publish_monthly_limit(cfg: dict) -> int:
+        try:
+            limit = int((cfg or {}).get("wechat_publish_monthly_limit", 4))
+        except (TypeError, ValueError):
+            limit = 4
+        return max(0, min(limit, 999))
+
+    @classmethod
+    def _wechat_publish_quota_status(cls, cfg: dict) -> dict:
+        usage = _db.get_wechat_publish_monthly_usage()
+        limit = cls._wechat_publish_monthly_limit(cfg)
+        try:
+            used = int(usage.get("used") or 0)
+        except (TypeError, ValueError):
+            used = 0
+        try:
+            active = int(usage.get("active") or 0)
+        except (TypeError, ValueError):
+            active = 0
+
+        unlimited = limit == 0
+        remaining = None if unlimited else max(limit - used - active, 0)
+        return {
+            "month": usage.get("month") or _db.now_iso()[:7],
+            "limit": limit,
+            "used": used,
+            "active": active,
+            "remaining": remaining,
+            "unlimited": unlimited,
+            "exhausted": False if unlimited else remaining == 0,
+        }
+
     def _api_wechat_collect_config(self):
         """GET /api/wechat-collect/config — return WeChat collection config safely."""
         cfg = _db.load_config()
@@ -1892,6 +1925,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "auto_clip_enabled", "auto_clip_notify_enabled",
             # AI 文章与视频生成配置
             "whisper_provider", "whisper_base_url", "whisper_api_key", "whisper_model", "whisper_compute_type",
+            "whisper_device", "whisper_chunk_seconds", "whisper_language",
             "article_output_dir", "article_default_target_lang", "article_target_lang",
             "article_subtitle_languages", "article_subtitle_proxy", "article_subtitle_proxy_mode", "article_subtitle_proxy_pool_id", "article_tools_path", "article_author",
             "article_wechat_prompt_role", "article_wechat_prompt_reader_persona",
