@@ -53,9 +53,13 @@ _ALLOWED_MARKDOWN_LINK_SCHEMES = {"http", "https", "mailto"}
 _WECHAT_TITLE_MAX_CHARS = 32
 _WECHAT_AUTHOR_MAX_CHARS = 16
 _WECHAT_DIGEST_MAX_CHARS = 128
+_WECHAT_DIGEST_MAX_BYTES = 120
 _WECHAT_CONTENT_MAX_CHARS = 20_000
 _WECHAT_CONTENT_MAX_BYTES = 1_000_000
 _BAOYU_SKILL_SCRIPT = Path.home() / ".agents" / "skills" / "baoyu-markdown-to-html" / "scripts" / "main.ts"
+_LLM_THINKING_BLOCK_RE = re.compile(r"<(think|thinking)\b[^>]*>[\s\S]*?</\1>", re.IGNORECASE)
+_LEADING_LLM_THINKING_RE = re.compile(r"^\s*<(?:think|thinking)\b", re.IGNORECASE)
+_MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+\S")
 
 
 @dataclass
@@ -502,8 +506,8 @@ class WechatPublisher:
     ) -> str:
         title = (title or "").strip()
         author = (author or "").strip() or None
-        digest = (digest or "").strip() or None
-        content = (content or "").strip()
+        content = _strip_llm_thinking_blocks(content).strip()
+        digest = _normalize_wechat_digest(digest, fallback_content=content) or None
         _raise_for_invalid_wechat_article(
             title=title,
             content=content,
@@ -556,7 +560,9 @@ class WechatPublisher:
     ) -> WechatPublishResult:
         """Create a WeChat draft without submitting a mass publish."""
         try:
+            content = _strip_llm_thinking_blocks(content)
             content, first_media_id, _all_media_ids = self._upload_images_in_html(content, base_dir=base_dir)
+            digest = _normalize_wechat_digest(digest, fallback_content=content)
             thumb_media_id = self._resolve_thumb_media_id(
                 first_media_id=first_media_id,
                 title=title,
@@ -592,7 +598,9 @@ class WechatPublisher:
     ) -> WechatPublishResult:
         """Create a draft and submit it to WeChat freepublish."""
         try:
+            content = _strip_llm_thinking_blocks(content)
             content, first_media_id, _all_media_ids = self._upload_images_in_html(content, base_dir=base_dir)
+            digest = _normalize_wechat_digest(digest, fallback_content=content)
             thumb_media_id = self._resolve_thumb_media_id(
                 first_media_id=first_media_id,
                 title=title,
@@ -669,10 +677,52 @@ def _extract_title(frontmatter: dict[str, str], body: str, fallback: str) -> str
     return fallback
 
 
+def _strip_llm_thinking_blocks(value: object) -> str:
+    text = str(value or "")
+    previous = None
+    while previous != text:
+        previous = text
+        text = _LLM_THINKING_BLOCK_RE.sub("\n", text)
+    if _LEADING_LLM_THINKING_RE.search(text):
+        heading = _MARKDOWN_HEADING_RE.search(text)
+        text = text[heading.start() :] if heading else ""
+    text = re.sub(r"</?(?:think|thinking)\b[^>]*>", " ", text, flags=re.IGNORECASE)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+def _truncate_utf8_with_ellipsis(text: str, max_bytes: int) -> str:
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    suffix = "..."
+    prefix = text
+    while prefix and len((prefix.rstrip() + suffix).encode("utf-8")) > max_bytes:
+        prefix = prefix[:-1]
+    return (prefix.rstrip() + suffix) if prefix else ""
+
+
+def _plain_text_for_digest(value: object) -> str:
+    text = _strip_llm_thinking_blocks(value)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(re.sub(r"\s+", " ", text)).strip()
+
+
+def _normalize_wechat_digest(value: object, *, fallback_content: object | None = None) -> str:
+    text = _plain_text_for_digest(value)
+    if not text and fallback_content is not None:
+        text = _plain_text_for_digest(fallback_content)
+    text = text[:_WECHAT_DIGEST_MAX_CHARS]
+    return _truncate_utf8_with_ellipsis(text, _WECHAT_DIGEST_MAX_BYTES)
+
+
 def _digest_from_html(content: str) -> str:
-    text = re.sub(r"<[^>]+>", "", content)
-    text = html.unescape(re.sub(r"\s+", " ", text)).strip()
-    return text[:_WECHAT_DIGEST_MAX_CHARS]
+    return _normalize_wechat_digest(content)
 
 
 def validate_wechat_article_payload(
@@ -699,6 +749,12 @@ def validate_wechat_article_payload(
 
     if normalized_digest and len(normalized_digest) > _WECHAT_DIGEST_MAX_CHARS:
         errors.append(f"摘要不能超过 {_WECHAT_DIGEST_MAX_CHARS} 个字符，当前 {len(normalized_digest)} 个字符")
+    if normalized_digest:
+        digest_bytes = len(normalized_digest.encode("utf-8"))
+        if digest_bytes > _WECHAT_DIGEST_MAX_BYTES:
+            errors.append(f"摘要不能超过 {_WECHAT_DIGEST_MAX_BYTES} 字节，当前 {digest_bytes} 字节")
+        if re.search(r"</?\s*(think|thinking)\b", normalized_digest, re.I):
+            errors.append("摘要包含 LLM 思考标记，请先清理后再发布")
 
     if not normalized_content:
         errors.append("正文不能为空")
@@ -777,7 +833,16 @@ def _strip_internal_draft_metadata(body: str) -> str:
                 index = end + 1
     while index < len(lines) and not lines[index].strip():
         index += 1
-    return "\n".join(lines[index:])
+    remaining = lines[index:]
+    internal_heading = re.compile(
+        r"^\s{0,3}#{1,4}\s*(?:摘要素材|一句话摘要|推荐章节结构|发布建议|标题候选|爆款标题|创作思路)\s*$"
+    )
+    if remaining and any(internal_heading.match(line.strip()) for line in remaining[:100]):
+        for offset, line in enumerate(remaining):
+            stripped = line.strip()
+            if re.match(r"^#\s+.+", stripped) and "摘要素材" not in stripped:
+                return "\n".join(remaining[offset:])
+    return "\n".join(remaining)
 
 
 def _split_table_row(row: str) -> list[str]:
@@ -1106,11 +1171,11 @@ def _render_with_baoyu(
     if not html_path.is_file():
         raise RuntimeError(f"baoyu-markdown-to-html 未生成 HTML 文件: {html_path}")
     rendered = html_path.read_text(encoding="utf-8", errors="ignore")
-    content = _strip_unsupported_html_blocks(_extract_body_html(rendered))
+    content = _strip_llm_thinking_blocks(_strip_unsupported_html_blocks(_extract_body_html(rendered)))
     return WechatArticleRenderResult(
         title=str(payload.get("title") or title or path.stem).strip(),
         author=str(payload.get("author") or "").strip() or None,
-        digest=str(payload.get("summary") or "").strip() or None,
+        digest=_normalize_wechat_digest(payload.get("summary"), fallback_content=content) or None,
         content=content,
         html_path=str(html_path),
         renderer="baoyu-markdown-to-html",
@@ -1136,7 +1201,7 @@ def render_md_to_html_for_wechat(
     raw = path.read_text(encoding="utf-8")
     frontmatter, body = _parse_frontmatter(raw)
     title = _extract_title(frontmatter, body, path.stem)
-    clean_body = _strip_internal_draft_metadata(body)
+    clean_body = _strip_llm_thinking_blocks(_strip_internal_draft_metadata(body))
     mode = (renderer or "local").strip().lower()
     valid_renderers = {"auto", "local", "baoyu", "baoyu-markdown-to-html"}
     if mode not in valid_renderers:
@@ -1147,7 +1212,7 @@ def render_md_to_html_for_wechat(
 
     if mode in {"auto", "baoyu", "baoyu-markdown-to-html"}:
         try:
-            return _render_with_baoyu(
+            result = _render_with_baoyu(
                 path,
                 title=title,
                 theme=selected_theme,
@@ -1157,6 +1222,9 @@ def render_md_to_html_for_wechat(
                 enable_ai_cover=enable_ai_cover,
                 enable_layout_modules=enable_layout_modules,
             )
+            result.content = _strip_llm_thinking_blocks(result.content)
+            result.digest = _normalize_wechat_digest(result.digest, fallback_content=result.content) or None
+            return result
         except Exception as exc:
             warnings.append(str(exc))
             if mode in {"baoyu", "baoyu-markdown-to-html"}:
@@ -1164,7 +1232,10 @@ def render_md_to_html_for_wechat(
             _log.warning("baoyu-markdown-to-html 不可用，回退本地渲染: %s", exc)
 
     content = _render_local_markdown(clean_body, path.parent)
-    digest = frontmatter.get("description") or frontmatter.get("summary") or _digest_from_html(content)
+    digest = _normalize_wechat_digest(
+        frontmatter.get("description") or frontmatter.get("summary"),
+        fallback_content=content,
+    )
     html_path = _write_local_preview_html(path, title, content)
     return WechatArticleRenderResult(
         title=title,

@@ -8,7 +8,11 @@ import pytest
 
 from config.validation import validate_wechat_config
 from monitor import wechat_publisher
-from scripts.article_generator import ArticleGenerationPipeline, WechatArticlePromptEngine
+from scripts.article_generator import (
+    ArticleGenerationPipeline,
+    WechatArticlePromptEngine,
+    _parse_article_quality_evaluation,
+)
 from scripts.llm_client import PROMPT_INPUT_PLACEHOLDER
 
 
@@ -63,6 +67,75 @@ print("hello")
     assert "🚀" in result.content
     assert "task-1" not in result.content
     assert "类型：文章" not in result.content
+
+
+def test_local_renderer_strips_llm_thinking_and_keeps_digest_byte_safe(tmp_path: Path):
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        """---
+title: "AI 创作链路"
+author: "作者"
+summary: "<think 模型内部推理不应该作为摘要发送给微信"
+---
+
+<think>
+这里是模型思考过程，不能进入公众号正文。
+</think>
+
+# 可发布正文
+
+这是可以发布的中文内容，用于生成一个安全摘要，避免微信公众号 description size out of limit。
+""",
+        encoding="utf-8",
+    )
+
+    result = wechat_publisher.render_md_to_html_for_wechat(draft, renderer="local")
+
+    assert "<think" not in result.content.lower()
+    assert "模型思考过程" not in result.content
+    assert result.digest
+    assert "模型内部推理" not in result.digest
+    assert len(result.digest.encode("utf-8")) <= wechat_publisher._WECHAT_DIGEST_MAX_BYTES
+
+
+def test_local_renderer_keeps_intro_that_mentions_publish_advice(tmp_path: Path):
+    draft = tmp_path / "draft.md"
+    draft.write_text(
+        """---
+title: "发布策略"
+summary: "摘要"
+---
+
+这段导语会自然提到发布建议，但它不是内部草稿材料，必须保留。
+
+# 正文开始
+
+这是正文内容。
+""",
+        encoding="utf-8",
+    )
+
+    result = wechat_publisher.render_md_to_html_for_wechat(draft, renderer="local")
+
+    assert "这段导语会自然提到发布建议" in result.content
+    assert "这是正文内容" in result.content
+
+
+def test_wechat_payload_validation_rejects_over_byte_digest():
+    errors = wechat_publisher.validate_wechat_article_payload(
+        title="标题",
+        content="<p>正文</p>",
+        digest="摘要" * 80,
+    )
+
+    assert any("摘要不能超过" in error and "字节" in error for error in errors)
+
+
+def test_wechat_digest_truncation_keeps_ellipsis_byte_safe():
+    digest = wechat_publisher._normalize_wechat_digest("摘要" * 80)
+
+    assert digest.endswith("...")
+    assert len(digest.encode("utf-8")) <= wechat_publisher._WECHAT_DIGEST_MAX_BYTES
 
 
 def test_baoyu_renderer_receives_theme_and_color(monkeypatch, tmp_path: Path):
@@ -294,6 +367,53 @@ def test_wechat_publish_api_returns_render_metadata_on_success(monkeypatch, tmp_
     assert captured["thread_started"] is True
 
 
+def test_wechat_config_includes_local_publish_quota(monkeypatch):
+    import server.__main__ as server_main
+
+    sent = []
+    handler = object.__new__(server_main.MonitorHandler)
+    handler._send_json = lambda data, status=200: sent.append((data, status))
+
+    monkeypatch.setattr(
+        server_main._db,
+        "load_config",
+        lambda: {
+            "wechat_app_id": "wx1234567890abcdef",
+            "wechat_app_secret": "0123456789abcdef",
+            "wechat_default_author": "作者",
+            "wechat_default_theme": "default",
+            "wechat_default_color": "blue",
+            "wechat_markdown_renderer": "local",
+            "wechat_baoyu_markdown_to_html_script": "",
+            "wechat_publish_monthly_limit": "4",
+            "wechat_need_open_comment": True,
+            "wechat_only_fans_can_comment": False,
+        },
+    )
+    monkeypatch.setattr(
+        server_main._db,
+        "get_wechat_publish_monthly_usage",
+        lambda: {"month": "2026-04", "used": 2, "active": 1},
+    )
+
+    server_main.MonitorHandler._api_wechat_config(handler)
+
+    assert sent
+    payload, status = sent[0]
+    assert status == 200
+    assert "wechat_app_secret" not in payload
+    assert payload["wechat_publish_monthly_limit"] == 4
+    assert payload["publish_quota"] == {
+        "month": "2026-04",
+        "limit": 4,
+        "used": 2,
+        "active": 1,
+        "remaining": 1,
+        "unlimited": False,
+        "exhausted": False,
+    }
+
+
 def test_wechat_prompt_engine_adds_platform_contracts():
     engine = WechatArticlePromptEngine.from_config(
         {
@@ -311,6 +431,36 @@ def test_wechat_prompt_engine_adds_platform_contracts():
     assert "<script>" in prompt
     assert "3000" in prompt
     assert PROMPT_INPUT_PLACEHOLDER in prompt
+
+    style_prompt = engine.build_style_analysis_prompt("wechat_article")
+    rewrite_prompt = engine.build_rewrite_prompt("zh-Hans")
+    evaluation_prompt = engine.build_evaluation_prompt("zh-Hans")
+    revision_prompt = engine.build_revision_prompt("zh-Hans")
+
+    assert "风格画像" in style_prompt
+    assert "不要复制原文句子" in style_prompt
+    assert "二次创作方法" in rewrite_prompt
+    assert "风格迁移" in rewrite_prompt
+    assert "只输出 JSON" in evaluation_prompt
+    assert "score" in evaluation_prompt
+    assert "修订" in revision_prompt
+    assert all(PROMPT_INPUT_PLACEHOLDER in item for item in [style_prompt, rewrite_prompt, evaluation_prompt, revision_prompt])
+
+
+def test_article_quality_evaluation_parser_accepts_fenced_json():
+    report = _parse_article_quality_evaluation(
+        """```json
+{"score": "85/100", "rationale": "结构清晰", "strengths": ["短段落"], "risks": ["标题偏长"], "revision_instructions": "压缩标题"}
+```""",
+        threshold=7.0,
+    )
+
+    assert report["score"] == 8.5
+    assert report["passes_threshold"] is True
+    assert report["rationale"] == "结构清晰"
+    assert report["strengths"] == ["短段落"]
+    assert report["risks"] == ["标题偏长"]
+    assert report["revision_instructions"] == "压缩标题"
 
 
 def test_article_draft_includes_frontmatter_for_baoyu_metadata():
