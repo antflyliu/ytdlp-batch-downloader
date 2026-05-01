@@ -5,12 +5,14 @@ scripts/llm_client.py — 多后端 LLM 客户端
 支持后端:
   - qwen:      通义千问 (dashscope / OpenAI兼容接口)
   - openai:    OpenAI GPT-4o 等
+  - anthropic: Anthropic Messages API 兼容接口
   - ollama:    本地 Ollama
   - groq:      Groq API (llama-3.1 / mixtral)
 
 用法:
     client = LLMClient(provider="qwen", model="qwen-plus")
     client = LLMClient(provider="openai", model="gpt-4o")
+    client = LLMClient(provider="anthropic", model="claude-sonnet-4-20250514")
     client = LLMClient(provider="ollama", model="llama3")
     response = client.call("你是谁？")
     response = client.call_with_retry("...", max_retries=3)
@@ -23,6 +25,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,93 @@ if not _SSL_VERIFY:
 
 # Prompt 中唯一占位符（避免 str.format 与 JSON 示例里的 { } 冲突）
 PROMPT_INPUT_PLACEHOLDER = "__INPUT_DATA__"
+
+
+def _normalize_openai_base_url(base_url: str | None) -> str | None:
+    """Normalize known OpenAI-compatible endpoint aliases."""
+    if base_url is None:
+        return None
+    text = str(base_url).strip()
+    if not text:
+        return text
+
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.rstrip("/").lower()
+    if host == "api.minimaxi.com" and (path == "/anthropic" or path.startswith("/anthropic/")):
+        normalized = urlunparse((parsed.scheme or "https", parsed.netloc, "/v1", "", "", ""))
+        logger.warning(
+            "MiniMax Anthropic endpoint %s is not OpenAI-compatible; using %s for openai provider",
+            text,
+            normalized,
+        )
+        return normalized
+    return text
+
+
+def _normalize_anthropic_base_url(base_url: str | None) -> str:
+    """Return an Anthropic-compatible base URL ending at the version prefix."""
+    text = str(base_url or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com").strip()
+    if not text:
+        text = "https://api.anthropic.com"
+    text = text.rstrip("/")
+    if text.endswith("/messages"):
+        text = text[: -len("/messages")].rstrip("/")
+    if not text.endswith("/v1"):
+        text = f"{text}/v1"
+    return text
+
+
+def _anthropic_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("text") is not None:
+                parts.append(str(block.get("text")))
+        return "\n".join(part for part in parts if part)
+    return str(content or "")
+
+
+def _to_anthropic_messages(messages: list[dict]) -> tuple[str | None, list[dict]]:
+    system_parts: list[str] = []
+    converted: list[dict] = []
+    for message in messages:
+        role = str(message.get("role") or "user")
+        content = message.get("content", "")
+        if role == "system":
+            system_text = _anthropic_content_to_text(content).strip()
+            if system_text:
+                system_parts.append(system_text)
+            continue
+        if role not in {"user", "assistant"}:
+            role = "user"
+        converted.append({"role": role, "content": content})
+    if not converted:
+        converted.append({"role": "user", "content": ""})
+    system = "\n\n".join(system_parts).strip() or None
+    return system, converted
+
+
+def _extract_anthropic_text(payload: dict) -> str:
+    content = payload.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text" and block.get("text") is not None:
+                    parts.append(str(block.get("text")))
+                elif block.get("text") is not None and block.get("type") not in {"thinking", "redacted_thinking"}:
+                    parts.append(str(block.get("text")))
+        return "\n".join(part for part in parts if part)
+    return str(payload.get("completion") or payload.get("text") or "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,7 +211,9 @@ class OpenAIProvider(LLMProvider):
             raise ImportError("请安装 openai: pip install openai")
 
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        self.base_url = _normalize_openai_base_url(
+            base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        )
         self.proxy = proxy
         http_client = None
         if proxy:
@@ -140,15 +232,65 @@ class OpenAIProvider(LLMProvider):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Ollama (本地 LLM)
+# Anthropic Messages API 兼容接口
 # ─────────────────────────────────────────────────────────────────────────────
 
+class AnthropicProvider(LLMProvider):
+    """Anthropic Messages API 后端，兼容实现相同协议的第三方厂商。"""
+
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, proxy: str | None = None):
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self.base_url = _normalize_anthropic_base_url(base_url)
+        self.proxy = proxy
+        self.version = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
+
+    def chat(self, messages: list[dict], model: str, **kwargs) -> str:
+        import requests
+
+        system, anthropic_messages = _to_anthropic_messages(messages)
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": str(kwargs.get("anthropic_version") or self.version),
+            "content-type": "application/json",
+        }
+        beta = kwargs.get("anthropic_beta") or os.environ.get("ANTHROPIC_BETA")
+        if beta:
+            headers["anthropic-beta"] = str(beta)
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "max_tokens": kwargs.get("max_tokens") or 4096,
+            "messages": anthropic_messages,
+        }
+        if system:
+            payload["system"] = system
+        if kwargs.get("temperature") is not None:
+            payload["temperature"] = kwargs.get("temperature")
+
+        resp = requests.post(
+            f"{self.base_url}/messages",
+            headers=headers,
+            json=payload,
+            timeout=kwargs.get("timeout", 120),
+            proxies=self._proxies(),
+            verify=_SSL_VERIFY,
+        )
+        resp.raise_for_status()
+        return _extract_anthropic_text(resp.json())
+
+    def _proxies(self) -> dict | None:
+        if not self.proxy:
+            return None
+        return {"http": self.proxy, "https": self.proxy}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ollama (本地 LLM)
+# ─────────────────────────────────────────────────────────────────────────────
 class OllamaProvider(LLMProvider):
     """Ollama 本地后端"""
 
     def __init__(self, base_url: str | None = None, proxy: str | None = None):
-        import requests
-
         self.base_url = base_url or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
         self.proxy = proxy
 
@@ -236,6 +378,7 @@ class GroqProvider(LLMProvider):
 _PROVIDER_CLASSES = {
     "qwen":   QwenProvider,
     "openai": OpenAIProvider,
+    "anthropic": AnthropicProvider,
     "ollama": OllamaProvider,
     "groq":   GroqProvider,
 }
@@ -244,6 +387,7 @@ _PROVIDER_CLASSES = {
 _DEFAULT_MODELS = {
     "qwen":   "qwen-plus",
     "openai": "gpt-4o",
+    "anthropic": "claude-sonnet-4-20250514",
     "ollama": "llama3",
     "groq":   "llama-3.1-8b-instant",
 }
@@ -254,7 +398,7 @@ class LLMClient:
     统一 LLM 客户端，自动选择后端。
 
     Args:
-        provider: 后端类型，"qwen" | "openai" | "ollama" | "groq"
+        provider: 后端类型，"qwen" | "openai" | "anthropic" | "ollama" | "groq"
         model:    模型名称（覆盖默认）
         api_key:  API Key（优先用此参数，其次环境变量）
         base_url: 自定义端点（可选）
@@ -312,6 +456,7 @@ class LLMClient:
         prompt: str,
         input_data: Any = None,
         max_retries: int = 3,
+        raise_last_error: bool = False,
         **kwargs,
     ) -> str | None:
         """
@@ -321,20 +466,25 @@ class LLMClient:
             prompt:     同 call()
             input_data: 同 call()
             max_retries: 最大重试次数
+            raise_last_error: 失败后是否抛出最后一次异常，便于调用方返回可诊断错误
             **kwargs:   透传给底层 provider
 
         Returns:
             成功返回响应文本，失败返回 None
         """
+        last_error: Exception | None = None
         for attempt in range(max_retries):
             try:
                 return self.call(prompt, input_data, **kwargs)
             except Exception as e:
+                last_error = e
                 wait = (attempt + 1) * 5  # 5s / 10s / 15s
                 logger.warning(f"LLM 调用失败 (attempt {attempt+1}/{max_retries}): {e}，{wait}s 后重试...")
                 if attempt < max_retries - 1:
                     time.sleep(wait)
         logger.error(f"LLM 调用在 {max_retries} 次重试后仍失败")
+        if raise_last_error and last_error is not None:
+            raise RuntimeError(f"LLM 调用在 {max_retries} 次重试后仍失败: {last_error}") from last_error
         return None
 
     def parse_json_response(self, response: str) -> Any:

@@ -4,14 +4,14 @@ tests/test_llm_client.py — llm_client 单元测试
 """
 from __future__ import annotations
 
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 import pytest
 
 
 class TestLLMClientFactory:
     def test_create_qwen_client(self):
-        from scripts.llm_client import create_llm_client, LLMClient
+        from scripts.llm_client import create_llm_client
         with patch.dict("os.environ", {"LLM_API_KEY": "test-key"}):
             client = create_llm_client(provider="qwen")
             assert client.provider_name == "qwen"
@@ -24,10 +24,41 @@ class TestLLMClientFactory:
             client = create_llm_client(provider="openai")
             assert client.provider_name == "openai"
 
+    def test_create_anthropic_client(self):
+        from scripts.llm_client import create_llm_client
+        with patch.dict("os.environ", {"LLM_API_KEY": "sk-ant-test"}):
+            client = create_llm_client(provider="anthropic")
+            assert client.provider_name == "anthropic"
+            assert client.model == "claude-sonnet-4-20250514"
+
     def test_unknown_provider_raises(self):
         from scripts.llm_client import LLMClient
         with pytest.raises(ValueError, match="未知的 LLM provider"):
             LLMClient(provider="unknown_backend")
+
+    def test_openai_minimax_anthropic_base_url_is_normalized_to_openai_compatible_v1(self):
+        from scripts.llm_client import _normalize_openai_base_url
+
+        assert (
+            _normalize_openai_base_url("https://api.minimaxi.com/anthropic")
+            == "https://api.minimaxi.com/v1"
+        )
+        assert (
+            _normalize_openai_base_url("https://api.minimaxi.com/anthropic/v1")
+            == "https://api.minimaxi.com/v1"
+        )
+        assert _normalize_openai_base_url("https://api.minimaxi.com/v1") == "https://api.minimaxi.com/v1"
+        assert _normalize_openai_base_url("https://llm.example/v1") == "https://llm.example/v1"
+
+    def test_anthropic_base_url_is_normalized_to_messages_version_prefix(self):
+        from scripts.llm_client import _normalize_anthropic_base_url
+
+        assert _normalize_anthropic_base_url("https://api.anthropic.com") == "https://api.anthropic.com/v1"
+        assert _normalize_anthropic_base_url("https://llm.example/v1") == "https://llm.example/v1"
+        assert (
+            _normalize_anthropic_base_url("https://llm.example/anthropic/v1/messages")
+            == "https://llm.example/anthropic/v1"
+        )
 
 
 class TestLLMClientCall:
@@ -70,6 +101,90 @@ class TestLLMClientCall:
         with pytest.raises(ValueError, match="缺少占位符"):
             client.call("无占位符", {"a": 1})
 
+    @patch("requests.post")
+    def test_anthropic_provider_uses_messages_api_and_extracts_text_blocks(self, mock_post):
+        from scripts.llm_client import AnthropicProvider
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "content": [
+                        {"type": "thinking", "thinking": "private reasoning"},
+                        {"type": "text", "text": "hello"},
+                    ]
+                }
+
+        mock_post.return_value = FakeResponse()
+        provider = AnthropicProvider(api_key="sk-ant-test", base_url="https://llm.example/anthropic")
+
+        result = provider.chat(
+            [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "Hi"},
+            ],
+            "claude-test",
+            max_tokens=123,
+            temperature=0.2,
+            timeout=9,
+        )
+
+        assert result == "hello"
+        assert mock_post.call_args.args[0] == "https://llm.example/anthropic/v1/messages"
+        request_kwargs = mock_post.call_args.kwargs
+        assert request_kwargs["headers"]["x-api-key"] == "sk-ant-test"
+        assert request_kwargs["headers"]["anthropic-version"] == "2023-06-01"
+        assert request_kwargs["json"] == {
+            "model": "claude-test",
+            "max_tokens": 123,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "system": "You are concise.",
+            "temperature": 0.2,
+        }
+
+    @patch("requests.post")
+    def test_anthropic_provider_preserves_turns_and_skips_non_text_response_blocks(self, mock_post):
+        from scripts.llm_client import AnthropicProvider
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "content": [
+                        {"type": "redacted_thinking", "data": "hidden"},
+                        {"type": "tool_use", "name": "lookup"},
+                        {"type": "text", "text": "first"},
+                        {"type": "text", "text": "second"},
+                    ]
+                }
+
+        mock_post.return_value = FakeResponse()
+        provider = AnthropicProvider(api_key="sk-ant-test", base_url="https://llm.example/v1/messages")
+
+        result = provider.chat(
+            [
+                {"role": "system", "content": "System A"},
+                {"role": "system", "content": [{"type": "text", "text": "System B"}]},
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello"},
+                {"role": "user", "content": "Continue"},
+            ],
+            "claude-test",
+        )
+
+        assert result == "first\nsecond"
+        assert mock_post.call_args.args[0] == "https://llm.example/v1/messages"
+        assert mock_post.call_args.kwargs["json"]["system"] == "System A\n\nSystem B"
+        assert mock_post.call_args.kwargs["json"]["messages"] == [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "Continue"},
+        ]
+
 
 class TestLLMClientRetry:
     @patch("scripts.llm_client.QwenProvider.chat")
@@ -97,6 +212,15 @@ class TestLLMClientRetry:
         client = LLMClient(provider="qwen", api_key="fake")
         result = client.call_with_retry("prompt", max_retries=3)
         assert result is None
+
+    @patch("scripts.llm_client.QwenProvider.chat")
+    def test_retry_can_raise_last_error_for_callers_that_need_diagnostics(self, mock_chat):
+        mock_chat.side_effect = RuntimeError("upstream 400 model not found")
+        from scripts.llm_client import LLMClient
+        client = LLMClient(provider="qwen", api_key="fake")
+
+        with pytest.raises(RuntimeError, match="upstream 400 model not found"):
+            client.call_with_retry("prompt", max_retries=1, raise_last_error=True)
 
 
 class TestParseJSONResponse:
@@ -138,6 +262,7 @@ class TestListProviders:
         providers = LLMClient.list_providers()
         assert "qwen" in providers
         assert "openai" in providers
+        assert "anthropic" in providers
         assert "ollama" in providers
         assert "groq" in providers
-        assert len(providers) == 4
+        assert len(providers) == 5
