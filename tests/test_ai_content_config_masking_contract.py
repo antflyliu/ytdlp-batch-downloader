@@ -9,12 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVER_MAIN = ROOT / "server" / "__main__.py"
 CONFIG_API = ROOT / "frontend-vue" / "src" / "api" / "config.ts"
 AI_SETTINGS = ROOT / "frontend-vue" / "src" / "views" / "settings" / "AiSettings.vue"
+ZH_LOCALE = ROOT / "frontend-vue" / "src" / "locales" / "zh.json"
+EN_LOCALE = ROOT / "frontend-vue" / "src" / "locales" / "en.json"
 
 
 def _require_snippets(text: str, snippets: list[str], reason: str) -> None:
     missing = [snippet for snippet in snippets if snippet not in text]
     if missing:
-        pytest.xfail(f"{reason}. Missing: {missing}")
+        pytest.fail(f"{reason}. Missing: {missing}")
 
 
 def test_backend_config_masking_whitelist_includes_ai_article_and_video_secrets():
@@ -42,6 +44,9 @@ def test_backend_config_save_whitelist_includes_ai_article_and_video_fields():
         [
             '"whisper_api_key"',
             '"whisper_compute_type"',
+            '"whisper_device"',
+            '"whisper_chunk_seconds"',
+            '"whisper_language"',
             '"article_tools_path"',
             '"article_output_dir"',
             '"video_gen_output_dir"',
@@ -67,6 +72,9 @@ def test_frontend_app_config_includes_ai_article_and_video_fields():
         [
             "whisper_api_key?: string",
             "whisper_compute_type?: string",
+            "whisper_device?: string",
+            "whisper_chunk_seconds?: number",
+            "whisper_language?: string",
             "article_tools_path?: string",
             "article_output_dir?: string",
             "video_gen_output_dir?: string",
@@ -97,6 +105,9 @@ def test_ai_settings_masks_new_ai_workflow_secrets_with_round_trip_preservation(
             "geminiApiKeyInput",
             "payload.whisper_api_key = MASKED_SECRET_VALUE",
             "whisper_compute_type",
+            "whisper_device",
+            "whisper_chunk_seconds",
+            "whisper_language",
             "payload.comfyui_api_key = MASKED_SECRET_VALUE",
             "payload.runninghub_api_key = MASKED_SECRET_VALUE",
             "payload.minimax_api_key = MASKED_SECRET_VALUE",
@@ -104,4 +115,20 @@ def test_ai_settings_masks_new_ai_workflow_secrets_with_round_trip_preservation(
             "payload.gemini_api_key = MASKED_SECRET_VALUE",
         ],
         "AiSettings does not yet preserve masked P0 AI workflow secrets",
+    )
+
+
+def test_ai_settings_exposes_anthropic_llm_provider_option():
+    settings_text = AI_SETTINGS.read_text(encoding="utf-8")
+    zh_text = ZH_LOCALE.read_text(encoding="utf-8")
+    en_text = EN_LOCALE.read_text(encoding="utf-8")
+
+    _require_snippets(
+        settings_text + zh_text + en_text,
+        [
+            "value: 'anthropic'",
+            "t('config.llmAnthropic')",
+            '"llmAnthropic": "Anthropic"',
+        ],
+        "AiSettings LLM provider dropdown does not expose the Anthropic-compatible provider",
     )

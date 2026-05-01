@@ -306,6 +306,7 @@ def test_article_background_runner_marks_uncaught_errors(monkeypatch):
     )
     monkeypatch.setattr(server._db, "update_article_task", fake_update_article_task)
     monkeypatch.setattr(server._db, "now_iso", lambda: "2026-04-30T11:00:00+08:00")
+    monkeypatch.setattr(server._log, "exception", lambda *_args, **_kwargs: None)
 
     server._run_article_task_safely("article-task-1", {"whisper_provider": "local"})
 
