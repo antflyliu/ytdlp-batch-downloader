@@ -1,6 +1,7 @@
 """Contract tests for the shared AI image generation provider layer."""
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import pytest
@@ -135,9 +136,78 @@ def test_gpt_image_model_rejects_custom_openai_compatible_base_url():
         provider._base_url()
 
 
+def test_openai_image_provider_uses_dalle_compatible_payload(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    def fake_post_json(url, payload, headers, timeout=180):
+        captured["url"] = url
+        captured["payload"] = payload
+        captured["headers"] = headers
+        return {"data": [{"url": "https://example.test/cover.png"}]}
+
+    def fake_download_url(url, path, headers=None):
+        assert url == "https://example.test/cover.png"
+        path.write_bytes(b"\xff\xd8\xffimage")
+        return path
+
+    monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
+    monkeypatch.setattr(image_generation, "_download_url", fake_download_url)
+
+    result = image_generation.OpenAIImageProvider(
+        {
+            "openai_api_key": "openai-key",
+            "openai_base_url": "https://api.openai.com/v1",
+            "openai_image_model": "dall-e-3",
+        }
+    ).generate(
+        image_generation.ImageGenerationRequest(
+            prompt="cover",
+            output_path=tmp_path / "cover.png",
+            aspect_ratio="16:9",
+            output_format="png",
+        )
+    )
+
+    assert result.path.read_bytes() == b"\xff\xd8\xffimage"
+    assert captured["url"] == "https://api.openai.com/v1/images/generations"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["model"] == "dall-e-3"
+    assert payload["size"] == "1792x1024"
+    assert payload["response_format"] == "url"
+    assert "output_format" not in payload
+
+
 def test_minimax_image_provider_accepts_image_url_arrays(monkeypatch, tmp_path):
     def fake_post_json(url, payload, headers, timeout=180):
-        assert url == "https://api.minimax.io/v1/image_generation"
+        assert url == "https://api.minimaxi.com/v1/image_generation"
+        assert payload["response_format"] == "base64"
+        assert headers["Authorization"] == "Bearer minimax-key"
+        return {
+            "base_resp": {"status_code": 0},
+            "data": {"image_urls": ["https://example.test/cover.png"]},
+        }
+
+    def fake_download_url(url, path, headers=None):
+        assert url == "https://example.test/cover.png"
+        path.write_bytes(b"\xff\xd8\xffimage")
+        return path
+
+    monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
+    monkeypatch.setattr(image_generation, "_download_url", fake_download_url)
+
+    result = image_generation.MiniMaxImageProvider({"minimax_api_key": "minimax-key"}).generate(
+        image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png")
+    )
+
+    assert result.provider == "minimax"
+    assert result.path.read_bytes() == b"\xff\xd8\xffimage"
+
+
+def test_minimax_image_provider_accepts_full_endpoint_url(monkeypatch, tmp_path):
+    def fake_post_json(url, payload, headers, timeout=180):
+        assert url == "https://api.minimaxi.com/v1/image_generation"
+        assert payload["n"] == 1
         assert payload["response_format"] == "base64"
         assert headers["Authorization"] == "Bearer minimax-key"
         return {
@@ -153,12 +223,76 @@ def test_minimax_image_provider_accepts_image_url_arrays(monkeypatch, tmp_path):
     monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
     monkeypatch.setattr(image_generation, "_download_url", fake_download_url)
 
-    result = image_generation.MiniMaxImageProvider({"minimax_api_key": "minimax-key"}).generate(
-        image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png")
-    )
+    result = image_generation.MiniMaxImageProvider(
+        {
+            "minimax_api_key": "minimax-key",
+            "minimax_base_url": "https://api.minimaxi.com/v1/image_generation",
+        }
+    ).generate(image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png"))
 
     assert result.provider == "minimax"
     assert result.path.read_bytes() == b"image"
+
+
+def test_minimax_image_provider_default_base_url_uses_current_official_host(monkeypatch, tmp_path):
+    def fake_post_json(url, payload, headers, timeout=180):
+        assert url == "https://api.minimaxi.com/v1/image_generation"
+        return {
+            "base_resp": {"status_code": 0},
+            "data": {"image_base64s": [base64.b64encode(b"image").decode("ascii")]},
+        }
+
+    monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
+
+    result = image_generation.MiniMaxImageProvider(
+        {"minimax_api_key": "minimax-key"}
+    ).generate(image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png"))
+
+    assert result.provider == "minimax"
+    assert result.path.read_bytes() == b"image"
+
+
+def test_minimax_image_provider_preserves_actual_jpeg_suffix(monkeypatch, tmp_path):
+    encoded = base64.b64encode(b"\xff\xd8\xffjpeg").decode("ascii")
+
+    def fake_post_json(url, payload, headers, timeout=180):
+        assert url == "https://api.minimaxi.com/v1/image_generation"
+        return {
+            "base_resp": {"status_code": 0},
+            "data": {"image_base64s": [encoded]},
+        }
+
+    monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
+
+    result = image_generation.MiniMaxImageProvider(
+        {
+            "minimax_api_key": "minimax-key",
+            "minimax_base_url": "https://api.minimaxi.com/v1/image_generation",
+        }
+    ).generate(image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png"))
+
+    assert result.path.suffix == ".jpg"
+    assert result.mime_type == "image/jpeg"
+    assert result.path.read_bytes() == b"\xff\xd8\xffjpeg"
+
+
+def test_minimax_image_provider_rejects_metadata_failed_count(monkeypatch, tmp_path):
+    def fake_post_json(url, payload, headers, timeout=180):
+        return {
+            "base_resp": {"status_code": 0},
+            "metadata": {"failed_count": "1", "success_count": "0"},
+            "data": {"image_base64s": []},
+        }
+
+    monkeypatch.setattr(image_generation, "_post_json", fake_post_json)
+
+    with pytest.raises(RuntimeError, match="部分失败"):
+        image_generation.MiniMaxImageProvider(
+            {
+                "minimax_api_key": "minimax-key",
+                "minimax_base_url": "https://api.minimaxi.com/v1/image_generation",
+            }
+        ).generate(image_generation.ImageGenerationRequest(prompt="cover", output_path=tmp_path / "cover.png"))
 
 
 def test_image_generation_skips_unknown_provider_and_uses_local_fallback(tmp_path):
