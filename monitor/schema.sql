@@ -379,6 +379,7 @@ CREATE TABLE IF NOT EXISTS article_tasks (
     article_text      TEXT,
     source_url        TEXT,
     source_title      TEXT,
+    email_message_id  INTEGER,
     status            TEXT    NOT NULL DEFAULT 'pending',
     current_stage     TEXT,
     source_lang       TEXT,
@@ -405,6 +406,7 @@ CREATE TABLE IF NOT EXISTS article_tasks (
 CREATE INDEX IF NOT EXISTS idx_article_tasks_created_at ON article_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_article_tasks_status ON article_tasks(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_article_tasks_video ON article_tasks(monitor_video_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_tasks_email_message ON article_tasks(email_message_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS video_gen_tasks (
     task_id           TEXT PRIMARY KEY,
@@ -559,3 +561,234 @@ ON wechat_collect_tasks(status, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_wechat_collect_tasks_provider
 ON wechat_collect_tasks(provider, created_at DESC);
+
+-- ── 邮件采集与多平台内容变体 ───────────────────────────────
+CREATE TABLE IF NOT EXISTS email_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    email_address TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    gmail_client_id TEXT,
+    gmail_client_secret_enc TEXT,
+    gmail_refresh_token_enc TEXT,
+    gmail_scope_json TEXT NOT NULL DEFAULT '[]',
+    imap_host TEXT,
+    imap_port INTEGER NOT NULL DEFAULT 993,
+    imap_security TEXT NOT NULL DEFAULT 'ssl',
+    imap_username TEXT,
+    imap_password_enc TEXT,
+    smtp_host TEXT,
+    smtp_port INTEGER NOT NULL DEFAULT 465,
+    smtp_security TEXT NOT NULL DEFAULT 'ssl',
+    smtp_username TEXT,
+    smtp_password_enc TEXT,
+    sync_mode TEXT NOT NULL DEFAULT 'poll',
+    poll_interval_seconds INTEGER NOT NULL DEFAULT 300,
+    include_spam_trash INTEGER NOT NULL DEFAULT 0,
+    max_messages_per_sync INTEGER NOT NULL DEFAULT 20,
+    last_sync_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_accounts_provider
+ON email_accounts(provider, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_email_provider
+ON email_accounts(provider, email_address);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_gmail_email_nocase
+ON email_accounts(email_address COLLATE NOCASE)
+WHERE provider='gmail';
+
+CREATE TABLE IF NOT EXISTS email_mailboxes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    provider_mailbox_id TEXT NOT NULL DEFAULT 'INBOX',
+    display_name TEXT NOT NULL DEFAULT 'INBOX',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    query TEXT,
+    last_seen_uid TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_mailboxes_account
+ON email_mailboxes(account_id, enabled);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_mailboxes_account_provider
+ON email_mailboxes(account_id, provider_mailbox_id);
+
+CREATE TABLE IF NOT EXISTS email_watch_state (
+    account_id INTEGER PRIMARY KEY,
+    gmail_history_id TEXT,
+    gmail_watch_expiration TEXT,
+    pubsub_topic TEXT,
+    pubsub_subscription TEXT,
+    last_full_sync_at TEXT,
+    last_incremental_sync_at TEXT,
+    last_error TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS email_oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    account_id INTEGER,
+    provider TEXT NOT NULL DEFAULT 'gmail',
+    requested_scopes_json TEXT NOT NULL DEFAULT '[]',
+    redirect_uri TEXT NOT NULL,
+    return_to TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_oauth_states_account
+ON email_oauth_states(account_id, consumed_at, expires_at);
+
+CREATE TABLE IF NOT EXISTS email_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    mailbox_id INTEGER,
+    provider TEXT NOT NULL,
+    provider_message_id TEXT NOT NULL,
+    provider_thread_id TEXT,
+    rfc_message_id TEXT,
+    subject TEXT,
+    from_addr TEXT,
+    to_addr TEXT,
+    cc_addr TEXT,
+    received_at TEXT,
+    sent_at TEXT,
+    snippet TEXT,
+    body_text TEXT,
+    body_markdown_path TEXT,
+    raw_mime_path TEXT,
+    html_body_path TEXT,
+    body_hash TEXT,
+    dedupe_key TEXT,
+    classification_json TEXT NOT NULL DEFAULT '{}',
+    cleaning_report_json TEXT NOT NULL DEFAULT '{}',
+    processing_status TEXT NOT NULL DEFAULT 'new',
+    source_url TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (mailbox_id) REFERENCES email_mailboxes(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_provider
+ON email_messages(account_id, provider, provider_message_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_dedupe
+ON email_messages(account_id, dedupe_key);
+
+CREATE INDEX IF NOT EXISTS idx_email_messages_received
+ON email_messages(received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_email_messages_status
+ON email_messages(processing_status, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS email_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    filename TEXT,
+    content_type TEXT,
+    size INTEGER DEFAULT 0,
+    content_id TEXT,
+    disposition TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES email_messages(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_attachments_message
+ON email_attachments(message_id);
+
+CREATE TABLE IF NOT EXISTS email_processing_tasks (
+    task_id TEXT PRIMARY KEY,
+    message_id INTEGER,
+    task_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    current_stage TEXT,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (message_id) REFERENCES email_messages(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_processing_tasks_message
+ON email_processing_tasks(message_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_email_processing_tasks_status
+ON email_processing_tasks(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS content_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    output_contract_json TEXT NOT NULL DEFAULT '{}',
+    prompt_profile_json TEXT NOT NULL DEFAULT '{}',
+    publish_mode TEXT NOT NULL DEFAULT 'export',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_targets_enabled
+ON content_targets(enabled, platform);
+
+CREATE TABLE IF NOT EXISTS content_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    article_task_id TEXT,
+    target_id INTEGER,
+    platform TEXT NOT NULL,
+    title TEXT,
+    summary TEXT,
+    body_path TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    quality_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (target_id) REFERENCES content_targets(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_variants_source
+ON content_variants(source_type, source_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_content_variants_platform
+ON content_variants(platform, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_content_variants_identity
+ON content_variants(source_type, source_id, platform);
+
+CREATE TABLE IF NOT EXISTS content_publication_tasks (
+    task_id TEXT PRIMARY KEY,
+    variant_id INTEGER,
+    platform TEXT NOT NULL,
+    publish_mode TEXT NOT NULL DEFAULT 'export',
+    status TEXT NOT NULL DEFAULT 'pending',
+    external_id TEXT,
+    external_url TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (variant_id) REFERENCES content_variants(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_publication_tasks_variant
+ON content_publication_tasks(variant_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_content_publication_tasks_status
+ON content_publication_tasks(status, created_at DESC);
