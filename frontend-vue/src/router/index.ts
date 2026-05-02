@@ -60,6 +60,12 @@ const routes = [
     component: () => import('@/views/AiCreation.vue'),
   },
   {
+    path: '/email-pipeline',
+    name: 'emailPipeline',
+    meta: { keepAlive: false },
+    component: () => import('@/views/EmailPipeline.vue'),
+  },
+  {
     path: '/wechat-collect',
     name: 'wechatCollect',
     meta: { keepAlive: false },
