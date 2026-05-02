@@ -48,6 +48,9 @@ from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
 from monitor.wechat_collect.serializers import public_account_preview, public_article_preview
 from monitor.wechat_collect.session_store import NativeSessionStore
 from monitor.wechat_collect.tasks import NativeCollectionTaskService, resolve_output_dir
+from monitor.email_collect import EmailCollectService
+from monitor.email_collect.errors import EmailAccountValidationError, EmailProviderError
+from monitor.email_collect.service import GMAIL_OAUTH_FAILURE_PAGE, GMAIL_OAUTH_SUCCESS_PAGE
 from go_proxy_manager import get_proxy_manager
 import logging_config
 from utils.paths import get_static_dir as _get_static_dir
@@ -82,6 +85,7 @@ _CONFIG_RESPONSE_SECRET_KEYS = {
     "minimax_api_key",
     "openai_api_key",
     "gemini_api_key",
+    "gmail_oauth_client_secret",
     "wechat_app_secret",
     "wechat_exporter_auth_key",
 }
@@ -317,6 +321,7 @@ _wechat_native_login_mgr = NativeLoginManager(
     proxy_plan_factory=lambda: resolve_native_proxy_plan(cookies_present=True),
 )
 _wechat_native_task_service = NativeCollectionTaskService()
+_email_collect_service = EmailCollectService()
 
 class _BatchUploadStore:
     """缓存 Web 批量下载上传解析结果，避免前端持有完整 URL 集。"""
@@ -612,6 +617,23 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         """去掉查询字符串，只保留路径"""
         return self.path.split("?")[0]
 
+    def _request_base_url(self) -> str:
+        """Build the externally visible base URL used for OAuth redirect URIs."""
+        proto = (self.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0].strip().lower()
+        if proto not in {"http", "https"}:
+            proto = "https" if self.headers.get("X-Forwarded-Ssl", "").lower() == "on" else "http"
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").split(",", 1)[0].strip()
+        if not host:
+            host = f"127.0.0.1:{getattr(self.server, 'server_port', 5000)}"
+        host = re.sub(r"[^A-Za-z0-9.\-:\[\]]", "", host)
+        return f"{proto}://{host}"
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.end_headers()
+
     def _require_auth(self):
         """验证 Bearer token，失败返回 401。环境变量 MONITOR_API_TOKEN 优先于数据库缓存。"""
         # 环境变量优先：每次请求都重新读取，确保修改后立即生效
@@ -812,6 +834,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if path == "/api/status":
             self._api_status()
             return
+        if path == "/api/email/auth/gmail/callback":
+            self._api_email_gmail_oauth_callback()
+            return
         if not self._require_auth():
             return
         if not self._path_skips_rate_limit(path) and not self._check_rate_limit():
@@ -869,6 +894,21 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/wechat/tasks/"):
             task_id = path.split("/")[-1]
             self._api_wechat_task_status(task_id)
+        elif path == "/api/email/auth/gmail/status":
+            self._api_email_gmail_oauth_status()
+        elif path == "/api/email/accounts":
+            self._api_email_accounts()
+        elif path == "/api/email/messages":
+            self._api_email_messages()
+        elif path.startswith("/api/email/messages/"):
+            self._api_email_message_get(path)
+        elif path == "/api/content/targets":
+            self._api_content_targets()
+        elif path == "/api/content/variants":
+            self._api_content_variants()
+        elif path.startswith("/api/content/variants/"):
+            variant_id = path.rsplit("/", 1)[-1]
+            self._api_content_variant_get(variant_id)
         elif path == "/api/article/list":
             self._api_article_list()
         elif path == "/api/article/file":
@@ -1053,6 +1093,59 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/wechat-native/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_wechat_native_cancel(task_id)
+        elif path == "/api/email/auth/gmail/start":
+            self._api_email_gmail_oauth_start(body)
+        elif path == "/api/email/gmail/send":
+            self._api_email_gmail_send(body)
+        elif path == "/api/email/accounts":
+            self._api_email_account_create(body)
+        elif path.startswith("/api/email/accounts/") and path.endswith("/update"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_update(account_id, body)
+        elif path.startswith("/api/email/accounts/") and path.endswith("/delete"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_delete(account_id)
+        elif path.startswith("/api/email/accounts/") and path.endswith("/test"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_test(account_id)
+        elif path.startswith("/api/email/accounts/") and path.endswith("/sync"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_sync(account_id, body)
+        elif path.startswith("/api/email/accounts/") and path.endswith("/pause"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_status(account_id, "paused")
+        elif path.startswith("/api/email/accounts/") and path.endswith("/resume"):
+            account_id = path.split("/")[-2]
+            self._api_email_account_status(account_id, "active")
+        elif path == "/api/email/messages/batch-generate":
+            self._api_email_messages_batch_generate(body)
+        elif path.startswith("/api/email/messages/") and path.endswith("/clean"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_clean(message_id)
+        elif path.startswith("/api/email/messages/") and path.endswith("/classify"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_classify(message_id)
+        elif path.startswith("/api/email/messages/") and path.endswith("/ignore"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_ignore(message_id)
+        elif path.startswith("/api/email/messages/") and path.endswith("/generate"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_generate(message_id, body)
+        elif path.startswith("/api/email/messages/") and path.endswith("/variants"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_variants(message_id, body)
+        elif path.startswith("/api/content/targets/") and path.endswith("/update"):
+            target_id = path.split("/")[-2]
+            self._api_content_target_update(target_id, body)
+        elif path.startswith("/api/content/variants/") and path.endswith("/update"):
+            variant_id = path.split("/")[-2]
+            self._api_content_variant_update(variant_id, body)
+        elif path.startswith("/api/content/variants/") and path.endswith("/export"):
+            variant_id = path.split("/")[-2]
+            self._api_content_variant_export(variant_id, body)
+        elif path.startswith("/api/content/variants/") and path.endswith("/wechat-draft"):
+            variant_id = path.split("/")[-2]
+            self._api_content_variant_wechat_draft(variant_id)
         elif path == "/api/article/generate":
             self._api_article_generate(body)
         elif path.startswith("/api/article/") and path.endswith("/cancel"):
@@ -1166,6 +1259,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if path.startswith("/api/accounts/"):
             acc_id = path.split("/")[-1]
             self._api_account_delete(acc_id)
+        elif path.startswith("/api/email/accounts/"):
+            account_id = path.split("/")[-1]
+            self._api_email_account_delete(account_id)
         elif path.startswith("/api/api-keys/"):
             key_id = path.split("/")[-1]
             if key_id.isdigit():
@@ -1942,6 +2038,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "openai_api_key", "openai_base_url", "openai_image_model",
             "openai_image_size", "openai_image_quality",
             "gemini_api_key", "gemini_base_url", "gemini_image_model",
+            "gmail_oauth_client_id", "gmail_oauth_client_secret", "gmail_oauth_redirect_uri",
+            "gmail_oauth_scopes",
             # 微信公众号发布配置
             "wechat_app_id", "wechat_app_secret", "wechat_default_author",
             "wechat_default_theme", "wechat_default_color",
@@ -2029,6 +2127,415 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         _scheduler._invalidate_config_cache()
         self._send_json({"ok": True})
 
+    # ── Email Monitor + Content Pipeline ─────────────────────────
+
+    def _send_email_error(self, exc: Exception, default_status: int = 400) -> None:
+        if isinstance(exc, EmailProviderError):
+            _log.warning("Email provider request failed: %s", exc, exc_info=True)
+            self._send_json(
+                {"error": "邮箱服务连接失败，请检查配置或稍后重试", "code": "email_provider_error"},
+                502,
+            )
+            return
+        status = default_status
+        if not isinstance(exc, EmailAccountValidationError):
+            _log.warning("Email pipeline request failed: %s", exc, exc_info=True)
+            self._send_json({"error": "邮件流水线请求失败", "code": "email_request_error"}, status)
+            return
+        self._send_json({"error": str(exc), "code": "email_validation_error"}, status)
+
+    @staticmethod
+    def _positive_int(value, *, default: int | None = None) -> int | None:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed > 0 else default
+
+    @staticmethod
+    def _string_list_body(value) -> list[str] | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return [item.strip() for item in str(value).split(",") if item.strip()]
+
+    def _api_email_accounts(self):
+        try:
+            self._send_json({"accounts": _email_collect_service.list_accounts()})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_email_gmail_oauth_status(self):
+        params = parse_qs(urlparse(self.path).query)
+        raw_account_id = params.get("account_id", [None])[0]
+        account_id = self._positive_int(raw_account_id) if raw_account_id not in (None, "") else None
+        if raw_account_id not in (None, "") and account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        try:
+            self._send_json(_email_collect_service.gmail_oauth_status(
+                base_url=self._request_base_url(),
+                account_id=account_id,
+            ))
+        except Exception as exc:
+            self._send_email_error(exc, 404 if isinstance(exc, EmailAccountValidationError) else 500)
+
+    def _api_email_gmail_oauth_start(self, body: dict):
+        raw_account_id = (body or {}).get("account_id")
+        account_id = self._positive_int(raw_account_id) if raw_account_id not in (None, "") else None
+        if raw_account_id not in (None, "") and account_id is None:
+            self._send_json({"error": "account_id 必须是正整数"}, 400)
+            return
+        try:
+            result = _email_collect_service.start_gmail_oauth(
+                account_id,
+                base_url=str((body or {}).get("base_url") or self._request_base_url()),
+                return_to=str((body or {}).get("return_to") or ""),
+            )
+            self._send_json(result)
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_gmail_oauth_callback(self):
+        params = parse_qs(urlparse(self.path).query)
+        try:
+            result = _email_collect_service.finish_gmail_oauth(
+                state=params.get("state", [""])[0],
+                code=params.get("code", [""])[0],
+                error=params.get("error", [""])[0],
+                base_url=self._request_base_url(),
+            )
+            account_id = quote(str(result.get("account_id") or ""))
+            self._redirect(f"{GMAIL_OAUTH_SUCCESS_PAGE}&account_id={account_id}")
+        except Exception as exc:
+            _log.warning("Gmail OAuth callback failed: %s", exc, exc_info=True)
+            reason = quote("oauth_failed")
+            self._redirect(f"{GMAIL_OAUTH_FAILURE_PAGE}&reason={reason}")
+
+    def _api_email_gmail_send(self, body: dict):
+        account_id = self._positive_int((body or {}).get("account_id"))
+        if account_id is None:
+            self._send_json({"error": "account_id 必填且必须是数字"}, 400)
+            return
+        try:
+            self._send_json(_email_collect_service.send_gmail_message(account_id, body or {}), 202)
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_create(self, body: dict):
+        try:
+            account_id = _email_collect_service.save_account(body or {})
+            self._send_json(
+                {"ok": True, "id": account_id, "account": _email_collect_service.get_account(account_id)},
+                201,
+            )
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_update(self, account_id_raw: str, body: dict):
+        account_id = self._positive_int(account_id_raw)
+        if account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        try:
+            saved_id = _email_collect_service.save_account(body or {}, account_id=account_id)
+            self._send_json({"ok": True, "id": saved_id, "account": _email_collect_service.get_account(saved_id)})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_delete(self, account_id_raw: str):
+        account_id = self._positive_int(account_id_raw)
+        if account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        try:
+            if not _email_collect_service.delete_account(account_id):
+                self._send_json({"error": "邮件账号不存在"}, 404)
+                return
+            self._send_json({"ok": True})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_test(self, account_id_raw: str):
+        account_id = self._positive_int(account_id_raw)
+        if account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        try:
+            self._send_json(_email_collect_service.test_account(account_id))
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_sync(self, account_id_raw: str, body: dict):
+        account_id = self._positive_int(account_id_raw)
+        if account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        max_messages = self._positive_int((body or {}).get("max_messages"))
+        try:
+            self._send_json(_email_collect_service.sync_account(account_id, max_messages=max_messages))
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_account_status(self, account_id_raw: str, status: str):
+        account_id = self._positive_int(account_id_raw)
+        if account_id is None:
+            self._send_json({"error": "无效的邮件账号 ID"}, 400)
+            return
+        try:
+            if not _email_collect_service.set_account_status(account_id, status):
+                self._send_json({"error": "邮件账号不存在"}, 404)
+                return
+            self._send_json({"ok": True, "account": _email_collect_service.get_account(account_id)})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_messages(self):
+        params = parse_qs(urlparse(self.path).query)
+        account_id = self._positive_int(params.get("account_id", [None])[0])
+        status = (params.get("status", [""])[0] or "").strip() or None
+        q = (params.get("q", [""])[0] or "").strip() or None
+        limit = min(max(self._positive_int(params.get("limit", ["50"])[0], default=50) or 50, 1), 200)
+        offset = max(self._positive_int(params.get("offset", ["0"])[0], default=0) or 0, 0)
+        try:
+            messages, total = _email_collect_service.list_messages(
+                account_id=account_id,
+                status=status,
+                q=q,
+                limit=limit,
+                offset=offset,
+            )
+            self._send_json({"messages": messages, "total": total, "limit": limit, "offset": offset})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_email_message_get(self, path: str):
+        message_id = self._positive_int(path.rsplit("/", 1)[-1])
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        try:
+            message = _email_collect_service.get_message(message_id, include_body=True)
+            if not message:
+                self._send_json({"error": "邮件不存在"}, 404)
+                return
+            self._send_json({"message": message})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_email_message_clean(self, message_id_raw: str):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        try:
+            self._send_json({"ok": True, "message": _email_collect_service.reclean_message(message_id)})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_message_classify(self, message_id_raw: str):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        try:
+            self._send_json({"ok": True, "message": _email_collect_service.classify_message(message_id)})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_message_ignore(self, message_id_raw: str):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        try:
+            if not _email_collect_service.mark_ignored(message_id):
+                self._send_json({"error": "邮件不存在"}, 404)
+                return
+            self._send_json({"ok": True})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _create_email_article_task(self, message_id: int, body: dict, cfg: dict) -> str:
+        target_lang = (
+            (body or {}).get("target_lang")
+            or cfg.get("article_default_target_lang")
+            or cfg.get("article_target_lang")
+            or "zh-Hans"
+        )
+        payload = _email_collect_service.prepare_article_payload(message_id, target_lang=target_lang)
+        task_id = _db.create_article_task(
+            monitor_video_id=None,
+            video_id=None,
+            video_url=None,
+            video_title=payload.get("video_title"),
+            source_type="email_message",
+            article_text=payload.get("article_text"),
+            source_url=payload.get("source_url"),
+            source_title=payload.get("source_title"),
+            email_message_id=message_id,
+            target_lang=payload.get("target_lang") or target_lang,
+            auto_translate=bool((body or {}).get("auto_translate", True)),
+        )
+        threading.Thread(
+            target=_run_article_task_safely,
+            args=(task_id, cfg),
+            name=f"article-task-{task_id}",
+            daemon=True,
+        ).start()
+        return task_id
+
+    def _api_email_message_generate(self, message_id_raw: str, body: dict):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        cfg = _db.load_config()
+        try:
+            task_id = self._create_email_article_task(message_id, body or {}, cfg)
+            variants = []
+            if (body or {}).get("create_variants", True):
+                variants = _email_collect_service.generate_variants(
+                    message_id,
+                    article_task_id=task_id,
+                    platforms=self._string_list_body((body or {}).get("platforms")),
+                    replace_existing=self._coerce_bool((body or {}).get("replace_existing")),
+                )
+            self._send_json({"ok": True, "task_id": task_id, "variants": variants}, 202)
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_message_variants(self, message_id_raw: str, body: dict):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        try:
+            variants = _email_collect_service.generate_variants(
+                message_id,
+                article_task_id=str((body or {}).get("article_task_id") or "") or None,
+                platforms=self._string_list_body((body or {}).get("platforms")),
+                replace_existing=self._coerce_bool((body or {}).get("replace_existing")),
+            )
+            self._send_json({"ok": True, "variants": variants}, 201)
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_messages_batch_generate(self, body: dict):
+        message_ids = (body or {}).get("message_ids") or []
+        if not isinstance(message_ids, list):
+            self._send_json({"error": "message_ids must be a list"}, 400)
+            return
+        parsed_ids = [self._positive_int(item) for item in message_ids]
+        parsed_ids = [item for item in parsed_ids if item is not None]
+        if not parsed_ids:
+            self._send_json({"error": "message_ids is required"}, 400)
+            return
+        cfg = _db.load_config()
+        platforms = self._string_list_body((body or {}).get("platforms"))
+        try:
+            results = []
+            for message_id in parsed_ids:
+                task_id = self._create_email_article_task(message_id, body or {}, cfg)
+                variants = _email_collect_service.generate_variants(
+                    message_id,
+                    article_task_id=task_id,
+                    platforms=platforms,
+                    replace_existing=self._coerce_bool((body or {}).get("replace_existing")),
+                )
+                results.append({"message_id": message_id, "task_id": task_id, "variants": variants})
+            self._send_json({"ok": True, "results": results}, 202)
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_content_targets(self):
+        try:
+            self._send_json({"targets": _email_collect_service.list_targets()})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_content_target_update(self, target_id_raw: str, body: dict):
+        target_id = self._positive_int(target_id_raw)
+        if target_id is None:
+            self._send_json({"error": "无效的内容目标 ID"}, 400)
+            return
+        try:
+            self._send_json({"ok": True, "target": _email_collect_service.update_target(target_id, body or {})})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_content_variants(self):
+        params = parse_qs(urlparse(self.path).query)
+        include_body = (params.get("include_body", ["0"])[0] or "").lower() in {"1", "true", "yes"}
+        try:
+            variants = _email_collect_service.list_variants(
+                source_type=(params.get("source_type", [""])[0] or "").strip() or None,
+                source_id=(params.get("source_id", [""])[0] or "").strip() or None,
+                platform=(params.get("platform", [""])[0] or "").strip() or None,
+                include_body=include_body,
+            )
+            self._send_json({"variants": variants})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_content_variant_get(self, variant_id_raw: str):
+        variant_id = self._positive_int(variant_id_raw)
+        if variant_id is None:
+            self._send_json({"error": "无效的内容变体 ID"}, 400)
+            return
+        try:
+            variant = _email_collect_service.get_variant(variant_id, include_body=True)
+            if not variant:
+                self._send_json({"error": "内容变体不存在"}, 404)
+                return
+            self._send_json({"variant": variant})
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_content_variant_update(self, variant_id_raw: str, body: dict):
+        variant_id = self._positive_int(variant_id_raw)
+        if variant_id is None:
+            self._send_json({"error": "无效的内容变体 ID"}, 400)
+            return
+        try:
+            self._send_json({"ok": True, "variant": _email_collect_service.update_variant(variant_id, body or {})})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_content_variant_export(self, variant_id_raw: str, body: dict):
+        variant_id = self._positive_int(variant_id_raw)
+        if variant_id is None:
+            self._send_json({"error": "无效的内容变体 ID"}, 400)
+            return
+        try:
+            export_format = str((body or {}).get("format") or "markdown")
+            self._send_json(_email_collect_service.export_variant(variant_id, export_format=export_format))
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_content_variant_wechat_draft(self, variant_id_raw: str):
+        variant_id = self._positive_int(variant_id_raw)
+        if variant_id is None:
+            self._send_json({"error": "无效的内容变体 ID"}, 400)
+            return
+        try:
+            variant = _email_collect_service.get_variant(variant_id, include_body=True)
+            if not variant:
+                self._send_json({"error": "内容变体不存在"}, 404)
+                return
+            self._handle_wechat_publish(
+                {
+                    "article_task_id": str(variant.get("article_task_id") or ""),
+                    "content": str(variant.get("body") or ""),
+                    "title": str(variant.get("title") or ""),
+                    "digest": str(variant.get("summary") or ""),
+                },
+                publish_mode="draft",
+            )
+        except Exception as exc:
+            self._send_email_error(exc)
+
     # ── AI Article + Video Generation Tasks ───────────────────────
 
     def _ai_task_query_params(self) -> tuple[str | None, int, int]:
@@ -2052,8 +2559,23 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         source_type = str(body.get("source_type") or "video").strip() or "video"
         if source_type == "wechatArticle":
             source_type = "wechat_article"
-        if source_type not in {"video", "wechat_article"}:
+        if source_type == "emailMessage":
+            source_type = "email_message"
+        if source_type not in {"video", "wechat_article", "email_message"}:
             self._send_json({"error": "source_type 不支持"}, 400)
+            return
+
+        if source_type == "email_message":
+            message_id = self._positive_int(body.get("email_message_id") or body.get("message_id"))
+            if message_id is None:
+                self._send_json({"error": "email_message_id 必须是数字"}, 400)
+                return
+            try:
+                task_id = self._create_email_article_task(message_id, body, cfg)
+            except Exception as exc:
+                self._send_email_error(exc)
+                return
+            self._send_json({"ok": True, "task_id": task_id}, 202)
             return
 
         article_source_path = ""
@@ -2179,14 +2701,23 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         qs = self.path.split("?", 1)[1] if "?" in self.path else ""
         params = parse_qs(qs)
         monitor_video_id = params.get("monitor_video_id", [None])[0] or params.get("video_id", [None])[0]
+        source_type = (params.get("source_type", [""])[0] or "").strip() or None
+        email_message_id = params.get("email_message_id", [None])[0] or params.get("message_id", [None])[0]
         try:
             monitor_video_id_int = int(monitor_video_id) if monitor_video_id else None
         except (TypeError, ValueError):
             self._send_json({"error": "monitor_video_id 必须是数字"}, 400)
             return
+        try:
+            email_message_id_int = int(email_message_id) if email_message_id else None
+        except (TypeError, ValueError):
+            self._send_json({"error": "email_message_id 必须是数字"}, 400)
+            return
         tasks, total = _db.list_article_tasks(
             status=status,
             monitor_video_id=monitor_video_id_int,
+            source_type=source_type,
+            email_message_id=email_message_id_int,
             limit=limit,
             offset=offset,
         )
