@@ -37,12 +37,16 @@
 import {ref} from "vue"
 import {Quit, WindowFullscreen, WindowMinimise, WindowUnfullscreen} from "../../wailsjs/runtime"
 import {useI18n} from 'vue-i18n'
+import {requestDesktopClose} from '@/utils/desktopBridge'
 
 const {t} = useI18n()
 const isMaximized = ref(false)
 
-const closeWindow = () => {
-  Quit()
+const closeWindow = async () => {
+  const handled = await requestDesktopClose()
+  if (!handled) {
+    Quit()
+  }
 }
 const minimizeWindow = () => {
   WindowMinimise()

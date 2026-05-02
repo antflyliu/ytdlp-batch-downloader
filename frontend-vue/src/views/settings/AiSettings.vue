@@ -145,6 +145,46 @@
         </NFormItem>
       </NCard>
 
+      <NCard :title="t('config.gmailOAuthWorkflow')">
+        <NAlert type="info" :bordered="false" class="mb-3">
+          {{ t('config.gmailOAuthSetupHint') }}
+        </NAlert>
+
+        <NFormItem :label="t('config.gmailOAuthClientId')" path="gmail_oauth_client_id">
+          <NInput
+            v-model:value="form.gmail_oauth_client_id"
+            :placeholder="t('config.gmailOAuthClientIdHint')"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.gmailOAuthClientSecret')" path="gmail_oauth_client_secret">
+          <NInput
+            v-model:value="gmailOAuthClientSecretInput"
+            type="password"
+            show-password-on="click"
+            :placeholder="gmailOAuthClientSecretPlaceholder"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.gmailOAuthRedirectUri')" path="gmail_oauth_redirect_uri">
+          <NInput
+            v-model:value="form.gmail_oauth_redirect_uri"
+            :placeholder="t('config.gmailOAuthRedirectUriHint')"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.gmailOAuthScopes')" path="gmail_oauth_scopes">
+          <NInput
+            v-model:value="form.gmail_oauth_scopes"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+        </NFormItem>
+        <div class="text-xs text-dim -mt-2 mb-3" style="padding-left: 180px">
+          {{ t('config.gmailOAuthScopesHint') }}
+        </div>
+      </NCard>
+
       <NCard :title="t('config.videoGenerationWorkflow')">
         <NFormItem :label="t('config.comfyuiUrl')" path="comfyui_url">
           <NInput v-model:value="form.comfyui_url" :placeholder="t('config.comfyuiUrlHint')" />
@@ -325,7 +365,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   NForm, NFormItem, NInput, NInputNumber, NButton, NCard,
-  NSelect, NSwitch, useMessage,
+  NSelect, NSwitch, NAlert, useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import configApi, { AppConfig } from '@/api/config'
@@ -342,6 +382,7 @@ const runninghubApiKeyInput = ref('')
 const minimaxApiKeyInput = ref('')
 const openaiApiKeyInput = ref('')
 const geminiApiKeyInput = ref('')
+const gmailOAuthClientSecretInput = ref('')
 const hasSavedLlmApiKey = ref(false)
 const hasSavedWhisperApiKey = ref(false)
 const hasSavedComfyuiApiKey = ref(false)
@@ -349,6 +390,7 @@ const hasSavedRunninghubApiKey = ref(false)
 const hasSavedMinimaxApiKey = ref(false)
 const hasSavedOpenaiApiKey = ref(false)
 const hasSavedGeminiApiKey = ref(false)
+const hasSavedGmailOAuthClientSecret = ref(false)
 
 const llmApiKeyPlaceholder = computed(() => (
   hasSavedLlmApiKey.value
@@ -378,6 +420,12 @@ const openaiApiKeyPlaceholder = computed(() => (
 
 const geminiApiKeyPlaceholder = computed(() => (
   hasSavedGeminiApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.geminiApiKey')
+))
+
+const gmailOAuthClientSecretPlaceholder = computed(() => (
+  hasSavedGmailOAuthClientSecret.value
+    ? t('settings.secretSavedPlaceholder')
+    : t('config.gmailOAuthClientSecret')
 ))
 
 const providerOptions = [
@@ -479,6 +527,10 @@ const form = reactive<AppConfig>({
   article_subtitle_proxy_mode: 'auto',
   article_subtitle_proxy_pool_id: null,
   article_author: '',
+  gmail_oauth_client_id: '',
+  gmail_oauth_client_secret: '',
+  gmail_oauth_redirect_uri: '',
+  gmail_oauth_scopes: 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send',
   comfyui_url: '',
   comfyui_api_key: '',
   runninghub_url: '',
@@ -549,6 +601,14 @@ const loadConfig = async () => {
     form.article_subtitle_proxy_mode = data.article_subtitle_proxy_mode || 'auto'
     form.article_subtitle_proxy_pool_id = data.article_subtitle_proxy_pool_id ?? null
     form.article_author = data.article_author || ''
+    form.gmail_oauth_client_id = data.gmail_oauth_client_id || ''
+    form.gmail_oauth_client_secret = hydrateSecret(
+      data.gmail_oauth_client_secret || '',
+      gmailOAuthClientSecretInput,
+      hasSavedGmailOAuthClientSecret,
+    )
+    form.gmail_oauth_redirect_uri = data.gmail_oauth_redirect_uri || ''
+    form.gmail_oauth_scopes = data.gmail_oauth_scopes || 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send'
     form.comfyui_url = data.comfyui_url || ''
     form.comfyui_api_key = hydrateSecret(data.comfyui_api_key || '', comfyuiApiKeyInput, hasSavedComfyuiApiKey)
     form.runninghub_url = data.runninghub_url || ''
@@ -604,6 +664,7 @@ const save = async () => {
       minimax_api_key: minimaxApiKeyInput.value,
       openai_api_key: openaiApiKeyInput.value,
       gemini_api_key: geminiApiKeyInput.value,
+      gmail_oauth_client_secret: gmailOAuthClientSecretInput.value,
       article_target_lang: form.article_default_target_lang,
       default_template: form.video_gen_default_template,
       default_scene_count: form.video_gen_default_scene_count,
@@ -629,6 +690,9 @@ const save = async () => {
     if (hasSavedGeminiApiKey.value && !geminiApiKeyInput.value) {
       payload.gemini_api_key = MASKED_SECRET_VALUE
     }
+    if (hasSavedGmailOAuthClientSecret.value && !gmailOAuthClientSecretInput.value) {
+      payload.gmail_oauth_client_secret = MASKED_SECRET_VALUE
+    }
     await configApi.save(payload)
     if (payload.llm_api_key) {
       hasSavedLlmApiKey.value = true
@@ -644,18 +708,21 @@ const save = async () => {
     hasSavedMinimaxApiKey.value = Boolean(payload.minimax_api_key)
     hasSavedOpenaiApiKey.value = Boolean(payload.openai_api_key)
     hasSavedGeminiApiKey.value = Boolean(payload.gemini_api_key)
+    hasSavedGmailOAuthClientSecret.value = Boolean(payload.gmail_oauth_client_secret)
     whisperApiKeyInput.value = ''
     comfyuiApiKeyInput.value = ''
     runninghubApiKeyInput.value = ''
     minimaxApiKeyInput.value = ''
     openaiApiKeyInput.value = ''
     geminiApiKeyInput.value = ''
+    gmailOAuthClientSecretInput.value = ''
     form.whisper_api_key = hasSavedWhisperApiKey.value ? MASKED_SECRET_VALUE : ''
     form.comfyui_api_key = hasSavedComfyuiApiKey.value ? MASKED_SECRET_VALUE : ''
     form.runninghub_api_key = hasSavedRunninghubApiKey.value ? MASKED_SECRET_VALUE : ''
     form.minimax_api_key = hasSavedMinimaxApiKey.value ? MASKED_SECRET_VALUE : ''
     form.openai_api_key = hasSavedOpenaiApiKey.value ? MASKED_SECRET_VALUE : ''
     form.gemini_api_key = hasSavedGeminiApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.gmail_oauth_client_secret = hasSavedGmailOAuthClientSecret.value ? MASKED_SECRET_VALUE : ''
     message.success(t('settings.saved'))
   } catch {
     message.error(t('settings.saveFailed'))
