@@ -253,7 +253,8 @@ def show_webview2_install_dialog():
 # ── 3. pywebview 懒加载封装 ──────────────────────────────────
 
 def create_webview_window(url: str, title: str = "YouTube Monitor",
-                          width: int = 1400, height: int = 900):
+                          width: int = 1400, height: int = 900,
+                          js_api=None):
     """
     创建并返回 pywebview 窗口对象（懒加载，不立即显示）。
 
@@ -288,6 +289,7 @@ def create_webview_window(url: str, title: str = "YouTube Monitor",
         url=url,
         width=width,
         height=height,
+        js_api=js_api,
         resizable=True,
         min_size=(800, 600),
     )
