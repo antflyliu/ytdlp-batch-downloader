@@ -114,6 +114,12 @@ const routes = [
         component: () => import('@/views/settings/AiSettings.vue'),
       },
       {
+        path: '/settings-hub/email-analysis-rules',
+        name: 'settingsEmailAnalysisRules',
+        meta: { keepAlive: false },
+        component: () => import('@/views/settings/EmailAnalysisRulesSettings.vue'),
+      },
+      {
         path: '/settings-hub/wechat',
         name: 'settingsWechat',
         meta: { keepAlive: false },

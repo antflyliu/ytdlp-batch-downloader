@@ -208,7 +208,7 @@
           :row-key="(row: EmailMessage) => row.id"
           :checked-row-keys="checkedMessageIds"
           :row-selection="messageRowSelection"
-          :scroll-x="1600"
+          :scroll-x="1700"
           :max-height="620"
           striped
         />
@@ -377,6 +377,32 @@
               :placeholder="secretPlaceholder(editingAccount?.has_smtp_password)"
             />
           </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailBaseUrl')">
+            <NInput v-model:value="accountForm.outlook_email_base_url" placeholder="http://127.0.0.1:5000" />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailApiKey')">
+            <NInput
+              v-model:value="outlookEmailApiKeyInput"
+              type="password"
+              show-password-on="click"
+              :placeholder="secretPlaceholder(editingAccount?.has_outlook_email_api_key)"
+            />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailRemoteEmail')">
+            <NInput v-model:value="accountForm.outlook_email_remote_email" />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailFolder')">
+            <NSelect v-model:value="accountForm.outlook_email_folder" :options="outlookEmailFolderOptions" />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailSubjectContains')">
+            <NInput v-model:value="accountForm.outlook_email_subject_contains" />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailFromContains')">
+            <NInput v-model:value="accountForm.outlook_email_from_contains" />
+          </NFormItem>
+          <NFormItem v-if="accountForm.provider === 'outlook_email'" :label="t('emailPipeline.accounts.fields.outlookEmailKeyword')">
+            <NInput v-model:value="accountForm.outlook_email_keyword" />
+          </NFormItem>
           <NFormItem :label="t('emailPipeline.accounts.fields.syncMode')">
             <NSelect v-model:value="accountForm.sync_mode" :options="syncModeOptions" />
           </NFormItem>
@@ -386,7 +412,7 @@
           <NFormItem :label="t('emailPipeline.accounts.fields.maxMessages')">
             <NInputNumber v-model:value="accountForm.max_messages_per_sync" :show-button="false" style="width: 100%" />
           </NFormItem>
-          <NFormItem :label="t('emailPipeline.accounts.fields.includeSpamTrash')">
+          <NFormItem v-if="accountForm.provider !== 'outlook_email'" :label="t('emailPipeline.accounts.fields.includeSpamTrash')">
             <NSwitch v-model:value="accountForm.include_spam_trash" />
           </NFormItem>
         </div>
@@ -458,6 +484,9 @@
               </NButton>
               <NButton tertiary :loading="detailClassifying" @click="runClassify(messageDetail.id, true)">
                 {{ t('emailPipeline.messages.classify') }}
+              </NButton>
+              <NButton tertiary :loading="detailReprocessing" @click="runReprocess(messageDetail.id, true)">
+                {{ t('emailPipeline.messages.reprocess') }}
               </NButton>
               <NButton tertiary :loading="detailIgnoring" @click="runIgnore(messageDetail.id, true)">
                 {{ t('emailPipeline.messages.ignore') }}
@@ -631,6 +660,12 @@ const accountForm = reactive({
   smtp_port: 465,
   smtp_security: 'ssl',
   smtp_username: '',
+  outlook_email_base_url: '',
+  outlook_email_remote_email: '',
+  outlook_email_folder: 'all',
+  outlook_email_subject_contains: '',
+  outlook_email_from_contains: '',
+  outlook_email_keyword: '',
   sync_mode: 'poll',
   poll_interval_seconds: 300,
   include_spam_trash: false,
@@ -639,6 +674,7 @@ const accountForm = reactive({
 
 const imapPasswordInput = ref('')
 const smtpPasswordInput = ref('')
+const outlookEmailApiKeyInput = ref('')
 
 const messages = ref<EmailMessage[]>([])
 const messageTotal = ref(0)
@@ -660,6 +696,7 @@ const messageDetail = ref<EmailMessage | null>(null)
 const loadingMessageDetail = ref(false)
 const detailCleaning = ref(false)
 const detailClassifying = ref(false)
+const detailReprocessing = ref(false)
 const detailIgnoring = ref(false)
 const detailGenerating = ref(false)
 const messageGeneratePlatforms = ref<string[]>([])
@@ -705,11 +742,19 @@ const variantForm = reactive({
 const providerOptions = [
   { label: 'Gmail OAuth', value: 'gmail' },
   { label: 'IMAP / SMTP', value: 'imap' },
+  { label: 'outlookEmail', value: 'outlook_email' },
 ]
 
 const securityOptions = [
   { label: 'SSL', value: 'ssl' },
   { label: 'STARTTLS', value: 'starttls' },
+]
+
+const outlookEmailFolderOptions = [
+  { label: 'All', value: 'all' },
+  { label: 'Inbox', value: 'inbox' },
+  { label: 'Junk Email', value: 'junkemail' },
+  { label: 'Deleted Items', value: 'deleteditems' },
 ]
 
 const syncModeOptions = computed(() => [
@@ -795,7 +840,10 @@ const accountColumns = computed<DataTableColumns<EmailAccount>>(() => [
     title: t('emailPipeline.accounts.columns.provider'),
     key: 'provider',
     width: 110,
-    render: row => h(NTag, { bordered: false, type: row.provider === 'gmail' ? 'success' : 'info' }, {
+    render: row => h(NTag, {
+      bordered: false,
+      type: row.provider === 'gmail' ? 'success' : row.provider === 'outlook_email' ? 'warning' : 'info',
+    }, {
       default: () => row.provider,
     }),
   },
@@ -921,7 +969,7 @@ const messageColumns = computed<DataTableColumns<EmailMessage>>(() => [
   {
     title: t('emailPipeline.messages.columns.actions'),
     key: 'actions',
-    width: 360,
+    width: 450,
     fixed: 'right',
     render: row => h('div', { class: 'inline-actions' }, [
       h(NButton, {
@@ -942,6 +990,12 @@ const messageColumns = computed<DataTableColumns<EmailMessage>>(() => [
         loading: isMessageAction(row.id, 'classify'),
         onClick: () => runClassify(row.id),
       }, { default: () => t('emailPipeline.messages.classify') }),
+      h(NButton, {
+        size: 'small',
+        tertiary: true,
+        loading: isMessageAction(row.id, 'reprocess'),
+        onClick: () => runReprocess(row.id),
+      }, { default: () => t('emailPipeline.messages.reprocess') }),
       h(NButton, {
         size: 'small',
         tertiary: true,
@@ -1240,6 +1294,15 @@ async function startGmailOAuth(accountId?: number | null) {
   }
   gmailOAuthStartingId.value = selectedAccountId
   gmailOAuthStarting.value = true
+  /** 须在首个 await 之前同步打开，否则浏览器会认为非用户手势，弹窗被拒或顶替当前页 */
+  const popupName = '__ytdlp_gmail_oauth__'
+  const popupFeatures = 'width=600,height=700,scrollbars=yes'
+  let popup: Window | null = null
+  try {
+    popup = window.open('about:blank', popupName, popupFeatures)
+  } catch {
+    popup = null
+  }
   try {
     const requestPayload = {
       return_to: '/#/email-pipeline',
@@ -1251,9 +1314,30 @@ async function startGmailOAuth(accountId?: number | null) {
     if (!authorizationUrl) {
       throw new Error(t('emailPipeline.accounts.oauthMissingUrl'))
     }
-    message.success(t('emailPipeline.accounts.authStarted'))
-    window.location.assign(authorizationUrl)
+    if (!popup || popup.closed) {
+      throw new Error(t('emailPipeline.accounts.popupBlocked'))
+    }
+    message.warning(t('emailPipeline.accounts.oauthPopupHint'))
+    popup.location.href = authorizationUrl
+    // 监听 popup 关闭（用户完成授权后 popup 会被重定向并关闭）
+    const pollKey = '__gmail_oauth_poll'
+    if ((window as any)[pollKey]) clearInterval((window as any)[pollKey])
+    const pollInterval = setInterval(() => {
+      if (popup.closed) {
+        clearInterval((window as any)[pollKey])
+        ;(window as any)[pollKey] = null
+        gmailOAuthStartingId.value = null
+        gmailOAuthStarting.value = false
+        loadGmailOAuthStatus(false)
+      }
+    }, 800)
+    ;(window as any)[pollKey] = pollInterval
   } catch (error: any) {
+    try {
+      if (popup && !popup.closed) popup.close()
+    } catch {
+      /* ignore */
+    }
     gmailOAuthStartingId.value = null
     gmailOAuthStarting.value = false
     message.error(normalizeError(error))
@@ -1273,12 +1357,19 @@ function resetAccountForm() {
   accountForm.smtp_port = 465
   accountForm.smtp_security = 'ssl'
   accountForm.smtp_username = ''
+  accountForm.outlook_email_base_url = ''
+  accountForm.outlook_email_remote_email = ''
+  accountForm.outlook_email_folder = 'all'
+  accountForm.outlook_email_subject_contains = ''
+  accountForm.outlook_email_from_contains = ''
+  accountForm.outlook_email_keyword = ''
   accountForm.sync_mode = 'poll'
   accountForm.poll_interval_seconds = 300
   accountForm.include_spam_trash = false
   accountForm.max_messages_per_sync = 20
   imapPasswordInput.value = ''
   smtpPasswordInput.value = ''
+  outlookEmailApiKeyInput.value = ''
 }
 
 function openAccountModal(account?: EmailAccount) {
@@ -1297,6 +1388,12 @@ function openAccountModal(account?: EmailAccount) {
     accountForm.smtp_port = Number(account.smtp_port || 465)
     accountForm.smtp_security = account.smtp_security || 'ssl'
     accountForm.smtp_username = account.smtp_username || ''
+    accountForm.outlook_email_base_url = account.outlook_email_base_url || ''
+    accountForm.outlook_email_remote_email = account.outlook_email_remote_email || ''
+    accountForm.outlook_email_folder = account.outlook_email_folder || 'all'
+    accountForm.outlook_email_subject_contains = account.outlook_email_subject_contains || ''
+    accountForm.outlook_email_from_contains = account.outlook_email_from_contains || ''
+    accountForm.outlook_email_keyword = account.outlook_email_keyword || ''
     accountForm.sync_mode = 'poll'
     accountForm.poll_interval_seconds = Number(account.poll_interval_seconds || 300)
     accountForm.include_spam_trash = Boolean(account.include_spam_trash)
@@ -1316,7 +1413,7 @@ function buildAccountPayload(): EmailAccountPayload {
     include_spam_trash: Boolean(accountForm.include_spam_trash),
     max_messages_per_sync: Number(accountForm.max_messages_per_sync || 20),
   }
-  if (accountForm.provider !== 'gmail') {
+  if (accountForm.provider === 'imap') {
     payload.imap_host = accountForm.imap_host.trim() || undefined
     payload.imap_port = Number(accountForm.imap_port || 993)
     payload.imap_security = accountForm.imap_security
@@ -1326,8 +1423,19 @@ function buildAccountPayload(): EmailAccountPayload {
     payload.smtp_security = accountForm.smtp_security
     payload.smtp_username = accountForm.smtp_username.trim() || undefined
   }
-  if (imapPasswordInput.value.trim()) payload.imap_password = imapPasswordInput.value.trim()
-  if (smtpPasswordInput.value.trim()) payload.smtp_password = smtpPasswordInput.value.trim()
+  if (accountForm.provider === 'outlook_email') {
+    payload.outlook_email_base_url = accountForm.outlook_email_base_url.trim() || undefined
+    payload.outlook_email_remote_email = accountForm.outlook_email_remote_email.trim() || accountForm.email_address.trim()
+    payload.outlook_email_folder = accountForm.outlook_email_folder
+    payload.outlook_email_subject_contains = accountForm.outlook_email_subject_contains.trim() || undefined
+    payload.outlook_email_from_contains = accountForm.outlook_email_from_contains.trim() || undefined
+    payload.outlook_email_keyword = accountForm.outlook_email_keyword.trim() || undefined
+  }
+  if (accountForm.provider === 'imap' && imapPasswordInput.value.trim()) payload.imap_password = imapPasswordInput.value.trim()
+  if (accountForm.provider === 'imap' && smtpPasswordInput.value.trim()) payload.smtp_password = smtpPasswordInput.value.trim()
+  if (accountForm.provider === 'outlook_email' && outlookEmailApiKeyInput.value.trim()) {
+    payload.outlook_email_api_key = outlookEmailApiKeyInput.value.trim()
+  }
   return payload
 }
 
@@ -1510,6 +1618,29 @@ async function runClassify(id: number, fromDetail = false) {
     messageActionId.value = null
     messageActionKind.value = ''
     detailClassifying.value = false
+  }
+}
+
+async function runReprocess(id: number, fromDetail = false) {
+  messageActionId.value = id
+  messageActionKind.value = 'reprocess'
+  detailReprocessing.value = fromDetail
+  try {
+    const response = await emailApi.reprocessMessage(id, {
+      expand_links: fromDetail,
+      max_depth: fromDetail ? 2 : 1,
+    })
+    const payload = unwrapPayload<any>(response)
+    const updated = (payload?.message || payload?.item || payload) as EmailMessage
+    mergeMessage(updated)
+    message.success(t('emailPipeline.messages.reprocessed'))
+    await loadMessages(true)
+  } catch (error: any) {
+    message.error(normalizeError(error))
+  } finally {
+    messageActionId.value = null
+    messageActionKind.value = ''
+    detailReprocessing.value = false
   }
 }
 

@@ -73,6 +73,23 @@
         <div class="settings-card__arrow">→</div>
       </RouterLink>
 
+      <!-- Email Analysis Rules -->
+      <RouterLink to="/settings-hub/email-analysis-rules" class="settings-card">
+        <div class="settings-card__icon" style="color: var(--focus)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>
+            <path d="m22 7-10 7L2 7"/>
+            <path d="M8 11h8"/>
+            <path d="M9 15h6"/>
+          </svg>
+        </div>
+        <div class="settings-card__body">
+          <div class="settings-card__title">{{ t('settings.emailAnalysisRulesTitle') }}</div>
+          <div class="settings-card__desc">{{ t('settings.hubEmailAnalysisRulesDesc') }}</div>
+        </div>
+        <div class="settings-card__arrow">→</div>
+      </RouterLink>
+
       <!-- WeChat Publish -->
       <RouterLink to="/settings-hub/wechat" class="settings-card">
         <div class="settings-card__icon" style="color: var(--success)">

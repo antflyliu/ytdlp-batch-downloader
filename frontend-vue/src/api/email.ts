@@ -16,6 +16,12 @@ export interface EmailAccount {
   smtp_port?: number | null
   smtp_security?: string | null
   smtp_username?: string | null
+  outlook_email_base_url?: string | null
+  outlook_email_remote_email?: string | null
+  outlook_email_folder?: string | null
+  outlook_email_subject_contains?: string | null
+  outlook_email_from_contains?: string | null
+  outlook_email_keyword?: string | null
   sync_mode?: string | null
   poll_interval_seconds?: number | null
   include_spam_trash?: boolean
@@ -26,6 +32,7 @@ export interface EmailAccount {
   has_gmail_refresh_token?: boolean
   has_imap_password?: boolean
   has_smtp_password?: boolean
+  has_outlook_email_api_key?: boolean
   created_at?: string
   updated_at?: string
 }
@@ -49,6 +56,13 @@ export interface EmailAccountPayload {
   smtp_security?: string
   smtp_username?: string
   smtp_password?: string
+  outlook_email_base_url?: string
+  outlook_email_api_key?: string
+  outlook_email_remote_email?: string
+  outlook_email_folder?: string
+  outlook_email_subject_contains?: string
+  outlook_email_from_contains?: string
+  outlook_email_keyword?: string
   sync_mode?: string
   poll_interval_seconds?: number
   include_spam_trash?: boolean
@@ -126,6 +140,54 @@ export interface GenerateVariantsPayload {
   platforms?: string[]
   target_lang?: string
   article_task_id?: string
+}
+
+export interface ReprocessMessagePayload {
+  expand_links?: boolean
+  max_depth?: number
+}
+
+export interface EmailAnalysisRulesValidation {
+  ok: boolean
+  errors: string[]
+  rules: Record<string, unknown>
+  effective_rules?: Record<string, unknown>
+  schema?: Record<string, unknown>
+}
+
+export interface EmailAnalysisRulesVersion {
+  version_id: string
+  created_at: string
+  schema_version?: string
+  rule_version?: string
+  source?: string
+  note?: string
+  rules: Record<string, unknown>
+}
+
+export interface EmailAnalysisRulesState {
+  rules: Record<string, unknown>
+  raw_rules?: unknown
+  normalized_rules?: Record<string, unknown>
+  effective_rules: Record<string, unknown>
+  validation: EmailAnalysisRulesValidation
+  schema: Record<string, unknown>
+  history: EmailAnalysisRulesVersion[]
+}
+
+export interface EmailAnalysisRulesSavePayload {
+  rules: Record<string, unknown>
+  note?: string
+}
+
+export interface EmailAnalysisRulesImportPayload {
+  payload: Record<string, unknown>
+  note?: string
+}
+
+export interface EmailAnalysisRulesRestorePayload {
+  version_id: string
+  note?: string
 }
 
 export interface BatchGeneratePayload {
@@ -297,6 +359,60 @@ export default {
     return request<Record<string, unknown>>({
       url: `/api/email/messages/${id}/classify`,
       method: 'post',
+    })
+  },
+
+  reprocessMessage(id: number, data?: ReprocessMessagePayload) {
+    return request<Record<string, unknown>>({
+      url: `/api/email/messages/${id}/reprocess`,
+      method: 'post',
+      data,
+    })
+  },
+
+  getAnalysisRules() {
+    return request<EmailAnalysisRulesState>({
+      url: '/api/email/analysis-rules',
+      method: 'get',
+    })
+  },
+
+  validateAnalysisRules(data: EmailAnalysisRulesSavePayload | Record<string, unknown>) {
+    return request<EmailAnalysisRulesValidation>({
+      url: '/api/email/analysis-rules/validate',
+      method: 'post',
+      data,
+    })
+  },
+
+  saveAnalysisRules(data: EmailAnalysisRulesSavePayload) {
+    return request<Record<string, unknown>>({
+      url: '/api/email/analysis-rules',
+      method: 'post',
+      data,
+    })
+  },
+
+  importAnalysisRules(data: EmailAnalysisRulesImportPayload) {
+    return request<Record<string, unknown>>({
+      url: '/api/email/analysis-rules/import',
+      method: 'post',
+      data,
+    })
+  },
+
+  exportAnalysisRules() {
+    return request<Record<string, unknown>>({
+      url: '/api/email/analysis-rules/export',
+      method: 'get',
+    })
+  },
+
+  restoreAnalysisRules(data: EmailAnalysisRulesRestorePayload) {
+    return request<Record<string, unknown>>({
+      url: '/api/email/analysis-rules/restore',
+      method: 'post',
+      data,
     })
   },
 
