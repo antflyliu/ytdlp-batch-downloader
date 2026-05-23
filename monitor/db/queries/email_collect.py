@@ -6,6 +6,7 @@ from pathlib import Path
 import hashlib
 import secrets
 from typing import Any
+from urllib.parse import urlparse
 
 from config.encryption import _decrypt_config_value, _encrypt_config_value
 import monitor.db.connection as db_connection
@@ -18,6 +19,7 @@ SECRET_COLUMNS = {
     "gmail_refresh_token": "gmail_refresh_token_enc",
     "imap_password": "imap_password_enc",
     "smtp_password": "smtp_password_enc",
+    "outlook_email_api_key": "outlook_email_api_key_enc",
 }
 DEFAULT_TARGETS = [
     ("wechat", "微信公众号", "draft", {"max_chars": 6000, "format": "long_article"}),
@@ -103,6 +105,13 @@ def ensure_schema(conn) -> None:
             smtp_security TEXT NOT NULL DEFAULT 'ssl',
             smtp_username TEXT,
             smtp_password_enc TEXT,
+            outlook_email_base_url TEXT,
+            outlook_email_api_key_enc TEXT,
+            outlook_email_remote_email TEXT,
+            outlook_email_folder TEXT NOT NULL DEFAULT 'all',
+            outlook_email_subject_contains TEXT,
+            outlook_email_from_contains TEXT,
+            outlook_email_keyword TEXT,
             sync_mode TEXT NOT NULL DEFAULT 'poll',
             poll_interval_seconds INTEGER NOT NULL DEFAULT 300,
             include_spam_trash INTEGER NOT NULL DEFAULT 0,
@@ -113,6 +122,7 @@ def ensure_schema(conn) -> None:
             updated_at TEXT NOT NULL
         )"""
     )
+    _ensure_email_account_outlook_columns(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_email_accounts_provider ON email_accounts(provider, status)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_email_provider ON email_accounts(provider, email_address)")
     _dedupe_gmail_account_email_case(conn)
@@ -308,6 +318,23 @@ def _table_exists(conn, table_name: str) -> bool:
         (table_name,),
     ).fetchone()
     return bool(row)
+
+
+def _ensure_email_account_outlook_columns(conn) -> None:
+    if not _table_exists(conn, "email_accounts"):
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(email_accounts)").fetchall()}
+    for column, ddl in [
+        ("outlook_email_base_url", "TEXT"),
+        ("outlook_email_api_key_enc", "TEXT"),
+        ("outlook_email_remote_email", "TEXT"),
+        ("outlook_email_folder", "TEXT NOT NULL DEFAULT 'all'"),
+        ("outlook_email_subject_contains", "TEXT"),
+        ("outlook_email_from_contains", "TEXT"),
+        ("outlook_email_keyword", "TEXT"),
+    ]:
+        if column not in columns:
+            conn.execute(f"ALTER TABLE email_accounts ADD COLUMN {column} {ddl}")
 
 
 def _ensure_oauth_state_optional_account(conn) -> None:
@@ -688,6 +715,30 @@ def _validate_endpoint_update(existing: dict | None, values: dict[str, Any], pay
             raise ValueError(f"{service}_password must be re-entered after endpoint changes")
 
 
+def _validate_outlook_email_update(existing: dict | None, values: dict[str, Any], payload: dict[str, Any]) -> None:
+    if values.get("provider") != "outlook_email":
+        return
+    base_url = str(values.get("outlook_email_base_url") or "").strip()
+    if not base_url:
+        raise ValueError("outlook_email_base_url is required")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("outlook_email_base_url must be an http(s) URL")
+    if parsed.username or parsed.password:
+        raise ValueError("outlook_email_base_url must not include credentials")
+    remote_email = str(values.get("outlook_email_remote_email") or values.get("email_address") or "").strip()
+    if not remote_email:
+        raise ValueError("outlook_email_remote_email is required")
+    folder = str(values.get("outlook_email_folder") or "all").strip().lower()
+    if folder not in {"inbox", "junkemail", "deleteditems", "all"}:
+        raise ValueError("outlook_email_folder must be inbox, junkemail, deleteditems, or all")
+    submitted = payload.get("outlook_email_api_key", _UNSET) if payload else _UNSET
+    if existing and submitted in (_UNSET, "***") and existing.get("outlook_email_api_key"):
+        return
+    if not str(payload.get("outlook_email_api_key") or "").strip():
+        raise ValueError("outlook_email_api_key is required")
+
+
 def save_email_account(payload: dict[str, Any], *, account_id: int | None = None, preserve_masked: bool = True) -> int:
     now = now_iso()
     existing = get_email_account(account_id, include_secrets=True) if account_id else None
@@ -700,8 +751,8 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
     email_address = str(data.get("email_address") or "").strip()
     if not display_name:
         raise ValueError("display_name is required")
-    if provider not in {"gmail", "imap"}:
-        raise ValueError("provider must be gmail or imap")
+    if provider not in {"gmail", "imap", "outlook_email"}:
+        raise ValueError("provider must be gmail, imap, or outlook_email")
     if not email_address:
         raise ValueError("email_address is required")
     email_address = _normalize_account_email(provider, email_address)
@@ -720,6 +771,14 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
         "smtp_port": int(data.get("smtp_port") or 465),
         "smtp_security": str(data.get("smtp_security") or "ssl").strip().lower(),
         "smtp_username": str(data.get("smtp_username") or "").strip() or None,
+        "outlook_email_base_url": str(data.get("outlook_email_base_url") or "").strip().rstrip("/") or None,
+        "outlook_email_remote_email": (
+            str(data.get("outlook_email_remote_email") or email_address or "").strip() or None
+        ),
+        "outlook_email_folder": str(data.get("outlook_email_folder") or "all").strip().lower(),
+        "outlook_email_subject_contains": str(data.get("outlook_email_subject_contains") or "").strip() or None,
+        "outlook_email_from_contains": str(data.get("outlook_email_from_contains") or "").strip() or None,
+        "outlook_email_keyword": str(data.get("outlook_email_keyword") or "").strip() or None,
         "sync_mode": str(data.get("sync_mode") or "poll").strip().lower(),
         "poll_interval_seconds": int(data.get("poll_interval_seconds") or 300),
         "include_spam_trash": int(bool(data.get("include_spam_trash"))),
@@ -728,6 +787,7 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
     if values["sync_mode"] != "poll":
         raise ValueError("sync_mode must be poll until watch sync is implemented")
     _validate_endpoint_update(existing, values, payload or {})
+    _validate_outlook_email_update(existing, values, payload or {})
     secret_values = {}
     for public_name, column in SECRET_COLUMNS.items():
         submitted = payload.get(public_name, _UNSET) if payload else _UNSET
@@ -745,7 +805,11 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
                    gmail_client_id=?, gmail_client_secret_enc=?, gmail_refresh_token_enc=?,
                    gmail_scope_json=?, imap_host=?, imap_port=?, imap_security=?,
                    imap_username=?, imap_password_enc=?, smtp_host=?, smtp_port=?,
-                   smtp_security=?, smtp_username=?, smtp_password_enc=?, sync_mode=?,
+                   smtp_security=?, smtp_username=?, smtp_password_enc=?,
+                   outlook_email_base_url=?, outlook_email_api_key_enc=?,
+                   outlook_email_remote_email=?, outlook_email_folder=?,
+                   outlook_email_subject_contains=?, outlook_email_from_contains=?,
+                   outlook_email_keyword=?, sync_mode=?,
                    poll_interval_seconds=?, include_spam_trash=?, max_messages_per_sync=?,
                    updated_at=?
                    WHERE id=?""",
@@ -768,6 +832,13 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
                     values["smtp_security"],
                     values["smtp_username"],
                     secret_values["smtp_password_enc"],
+                    values["outlook_email_base_url"],
+                    secret_values["outlook_email_api_key_enc"],
+                    values["outlook_email_remote_email"],
+                    values["outlook_email_folder"],
+                    values["outlook_email_subject_contains"],
+                    values["outlook_email_from_contains"],
+                    values["outlook_email_keyword"],
                     values["sync_mode"],
                     values["poll_interval_seconds"],
                     values["include_spam_trash"],
@@ -784,9 +855,13 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
                     gmail_client_secret_enc, gmail_refresh_token_enc, gmail_scope_json,
                     imap_host, imap_port, imap_security, imap_username, imap_password_enc,
                     smtp_host, smtp_port, smtp_security, smtp_username, smtp_password_enc,
+                    outlook_email_base_url, outlook_email_api_key_enc,
+                    outlook_email_remote_email, outlook_email_folder,
+                    outlook_email_subject_contains, outlook_email_from_contains,
+                    outlook_email_keyword,
                     sync_mode, poll_interval_seconds, include_spam_trash, max_messages_per_sync,
                     created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     values["provider"],
                     values["display_name"],
@@ -806,6 +881,13 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
                     values["smtp_security"],
                     values["smtp_username"],
                     secret_values["smtp_password_enc"],
+                    values["outlook_email_base_url"],
+                    secret_values["outlook_email_api_key_enc"],
+                    values["outlook_email_remote_email"],
+                    values["outlook_email_folder"],
+                    values["outlook_email_subject_contains"],
+                    values["outlook_email_from_contains"],
+                    values["outlook_email_keyword"],
                     values["sync_mode"],
                     values["poll_interval_seconds"],
                     values["include_spam_trash"],
@@ -949,6 +1031,9 @@ def upsert_email_message(message: dict[str, Any], attachments: list[dict[str, An
                  sent_at=excluded.sent_at,
                  snippet=excluded.snippet,
                  body_text=excluded.body_text,
+                 body_markdown_path=excluded.body_markdown_path,
+                 raw_mime_path=COALESCE(NULLIF(excluded.raw_mime_path, ''), raw_mime_path),
+                 html_body_path=COALESCE(NULLIF(excluded.html_body_path, ''), html_body_path),
                  body_hash=excluded.body_hash,
                  dedupe_key=excluded.dedupe_key,
                  classification_json=excluded.classification_json,

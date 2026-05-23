@@ -33,6 +33,7 @@ _SECRET_CONFIG_KEYS = (
     "gemini_api_key",
     "gmail_oauth_client_secret",
     "wechat_app_secret",
+    "wechat_api_proxy_token",
     "wechat_exporter_auth_key",
 )
 
@@ -136,6 +137,7 @@ def _config_default() -> dict:
         "gmail_oauth_client_secret": "",
         "gmail_oauth_redirect_uri": "",
         "gmail_oauth_scopes": "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send",
+        "email_analysis_rules": {},
         "article_wechat_prompt_role": "资深科技自媒体作者",
         "article_wechat_prompt_reader_persona": "关注 AI、效率工具和内容创作的中文读者",
         "article_wechat_prompt_style": "信息密度高、短段落、有明确小标题，保留必要的列表、表格和代码块",
@@ -177,6 +179,8 @@ def _config_default() -> dict:
         # ── 微信公众号发布配置 ─────────────────────────────────────
         "wechat_app_id": "",
         "wechat_app_secret": "",
+        "wechat_api_proxy_url": "",
+        "wechat_api_proxy_token": "",
         "wechat_default_author": "",
         "wechat_default_theme": "default",
         "wechat_default_color": "blue",

@@ -17,6 +17,7 @@ import monitor.db.connection as db_connection
 from monitor.db.queries import email_collect as email_queries
 from monitor.email_collect.errors import EmailProviderError
 from monitor.email_collect.models import ParsedEmailMessage
+from monitor.email_collect.outlook_email_client import OutlookEmailClient
 from monitor.email_collect.service import EmailCollectService
 
 
@@ -115,6 +116,155 @@ def test_email_account_contract_masks_secrets_in_list_and_preserves_masked_updat
     assert updated["display_name"] == "AI Feed Updated"
     assert updated["gmail_client_secret"] == "secret-1"
     assert updated["gmail_refresh_token"] == "refresh-1"
+
+
+def test_outlook_email_account_contract_masks_api_key_and_preserves_masked_update(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(
+        {
+            "provider": "outlook_email",
+            "display_name": "External Inbox",
+            "email_address": "reader@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000",
+            "outlook_email_api_key": "external-key-1",
+            "outlook_email_remote_email": "reader@example.com",
+            "outlook_email_folder": "all",
+            "outlook_email_subject_contains": "release",
+        }
+    )
+
+    listed = service.list_accounts()[0]
+    secret_view = service.get_account(account_id, include_secrets=True)
+    service.save_account(
+        {
+            "provider": "outlook_email",
+            "display_name": "External Inbox Updated",
+            "email_address": "reader@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000",
+            "outlook_email_api_key": "***",
+            "outlook_email_remote_email": "reader@example.com",
+            "outlook_email_folder": "inbox",
+        },
+        account_id=account_id,
+    )
+    updated = service.get_account(account_id, include_secrets=True)
+
+    assert listed["provider"] == "outlook_email"
+    assert listed["has_outlook_email_api_key"] is True
+    assert "outlook_email_api_key" not in listed
+    assert secret_view["outlook_email_api_key"] == "external-key-1"
+    assert updated["display_name"] == "External Inbox Updated"
+    assert updated["outlook_email_api_key"] == "external-key-1"
+    assert updated["outlook_email_folder"] == "inbox"
+
+
+class _FakeResponse:
+    def __init__(self, body: str):
+        self.body = body.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.body
+
+
+class _FakeOpener:
+    def __init__(self, bodies: list[str]):
+        self.bodies = list(bodies)
+        self.calls = []
+
+    def open(self, request, timeout=0):
+        self.calls.append((request, timeout))
+        return _FakeResponse(self.bodies.pop(0))
+
+
+def test_outlook_email_client_maps_external_messages_to_parsed_email():
+    client = OutlookEmailClient(
+        {
+            "email_address": "reader@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000/",
+            "outlook_email_api_key": "external-key",
+            "outlook_email_remote_email": "alias@example.com",
+            "outlook_email_folder": "all",
+            "outlook_email_subject_contains": "release",
+            "outlook_email_from_contains": "news",
+            "outlook_email_keyword": "benchmark",
+        }
+    )
+    client._opener = _FakeOpener(
+        [
+            """{"success": true, "requested_email": "alias@example.com", "resolved_email": "reader@example.com", "method": "Graph API", "emails": [{"id": "msg-1", "subject": "Release notes", "from": "News <news@example.com>", "date": "2026-05-01T10:00:00Z", "body_preview": "Benchmark summary", "folder": "inbox"}]}""",
+        ]
+    )
+
+    messages = list(client.fetch_recent(max_messages=5))
+    request, timeout = client._opener.calls[0]
+
+    assert len(messages) == 1
+    assert messages[0].provider == "outlook_email"
+    assert messages[0].provider_message_id == "msg-1"
+    assert messages[0].subject == "Release notes"
+    assert messages[0].from_addr == "News <news@example.com>"
+    assert messages[0].body_text == "Benchmark summary"
+    assert "/api/external/emails" in request.full_url
+    assert "email=alias%40example.com" in request.full_url
+    assert "folder=all" in request.full_url
+    assert dict(request.header_items())["X-api-key"] == "external-key"
+    assert timeout == 45
+
+
+def test_outlook_email_sync_routes_through_client_and_persists_messages(service_env, monkeypatch):
+    service, _data_dir = service_env
+    account_id = service.save_account(
+        {
+            "provider": "outlook_email",
+            "display_name": "External Inbox",
+            "email_address": "reader@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000",
+            "outlook_email_api_key": "external-key-1",
+            "outlook_email_remote_email": "reader@example.com",
+            "outlook_email_folder": "all",
+            "max_messages_per_sync": 7,
+        }
+    )
+    calls = []
+
+    class FakeOutlookEmailClient:
+        def __init__(self, account):
+            self.account = account
+
+        def fetch_recent(self, *, max_messages=10):
+            calls.append((self.account["provider"], max_messages))
+            return [
+                ParsedEmailMessage(
+                    provider="outlook_email",
+                    provider_message_id="outlook-msg-1",
+                    subject="Developer platform release",
+                    from_addr="Digest <digest@example.com>",
+                    received_at="2026-05-01T10:00:00Z",
+                    snippet="API migration and benchmark details",
+                    body_text=(
+                        "This update includes API migration notes, benchmark details, "
+                        "developer examples, and rollout risks for teams."
+                    ),
+                )
+            ]
+
+    monkeypatch.setattr("monitor.email_collect.service.OutlookEmailClient", FakeOutlookEmailClient)
+
+    result = service.sync_account(account_id)
+    items, total = service.list_messages(account_id=account_id, status=None, q=None, limit=10, offset=0)
+
+    assert result["ok"] is True
+    assert result["synced_count"] == 1
+    assert calls == [("outlook_email", 7)]
+    assert total == 1
+    assert items[0]["provider"] == "outlook_email"
+    assert items[0]["provider_message_id"] == "outlook-msg-1"
 
 
 def test_gmail_oauth_status_reports_config_and_account_authorization(service_env, monkeypatch):
@@ -743,6 +893,257 @@ def test_message_contract_supports_listing_detail_reclean_classify_and_ignore(se
     assert final_detail["processing_status"] == "ignored"
 
 
+def test_persisted_message_runs_content_analysis_and_payload_prefers_analysis_text(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    account = service.get_account(account_id, include_secrets=True)
+
+    message_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-analysis-1",
+            subject="Developer API migration guide",
+            from_addr="Engineering <eng@example.com>",
+            received_at="2026-05-01T10:00:00+08:00",
+            sent_at="2026-05-01T10:00:00+08:00",
+            html_body=(
+                "<p>This developer guide explains the API migration methodology, "
+                "release risk, and model evaluation.</p>"
+                '<a href="https://example.com/migration?utm_source=email">Full migration guide</a>'
+            ),
+        ),
+    )
+
+    detail = service.get_message(message_id, include_body=True)
+    payload = service.prepare_article_payload(message_id)
+
+    assert detail["processing_status"] == "classified"
+    assert detail["classification"]["rule_version"] == "email-content-analysis-v1"
+    assert "developer_practice" in detail["classification"]["tags"]
+    assert detail["classification"]["translation"]["required"] is True
+    assert detail["classification"]["links"]["kept_count"] == 1
+    assert detail["classification"]["links"]["items"][0]["url"] == "https://example.com/migration"
+    assert "【中文处理稿】" in payload["article_text"]
+    assert "https://example.com/migration" in payload["article_text"]
+
+
+def test_persisted_message_uses_configurable_email_analysis_rules(service_env, monkeypatch):
+    service, _data_dir = service_env
+    monkeypatch.setattr(
+        monitor_db,
+        "load_config",
+        lambda: {
+            "email_analysis_rules": {
+                "marketing_keywords": ["vendor blast"],
+                "marketing_sender_domains": ["ads."],
+            }
+        },
+    )
+    account_id = service.save_account(_create_account())
+    account = service.get_account(account_id, include_secrets=True)
+
+    message_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-configurable-analysis",
+            subject="Vendor blast for paid plan",
+            from_addr="Ads <noreply@ads.example.com>",
+            received_at="2026-05-01T10:00:00+08:00",
+            sent_at="2026-05-01T10:00:00+08:00",
+            body_text="This vendor blast promotes a paid plan bundle.",
+        ),
+    )
+
+    detail = service.get_message(message_id, include_body=True)
+
+    assert detail["processing_status"] == "ignored"
+    assert detail["classification"]["primary_type"] == "marketing"
+    assert detail["classification"]["filter"]["configurable"] is True
+    assert "keyword:vendor blast" in detail["classification"]["filter"]["matched_rules"]
+
+
+def test_reclean_message_clears_stale_analysis_text_before_payload_generation(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    message = _create_message(account_id)
+    message["provider_message_id"] = "gmail-msg-reclean-analysis"
+    message["body_text"] = "This release includes benchmark details.\n\nUnsubscribe"
+    message["classification"] = {
+        "primary_type": "research",
+        "recommended_targets": ["wechat"],
+        "analysis_text": "OLD STALE CONTENT THAT MUST NOT BE USED",
+    }
+    message_id = email_queries.upsert_email_message(message)
+
+    recleaned = service.reclean_message(message_id)
+    payload = service.prepare_article_payload(message_id)
+
+    assert recleaned["classification"]["analysis_stale"] is True
+    assert "analysis_text" not in recleaned["classification"]
+    assert "OLD STALE CONTENT" not in payload["article_text"]
+    assert "This release includes benchmark details" in payload["article_text"]
+
+
+def test_reprocess_message_can_expand_links_with_injected_fetcher(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    message = _create_message(account_id)
+    message["provider_message_id"] = "gmail-msg-link-expansion"
+    message["body_text"] = (
+        "This research report links to https://example.com/report for benchmark methodology "
+        "and dataset details that should enrich the article source."
+    )
+    message_id = email_queries.upsert_email_message(message)
+
+    reprocessed = service.reprocess_message(
+        message_id,
+        expand_links=True,
+        link_fetcher=lambda _url: {
+            "title": "Expanded report",
+            "html": "<title>Expanded report</title><p>The linked page adds evaluation methodology and risk notes.</p>",
+        },
+    )
+    payload = service.prepare_article_payload(message_id)
+
+    link = reprocessed["classification"]["links"]["items"][0]
+    assert reprocessed["processing_status"] == "classified"
+    assert link["enrichment_status"] == "ok"
+    assert "evaluation methodology" in link["enrichment"]["excerpt"]
+    assert "【链接补充材料】" in payload["article_text"]
+    assert "Expanded report" in payload["article_text"]
+
+
+def test_reprocess_message_preserves_html_only_links_from_persisted_source(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    account = service.get_account(account_id, include_secrets=True)
+
+    message_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-html-only-link",
+            subject="Research benchmark report",
+            from_addr="Research <research@example.com>",
+            received_at="2026-05-01T10:00:00+08:00",
+            sent_at="2026-05-01T10:00:00+08:00",
+            html_body=(
+                "<p>This research benchmark email links to the full report.</p>"
+                '<a href="https://example.com/report?utm_source=email">Read the report</a>'
+            ),
+        ),
+    )
+    detail = service.get_message(message_id, include_body=True)
+
+    reprocessed = service.reprocess_message(
+        message_id,
+        expand_links=True,
+        link_fetcher=lambda _url: {
+            "title": "HTML only report",
+            "html": "<p>The linked page adds benchmark evaluation details.</p>",
+        },
+    )
+
+    link = reprocessed["classification"]["links"]["items"][0]
+    assert detail["html_body_path"]
+    assert Path(detail["html_body_path"]).is_file()
+    assert "https://example.com/report" not in detail["body_text"]
+    assert link["url"] == "https://example.com/report"
+    assert link["enrichment_status"] == "ok"
+    assert "benchmark evaluation" in link["enrichment"]["excerpt"]
+
+
+def test_duplicate_sync_does_not_clear_persisted_html_source_for_reprocess(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    account = service.get_account(account_id, include_secrets=True)
+
+    message_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-html-path-preserve",
+            subject="Research benchmark report",
+            from_addr="Research <research@example.com>",
+            received_at="2026-05-01T10:00:00+08:00",
+            sent_at="2026-05-01T10:00:00+08:00",
+            html_body=(
+                "<p>This research benchmark email links to the full report.</p>"
+                '<a href="https://example.com/report?utm_source=email">Read the report</a>'
+            ),
+        ),
+    )
+    first_detail = service.get_message(message_id, include_body=True)
+
+    service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-html-path-preserve",
+            subject="Research benchmark report",
+            from_addr="Research <research@example.com>",
+            received_at="2026-05-01T10:00:00+08:00",
+            sent_at="2026-05-01T10:00:00+08:00",
+            body_text="This duplicate sync has no HTML source.",
+        ),
+    )
+    second_detail = service.get_message(message_id, include_body=True)
+    reprocessed = service.reprocess_message(
+        message_id,
+        expand_links=True,
+        link_fetcher=lambda _url: {"text": "The preserved link still enriches the message."},
+    )
+
+    assert second_detail["html_body_path"] == first_detail["html_body_path"]
+    assert Path(second_detail["html_body_path"]).is_file()
+    assert reprocessed["classification"]["links"]["items"][0]["url"] == "https://example.com/report"
+
+
+def test_generate_variants_uses_configured_platform_sensitive_words(service_env, monkeypatch):
+    service, _data_dir = service_env
+    monkeypatch.setattr(
+        monitor_db,
+        "load_config",
+        lambda: {
+            "email_analysis_rules": {
+                "platform_sensitive_words": {
+                    "wechat": {
+                        "禁词": "合规表述",
+                    }
+                }
+            }
+        },
+    )
+    account_id = service.save_account(_create_account())
+    message = _create_message(account_id)
+    message["provider_message_id"] = "gmail-configured-platform-filter"
+    message["subject"] = "新闻报道"
+    message["body_text"] = "这是一篇新闻报道，包含平台禁词，需要在公众号变体中过滤。"
+    message["classification"] = {
+        "primary_type": "news",
+        "secondary_types": ["industry_news"],
+        "language": "zh",
+        "value_score": 8,
+        "action": "generate_variants",
+        "recommended_targets": ["wechat"],
+        "risk_flags": ["platform_sensitive_review"],
+        "reason": "seed",
+    }
+    message_id = email_queries.upsert_email_message(message)
+
+    variant_id = service.generate_variants(message_id, article_task_id="article-email-rules", platforms=["wechat"])[0]["id"]
+    detail = service.get_variant(variant_id, include_body=True)
+
+    assert "禁词" not in detail["body"]
+    assert "合规表述" in detail["body"]
+    assert detail["metadata"]["platform_compliance"]["changed"] is True
+    assert detail["metadata"]["platform_compliance"]["matched_terms"] == [
+        {"term": "禁词", "replacement": "合规表述"}
+    ]
+
+
 def test_content_variants_contract_lists_targets_and_optionally_reads_body(service_env):
     service, data_dir = service_env
     account_id = service.save_account(_create_account())
@@ -942,7 +1343,7 @@ def test_prepare_article_payload_returns_email_message_source_contract(service_e
 
     assert payload["source_type"] == "email_message"
     assert payload["email_message_id"] == message_id
-    assert payload["article_text"].startswith("This release includes benchmark details")
+    assert "This release includes benchmark details" in payload["article_text"]
     assert payload["source_title"] == "Research release update"
     assert payload["target_lang"] == "en"
 

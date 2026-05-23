@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -9,8 +10,7 @@ import monitor.db as db
 import logging_config
 from monitor.db.queries import email_collect as queries
 
-from .classifier import classify_email
-from .cleaner import clean_text
+from .cleaner import clean_parsed_email, clean_text
 from .errors import EmailAccountValidationError, EmailProviderError
 from .gmail_client import (
     DEFAULT_GMAIL_SCOPES,
@@ -22,6 +22,8 @@ from .gmail_client import (
     normalize_gmail_scopes,
 )
 from .imap_client import ImapClient
+from .outlook_email_client import OutlookEmailClient
+from .processor import LinkFetcher, analyze_email_content
 from .smtp_client import test_smtp_connection
 from .variants import build_platform_variant
 
@@ -247,6 +249,8 @@ class EmailCollectService:
             gmail = GmailClient(account)
             results["gmail"] = gmail.test_connection()
             results["gmail_send"] = gmail.test_send_capability()
+        elif account.get("provider") == "outlook_email":
+            results["outlook_email"] = OutlookEmailClient(account).test_connection()
         else:
             results["imap"] = ImapClient(account).test_connection()
             results["smtp"] = test_smtp_connection(account)
@@ -277,6 +281,8 @@ class EmailCollectService:
         try:
             if account.get("provider") == "gmail":
                 parsed_messages = GmailClient(account).fetch_recent(max_messages=max_items)
+            elif account.get("provider") == "outlook_email":
+                parsed_messages = OutlookEmailClient(account).fetch_recent(max_messages=max_items)
             else:
                 parsed_messages = ImapClient(account).fetch_recent(max_messages=max_items)
             upserted: list[int] = []
@@ -292,14 +298,24 @@ class EmailCollectService:
             raise EmailProviderError(SAFE_PROVIDER_ERROR_MESSAGE) from exc
 
     def persist_parsed_message(self, account: dict[str, Any], parsed) -> int:
-        cleaned = clean_text(parsed.body_text)
-        classification = classify_email(
+        cleaned = clean_parsed_email(parsed)
+        analysis = self._analyze_cleaned_message(
             subject=parsed.subject,
             body_text=cleaned.body_text,
             from_addr=parsed.from_addr,
+            html_body=parsed.html_body,
         )
+        classification = analysis["classification"]
+        cleaning_report = self._merge_cleaning_report(cleaned.report, analysis.get("cleaning_report") or {})
         provider = parsed.provider or account.get("provider")
         provider_message_id = parsed.provider_message_id or parsed.rfc_message_id or cleaned.body_hash
+        source_paths = self._persist_message_sources(
+            account_id=account.get("id"),
+            provider=provider,
+            provider_message_id=provider_message_id,
+            html_body=parsed.html_body,
+            raw_mime=parsed.raw_mime,
+        )
         message_id = queries.upsert_email_message(
             {
                 "account_id": account.get("id"),
@@ -315,11 +331,13 @@ class EmailCollectService:
                 "sent_at": parsed.sent_at,
                 "snippet": cleaned.snippet or parsed.snippet,
                 "body_text": cleaned.body_text,
+                "html_body_path": source_paths.get("html_body_path"),
+                "raw_mime_path": source_paths.get("raw_mime_path"),
                 "body_hash": cleaned.body_hash,
                 "dedupe_key": f"{provider}:{provider_message_id}",
-                "classification": classification.as_dict(),
-                "cleaning_report": cleaned.report,
-                "processing_status": "ignored" if classification.action == "ignore" else "classified",
+                "classification": classification,
+                "cleaning_report": cleaning_report,
+                "processing_status": "ignored" if classification.get("action") == "ignore" else "classified",
                 "source_url": self._source_url(provider, provider_message_id),
             },
             [
@@ -346,27 +364,51 @@ class EmailCollectService:
     def reclean_message(self, message_id: int) -> dict[str, Any]:
         message = self._require_message(message_id)
         cleaned = clean_text(message.get("body_text") or "")
+        classification = self._classification_after_reclean(message.get("classification") or {})
         queries.update_email_message(
             message_id,
             body_text=cleaned.body_text,
             snippet=cleaned.snippet,
             body_hash=cleaned.body_hash,
             cleaning_report=cleaned.report,
+            classification=classification,
             processing_status="cleaned",
         )
         return self._require_message(message_id)
 
     def classify_message(self, message_id: int) -> dict[str, Any]:
+        return self.reprocess_message(message_id, expand_links=False)
+
+    def reprocess_message(
+        self,
+        message_id: int,
+        *,
+        expand_links: bool = False,
+        link_fetcher: LinkFetcher | None = None,
+        max_depth: int | None = None,
+    ) -> dict[str, Any]:
         message = self._require_message(message_id)
-        classification = classify_email(
+        cleaned = clean_text(message.get("body_text") or "")
+        html_body = self._read_message_source_text(message.get("html_body_path"))
+        analysis = self._analyze_cleaned_message(
             subject=message.get("subject") or "",
-            body_text=message.get("body_text") or "",
+            body_text=cleaned.body_text,
             from_addr=message.get("from_addr") or "",
+            html_body=html_body,
+            expand_links=expand_links,
+            link_fetcher=link_fetcher,
+            max_depth=max_depth,
         )
+        classification = analysis["classification"]
+        cleaning_report = self._merge_cleaning_report(cleaned.report, analysis.get("cleaning_report") or {})
         queries.update_email_message(
             message_id,
-            classification=classification.as_dict(),
-            processing_status="ignored" if classification.action == "ignore" else "classified",
+            body_text=cleaned.body_text,
+            snippet=cleaned.snippet,
+            body_hash=cleaned.body_hash,
+            cleaning_report=cleaning_report,
+            classification=classification,
+            processing_status="ignored" if classification.get("action") == "ignore" else "classified",
         )
         return self._require_message(message_id)
 
@@ -375,7 +417,7 @@ class EmailCollectService:
 
     def prepare_article_payload(self, message_id: int, *, target_lang: str = "zh-Hans") -> dict[str, Any]:
         message = self._require_message(message_id)
-        body = str(message.get("body_text") or "").strip()
+        body = self._message_analysis_text(message)
         if not body:
             raise EmailAccountValidationError("email message body is empty")
         return {
@@ -423,8 +465,9 @@ class EmailCollectService:
             variant = build_platform_variant(
                 platform=platform,
                 source_title=message.get("subject") or "",
-                body_text=message.get("body_text") or "",
+                body_text=self._message_analysis_text(message),
                 classification=message.get("classification") or {},
+                analysis_rules=self._email_analysis_rules(),
             )
             body_path = output_root / f"email_{message_id}_{platform}.md"
             body_path.write_text(variant["body"], encoding="utf-8")
@@ -524,6 +567,98 @@ class EmailCollectService:
             "filename": filename,
             "content": content,
         }
+
+    def _analyze_cleaned_message(
+        self,
+        *,
+        subject: str,
+        body_text: str,
+        from_addr: str,
+        html_body: str = "",
+        expand_links: bool = False,
+        link_fetcher: LinkFetcher | None = None,
+        max_depth: int | None = None,
+    ) -> dict[str, Any]:
+        return analyze_email_content(
+            subject=subject,
+            body_text=body_text,
+            from_addr=from_addr,
+            html_body=html_body,
+            rules=self._email_analysis_rules(),
+            expand_links=expand_links,
+            link_fetcher=link_fetcher,
+            max_depth=max_depth,
+        )
+
+    @staticmethod
+    def _email_analysis_rules() -> dict[str, Any]:
+        rules = (db.load_config() or {}).get("email_analysis_rules")
+        return rules if isinstance(rules, dict) else {}
+
+    @staticmethod
+    def _merge_cleaning_report(base: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+        report = dict(base or {})
+        report["analysis"] = analysis or {}
+        return report
+
+    @staticmethod
+    def _message_analysis_text(message: dict[str, Any]) -> str:
+        classification = message.get("classification") or {}
+        analysis_text = str(classification.get("analysis_text") or "").strip()
+        return analysis_text or str(message.get("body_text") or "").strip()
+
+    @staticmethod
+    def _classification_after_reclean(classification: dict[str, Any]) -> dict[str, Any]:
+        cleaned = dict(classification or {})
+        cleaned.pop("analysis_text", None)
+        cleaned["analysis_stale"] = True
+        return cleaned
+
+    def _persist_message_sources(
+        self,
+        *,
+        account_id: Any,
+        provider: Any,
+        provider_message_id: Any,
+        html_body: str = "",
+        raw_mime: bytes | None = None,
+    ) -> dict[str, str]:
+        root = self._message_source_root()
+        paths: dict[str, str] = {}
+        stem = self._message_source_stem(account_id, provider, provider_message_id)
+        if html_body:
+            root.mkdir(parents=True, exist_ok=True)
+            html_path = root / f"{stem}.html"
+            html_path.write_text(html_body, encoding="utf-8")
+            paths["html_body_path"] = str(html_path)
+        if raw_mime:
+            root.mkdir(parents=True, exist_ok=True)
+            raw_path = root / f"{stem}.eml"
+            raw_path.write_bytes(raw_mime)
+            paths["raw_mime_path"] = str(raw_path)
+        return paths
+
+    @staticmethod
+    def _message_source_stem(account_id: Any, provider: Any, provider_message_id: Any) -> str:
+        key = f"{account_id or ''}:{provider or ''}:{provider_message_id or ''}"
+        return hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:32]
+
+    @staticmethod
+    def _message_source_root() -> Path:
+        return Path(str(db._DATA_DIR)) / "email-message-sources"
+
+    def _read_message_source_text(self, path: str | None) -> str:
+        if not path:
+            return ""
+        try:
+            root = self._message_source_root().resolve()
+            candidate = Path(str(path)).resolve()
+            candidate.relative_to(root)
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            return ""
+        return ""
 
     def _require_account(self, account_id: int, *, include_secrets: bool = False) -> dict:
         account = queries.get_email_account(account_id, include_secrets=include_secrets)

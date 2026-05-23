@@ -6,6 +6,7 @@ server/__main__.py — YouTube 视频监控 Web 服务入口
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -15,7 +16,9 @@ import tempfile
 import threading
 import uuid
 import webbrowser
+import html
 from datetime import datetime
+from http import HTTPStatus
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 from pathlib import Path
@@ -50,6 +53,14 @@ from monitor.wechat_collect.session_store import NativeSessionStore
 from monitor.wechat_collect.tasks import NativeCollectionTaskService, resolve_output_dir
 from monitor.email_collect import EmailCollectService
 from monitor.email_collect.errors import EmailAccountValidationError, EmailProviderError
+from monitor.email_collect.processor import (
+    RULE_SCHEMA_VERSION as EMAIL_ANALYSIS_RULE_SCHEMA_VERSION,
+    RULE_VERSION as EMAIL_ANALYSIS_RULE_VERSION,
+    coerce_email_analysis_rules_payload,
+    email_analysis_rules_schema,
+    merge_email_analysis_rules,
+    validate_email_analysis_rules,
+)
 from monitor.email_collect.service import GMAIL_OAUTH_FAILURE_PAGE, GMAIL_OAUTH_SUCCESS_PAGE
 from go_proxy_manager import get_proxy_manager
 import logging_config
@@ -71,7 +82,6 @@ from server.middleware.rate_limit import (
     _rate_limiter,
     _rate_limiter_lock,
 )
-from server.middleware.auth import verify_bearer_token
 
 _WEB_BATCH_ACCOUNT_NAME = "Web 批量下载"
 _MASKED_SECRET_VALUE = "***"
@@ -128,6 +138,68 @@ def _resolve_masked_account_secret(account_id: int, field: str, submitted):
         return submitted or None
     account = _db.get_account(account_id) or {}
     return account.get(field) or None
+
+
+def _email_analysis_rules_history_path() -> Path:
+    return Path(str(_db._DATA_DIR)) / "email-analysis-rules-history.json"
+
+
+def _load_email_analysis_rules_history() -> list[dict]:
+    path = _email_analysis_rules_history_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _write_email_analysis_rules_history(history: list[dict]) -> None:
+    path = _email_analysis_rules_history_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _email_analysis_rules_version_id(rules: dict, created_at: str) -> str:
+    payload = json.dumps(
+        {
+            "schema_version": EMAIL_ANALYSIS_RULE_SCHEMA_VERSION,
+            "rule_version": EMAIL_ANALYSIS_RULE_VERSION,
+            "created_at": created_at,
+            "rules": rules,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _append_email_analysis_rules_history(
+    rules: dict,
+    *,
+    note: str = "",
+    source: str = "settings-center",
+) -> dict:
+    created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    record = {
+        "version_id": _email_analysis_rules_version_id(rules, created_at),
+        "created_at": created_at,
+        "schema_version": EMAIL_ANALYSIS_RULE_SCHEMA_VERSION,
+        "rule_version": EMAIL_ANALYSIS_RULE_VERSION,
+        "source": source,
+        "note": str(note or "").strip()[:300],
+        "rules": rules,
+    }
+    history = _load_email_analysis_rules_history()
+    history.insert(0, record)
+    _write_email_analysis_rules_history(history[:50])
+    return record
 
 
 def _resolve_optional_account_secret(account_id: int, field: str, body: dict):
@@ -593,15 +665,18 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _send_json(self, data, status=200):
         """发送 JSON 响应（含 CORS headers）"""
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        origin = self._allowed_origin()
-        if origin:
-            self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            origin = self._allowed_origin()
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        except (ConnectionAbortedError, BrokenPipeError):
+            _log.warning("Connection lost while sending JSON response to %s", self.client_address)
 
     def _read_json(self):
         """读取并解析 JSON 请求体，失败返回 None"""
@@ -635,29 +710,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def _require_auth(self):
-        """验证 Bearer token，失败返回 401。环境变量 MONITOR_API_TOKEN 优先于数据库缓存。"""
-        # 环境变量优先：每次请求都重新读取，确保修改后立即生效
-        env_token = os.environ.get("MONITOR_API_TOKEN")
-        if env_token:
-            MonitorHandler._api_token = env_token
-        elif not hasattr(MonitorHandler, "_api_token") or MonitorHandler._api_token is None:
-            MonitorHandler._api_token = _db.get_api_token()
-        # 支持 Authorization 请求头
-        auth_header = self.headers.get("Authorization", "")
-        # 也支持 ?api_token= 查询参数（EventSource 等不支持自定义请求头）
-        query_token = ""
-        if hasattr(self, "path") and self.path:
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
-            token_list = qs.get("api_token", [])
-            if token_list:
-                query_token = token_list[0]
-        # 优先用 Authorization header，其次 query parameter
-        token_to_verify = auth_header if auth_header else ("Bearer " + query_token if query_token else "")
-        ok, err = verify_bearer_token(token_to_verify, MonitorHandler._api_token)
-        if not ok:
-            self._send_json({"error": err}, 401)
-            return False
+        """Monitor HTTP API 为完全开放模式，不校验 Bearer / api_token（仅依赖本机监听与网络隔离）。"""
         return True
 
     def _mask_key(self, key_value: str) -> str:
@@ -703,6 +756,45 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             pass
         super().end_headers()
 
+    def send_error(self, code, message=None, explain=None):
+        """与 BaseHTTPRequestHandler 一致，但在 HTML 错误页上附加 CORS（便于跨端口调试时控制台可读）。"""
+        try:
+            shortmsg, longmsg = self.responses[code]
+        except KeyError:
+            shortmsg, longmsg = "???", "???"
+        if message is None:
+            message = shortmsg
+        if explain is None:
+            explain = longmsg
+        self.log_error("code %d, message %s", code, message)
+        self.send_response(code, message)
+        self.send_header("Connection", "close")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        body = None
+        if code >= 200 and code not in (
+            HTTPStatus.NO_CONTENT,
+            HTTPStatus.RESET_CONTENT,
+            HTTPStatus.NOT_MODIFIED,
+        ):
+            content = self.error_message_format % {
+                "code": code,
+                "message": html.escape(message, quote=False),
+                "explain": html.escape(explain, quote=False),
+            }
+            body = content.encode("UTF-8", "replace")
+            self.send_header("Content-Type", self.error_content_type)
+            self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD" and body:
+            try:
+                self.wfile.write(body)
+            except (ConnectionAbortedError, BrokenPipeError):
+                pass
+
     def _mask_proxy_url(self, url: str) -> str:
         """返回代理 URL 的掩码版本（隐藏认证信息）"""
         if not url:
@@ -728,46 +820,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         path = self._path_only()
         if not path.startswith("/api/"):
             self._strip_conditional_headers_for_static()
-            # ── Special handling: inject api_token into index.html ───────────
-            # 浏览器 / pywebview 加载 index.html 时，如果 URL 带 ?api_token=xxx，
-            # 后端直接注入到 HTML 中作为 JS 全局变量，避免前端依赖 URLSearchParams
-            # （pywebview WebView2 可能缓存文件导致 query string 丢失）。
-            if path in ("/", "/index.html"):
-                vue_dist = os.path.join(_PROJECT_ROOT, 'frontend-vue', 'dist')
-                from urllib.parse import urlparse
-                raw_path = self.path
-                parsed = urlparse(raw_path)
-                token_param = ""
-                try:
-                    from urllib.parse import parse_qs
-                    qs = parse_qs(parsed.query)
-                    tokens = qs.get("api_token", [])
-                    if tokens:
-                        token = tokens[0].strip()
-                        if token:
-                            token_param = token
-                except Exception:
-                    pass
-                if token_param:
-                    # Inject token into Vue index.html for pywebview/WebView2 compatibility
-                    try:
-                        vue_index = os.path.join(vue_dist, 'index.html')
-                        with open(vue_index, 'rb') as f:
-                            html_bytes = f.read()
-                        html_str = html_bytes.decode("utf-8", errors="replace")
-                        inject_script = (
-                            f'<script>window.__MONITOR_API_TOKEN__ = {json.dumps(token_param)};</script>'
-                        )
-                        html_str = html_str.replace("<head>", "<head>\n" + inject_script, 1)
-                        self.send_response(200)
-                        self.send_header("Content-Type", "text/html; charset=utf-8")
-                        self.send_header("Content-Length", str(len(html_str.encode("utf-8"))))
-                        self.end_headers()
-                        self.wfile.write(html_str.encode("utf-8"))
-                        return
-                    except Exception:
-                        pass  # fallback to super() below
-                # No token: serve Vue index.html directly (below)
             # ── Vue SPA fallback — all non-API routes return from frontend-vue/dist ──
             vue_dist = os.path.join(_PROJECT_ROOT, 'frontend-vue', 'dist')
             if path == '/':
@@ -898,6 +950,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_email_gmail_oauth_status()
         elif path == "/api/email/accounts":
             self._api_email_accounts()
+        elif path == "/api/email/analysis-rules":
+            self._api_email_analysis_rules()
+        elif path == "/api/email/analysis-rules/export":
+            self._api_email_analysis_rules_export()
         elif path == "/api/email/messages":
             self._api_email_messages()
         elif path.startswith("/api/email/messages/"):
@@ -1099,6 +1155,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_email_gmail_send(body)
         elif path == "/api/email/accounts":
             self._api_email_account_create(body)
+        elif path == "/api/email/analysis-rules/validate":
+            self._api_email_analysis_rules_validate(body)
+        elif path == "/api/email/analysis-rules/import":
+            self._api_email_analysis_rules_import(body)
+        elif path == "/api/email/analysis-rules/restore":
+            self._api_email_analysis_rules_restore(body)
+        elif path == "/api/email/analysis-rules":
+            self._api_email_analysis_rules_save(body)
         elif path.startswith("/api/email/accounts/") and path.endswith("/update"):
             account_id = path.split("/")[-2]
             self._api_email_account_update(account_id, body)
@@ -1125,6 +1189,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/email/messages/") and path.endswith("/classify"):
             message_id = path.split("/")[-2]
             self._api_email_message_classify(message_id)
+        elif path.startswith("/api/email/messages/") and path.endswith("/reprocess"):
+            message_id = path.split("/")[-2]
+            self._api_email_message_reprocess(message_id, body)
         elif path.startswith("/api/email/messages/") and path.endswith("/ignore"):
             message_id = path.split("/")[-2]
             self._api_email_message_ignore(message_id)
@@ -1396,7 +1463,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json({"running": is_running, "next_runs": next_runs})
 
     def _api_system_shutdown(self):
-        """POST /api/system/shutdown — 安全关闭当前 Web UI 进程（需 Bearer token）"""
+        """POST /api/system/shutdown — 安全关闭当前 Web UI 进程（完全开放模式下任意客户端可调用）"""
         self._send_json({"ok": True, "message": "server shutting down"})
         threading.Thread(target=self.server.shutdown, daemon=True, name="monitor-server-shutdown").start()
 
@@ -1985,9 +2052,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def _api_token_info(self):
-        """GET /api/token — 返回当前 Bearer token（需认证）"""
-        token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
-        self._send_json({"token": token})
+        """GET /api/token — 历史兼容；Monitor API 已不做 token 鉴权。"""
+        self._send_json({"token": "", "monitor_api_auth": "disabled"})
 
     def _api_config_save(self, body):
         old_cfg = _db.load_config()
@@ -2040,6 +2106,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "gemini_api_key", "gemini_base_url", "gemini_image_model",
             "gmail_oauth_client_id", "gmail_oauth_client_secret", "gmail_oauth_redirect_uri",
             "gmail_oauth_scopes",
+            "email_analysis_rules",
             # 微信公众号发布配置
             "wechat_app_id", "wechat_app_secret", "wechat_default_author",
             "wechat_default_theme", "wechat_default_color",
@@ -2055,6 +2122,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if key in body:
                 cfg[key] = body[key]
         cfg = _preserve_masked_config_values(cfg, old_cfg)
+        saved_email_analysis_version = None
+        if "email_analysis_rules" in body:
+            rule_validation = validate_email_analysis_rules(cfg.get("email_analysis_rules"))
+            if not rule_validation["ok"]:
+                self._send_json(
+                    {
+                        "error": "邮件分析规则校验失败",
+                        "code": "email_analysis_rules_invalid",
+                        "details": rule_validation["errors"],
+                    },
+                    400,
+                )
+                return
+            cfg["email_analysis_rules"] = rule_validation["rules"]
         # 配额预警阈值：规范为升序唯一整数列表
         if "quota_alert_thresholds" in body and body["quota_alert_thresholds"] is not None:
             raw = body["quota_alert_thresholds"]
@@ -2118,6 +2199,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self._send_json({"error": str(exc)}, 400)
             return
+        if "email_analysis_rules" in body:
+            saved_email_analysis_version = _append_email_analysis_rules_history(
+                cfg.get("email_analysis_rules") or {},
+                note="Saved through global config API",
+                source="config-api",
+            )
         _scheduler.set_global_feishu_url(cfg.get("global_feishu_url") or None)
         _scheduler.set_global_dingtalk_url(cfg.get("global_dingtalk_url") or None)
         _scheduler.set_global_dingtalk_sign_secret(cfg.get("global_dingtalk_sign_secret") or None)
@@ -2125,7 +2212,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         _scheduler.set_global_telegram_chat_id(cfg.get("global_telegram_chat_id") or None)
         _scheduler.set_global_telegram_token(cfg.get("global_telegram_token") or None)
         _scheduler._invalidate_config_cache()
-        self._send_json({"ok": True})
+        response = {"ok": True}
+        if saved_email_analysis_version:
+            response["email_analysis_rules_version"] = saved_email_analysis_version
+        self._send_json(response)
 
     # ── Email Monitor + Content Pipeline ─────────────────────────
 
@@ -2143,6 +2233,197 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "邮件流水线请求失败", "code": "email_request_error"}, status)
             return
         self._send_json({"error": str(exc), "code": "email_validation_error"}, status)
+
+    def _email_analysis_rules_state(self) -> dict:
+        cfg = _db.load_config()
+        current_rules = cfg.get("email_analysis_rules") or {}
+        validation = validate_email_analysis_rules(current_rules)
+        normalized_rules = validation["rules"] if validation["ok"] else {}
+        return {
+            "rules": current_rules if isinstance(current_rules, dict) else {},
+            "raw_rules": current_rules,
+            "normalized_rules": normalized_rules,
+            "effective_rules": merge_email_analysis_rules(normalized_rules),
+            "validation": validation,
+            "schema": email_analysis_rules_schema(),
+            "history": _load_email_analysis_rules_history(),
+        }
+
+    def _save_email_analysis_rules_payload(
+        self,
+        payload,
+        *,
+        note: str = "",
+        source: str = "settings-center",
+    ) -> tuple[dict | None, dict, Exception | None]:
+        validation = coerce_email_analysis_rules_payload(payload)
+        if not validation["ok"]:
+            return None, validation, None
+        cfg = _db.load_config()
+        cfg["email_analysis_rules"] = validation["rules"]
+        try:
+            _db.save_config(cfg)
+        except ValueError as exc:
+            return None, validation, exc
+        _scheduler._invalidate_config_cache()
+        history_warning = None
+        try:
+            version = _append_email_analysis_rules_history(
+                validation["rules"],
+                note=note,
+                source=source,
+            )
+            history = _load_email_analysis_rules_history()
+        except Exception as exc:
+            _log.warning("Email analysis rules were saved but history write failed: %s", exc, exc_info=True)
+            version = None
+            history = _load_email_analysis_rules_history()
+            history_warning = {
+                "code": "email_analysis_rules_history_write_failed",
+                "message": "规则已保存，但版本记录写入失败",
+            }
+        result = {
+            "ok": True,
+            "rules": validation["rules"],
+            "raw_rules": validation["rules"],
+            "normalized_rules": validation["rules"],
+            "effective_rules": merge_email_analysis_rules(validation["rules"]),
+            "schema": email_analysis_rules_schema(),
+            "version": version,
+            "history": history,
+        }
+        if history_warning:
+            result["warning"] = history_warning
+        return result, validation, None
+
+    def _api_email_analysis_rules(self):
+        try:
+            self._send_json(self._email_analysis_rules_state())
+        except Exception as exc:
+            self._send_email_error(exc, 500)
+
+    def _api_email_analysis_rules_validate(self, body: dict):
+        payload = (body or {}).get("rules", body or {})
+        validation = coerce_email_analysis_rules_payload(payload)
+        self._send_json(
+            {
+                **validation,
+                "effective_rules": merge_email_analysis_rules(validation["rules"] if validation["ok"] else {}),
+                "schema": email_analysis_rules_schema(),
+            }
+        )
+
+    def _api_email_analysis_rules_save(self, body: dict):
+        result, validation, error = self._save_email_analysis_rules_payload(
+            (body or {}).get("rules", body or {}),
+            note=(body or {}).get("note") or "",
+            source="settings-center",
+        )
+        if error is not None:
+            self._send_json(
+                {
+                    "error": str(error),
+                    "code": "email_analysis_rules_save_failed",
+                },
+                400,
+            )
+            return
+        if result is None:
+            self._send_json(
+                {
+                    "error": "邮件分析规则校验失败",
+                    "code": "email_analysis_rules_invalid",
+                    "details": validation["errors"],
+                },
+                400,
+            )
+            return
+        self._send_json(result)
+
+    def _api_email_analysis_rules_import(self, body: dict):
+        payload = (body or {}).get("payload", body or {})
+        result, validation, error = self._save_email_analysis_rules_payload(
+            payload,
+            note=(body or {}).get("note") or "Imported from JSON",
+            source="import",
+        )
+        if error is not None:
+            self._send_json(
+                {
+                    "error": str(error),
+                    "code": "email_analysis_rules_save_failed",
+                },
+                400,
+            )
+            return
+        if result is None:
+            self._send_json(
+                {
+                    "error": "导入的邮件分析规则校验失败",
+                    "code": "email_analysis_rules_invalid",
+                    "details": validation["errors"],
+                },
+                400,
+            )
+            return
+        self._send_json(result)
+
+    def _api_email_analysis_rules_export(self):
+        state = self._email_analysis_rules_state()
+        if not state["validation"]["ok"]:
+            self._send_json(
+                {
+                    "error": "当前邮件分析规则存在校验错误，无法导出",
+                    "code": "email_analysis_rules_invalid",
+                    "details": state["validation"]["errors"],
+                },
+                409,
+            )
+            return
+        self._send_json(
+            {
+                "schema_version": EMAIL_ANALYSIS_RULE_SCHEMA_VERSION,
+                "rule_version": EMAIL_ANALYSIS_RULE_VERSION,
+                "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "rules": state["normalized_rules"],
+            }
+        )
+
+    def _api_email_analysis_rules_restore(self, body: dict):
+        version_id = str((body or {}).get("version_id") or "").strip()
+        if not version_id:
+            self._send_json({"error": "version_id 不能为空"}, 400)
+            return
+        history = _load_email_analysis_rules_history()
+        record = next((item for item in history if item.get("version_id") == version_id), None)
+        if not record:
+            self._send_json({"error": "版本记录不存在"}, 404)
+            return
+        result, validation, error = self._save_email_analysis_rules_payload(
+            record.get("rules") or {},
+            note=(body or {}).get("note") or f"Restored from {version_id}",
+            source="restore",
+        )
+        if error is not None:
+            self._send_json(
+                {
+                    "error": str(error),
+                    "code": "email_analysis_rules_save_failed",
+                },
+                400,
+            )
+            return
+        if result is None:
+            self._send_json(
+                {
+                    "error": "历史版本规则校验失败",
+                    "code": "email_analysis_rules_invalid",
+                    "details": validation["errors"],
+                },
+                400,
+            )
+            return
+        self._send_json(result)
 
     @staticmethod
     def _positive_int(value, *, default: int | None = None) -> int | None:
@@ -2207,11 +2488,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 base_url=self._request_base_url(),
             )
             account_id = quote(str(result.get("account_id") or ""))
-            self._redirect(f"{GMAIL_OAUTH_SUCCESS_PAGE}&account_id={account_id}")
+            redirect_url = f"{GMAIL_OAUTH_SUCCESS_PAGE}&account_id={account_id}"
+            self._redirect(redirect_url)
         except Exception as exc:
             _log.warning("Gmail OAuth callback failed: %s", exc, exc_info=True)
             reason = quote("oauth_failed")
-            self._redirect(f"{GMAIL_OAUTH_FAILURE_PAGE}&reason={reason}")
+            redirect_url = f"{GMAIL_OAUTH_FAILURE_PAGE}&reason={reason}"
+            self._redirect(redirect_url)
 
     def _api_email_gmail_send(self, body: dict):
         account_id = self._positive_int((body or {}).get("account_id"))
@@ -2341,6 +2624,26 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         try:
             self._send_json({"ok": True, "message": _email_collect_service.classify_message(message_id)})
+        except Exception as exc:
+            self._send_email_error(exc)
+
+    def _api_email_message_reprocess(self, message_id_raw: str, body: dict):
+        message_id = self._positive_int(message_id_raw)
+        if message_id is None:
+            self._send_json({"error": "无效的邮件 ID"}, 400)
+            return
+        max_depth = self._positive_int((body or {}).get("max_depth"), default=1)
+        try:
+            self._send_json(
+                {
+                    "ok": True,
+                    "message": _email_collect_service.reprocess_message(
+                        message_id,
+                        expand_links=self._coerce_bool((body or {}).get("expand_links")),
+                        max_depth=max_depth,
+                    ),
+                }
+            )
         except Exception as exc:
             self._send_email_error(exc)
 
@@ -4881,8 +5184,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_res_events_stream(self):
         """GET /api/res-events — SSE 流式推送资源事件。"""
-        if not self._require_auth():
-            return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -4915,8 +5216,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_res_preview(self):
         """GET /api/res/preview?url=... — 代理原始媒体 URL 用于预览。"""
-        if not self._require_auth():
-            return
         mgr = get_proxy_manager()
         if not mgr.is_running:
             _log.warning("[preview] proxy not running")
@@ -4966,8 +5265,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         3. 在 Python 侧对前 131072 字节做 XOR 解密
         4. 将解密后的数据流式返回给浏览器
         """
-        if not self._require_auth():
-            return
         mgr = get_proxy_manager()
         if not mgr.is_running:
             _log.warning("[preview:enc] proxy not running")

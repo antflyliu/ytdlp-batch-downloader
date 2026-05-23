@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .processor import RULE_VERSION, apply_platform_sensitive_filter
+
 PLATFORM_DISPLAY_NAMES = {
     "wechat": "微信公众号",
     "xiaohongshu": "小红书",
@@ -26,10 +28,26 @@ def build_platform_variant(
     source_title: str,
     body_text: str,
     classification: dict[str, Any] | None = None,
+    analysis_rules: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     classification = classification or {}
     title = (source_title or "邮件内容再创作").strip()
-    summary = summarize_text(body_text)
+    if _should_apply_platform_filter(classification):
+        filtered_body_text, compliance_report = apply_platform_sensitive_filter(
+            body_text,
+            platform=platform,
+            rules=analysis_rules,
+        )
+    else:
+        filtered_body_text = body_text
+        compliance_report = {
+            "platform": platform,
+            "matched_terms": [],
+            "changed": False,
+            "rule_version": RULE_VERSION,
+            "skipped_reason": "not_news_like",
+        }
+    summary = summarize_text(filtered_body_text)
     risk_flags = classification.get("risk_flags") or []
     tags = classification.get("secondary_types") or [classification.get("primary_type") or "email"]
     platform_name = PLATFORM_DISPLAY_NAMES.get(platform, platform)
@@ -42,27 +60,28 @@ def build_platform_variant(
     if platform == "x":
         body = base_context + "\n".join(
             f"{idx + 1}/ {item}"
-            for idx, item in enumerate(_split_thread_items(body_text, max_items=6))
+            for idx, item in enumerate(_split_thread_items(filtered_body_text, max_items=6))
         )
         metadata = {"hashtags": [f"#{tag}" for tag in tags[:3]], "format": "thread"}
     elif platform == "xiaohongshu":
-        body = base_context + f"开头钩子: {summary}\n\n正文要点:\n{_bullet_points(body_text, 5)}"
+        body = base_context + f"开头钩子: {summary}\n\n正文要点:\n{_bullet_points(filtered_body_text, 5)}"
         metadata = {"hashtags": [f"#{tag}" for tag in tags[:5]], "image_card_suggestions": ["标题卡", "步骤卡", "结论卡"]}
     elif platform == "juejin":
-        body = base_context + f"## 问题\n{summary}\n\n## 方案与细节\n{body_text.strip()}\n\n## 验证与坑点\n- 发布前补充可复现验证。\n"
+        body = base_context + f"## 问题\n{summary}\n\n## 方案与细节\n{filtered_body_text.strip()}\n\n## 验证与坑点\n- 发布前补充可复现验证。\n"
         metadata = {"tags": tags[:5], "category": "tech"}
     elif platform == "zhihu":
-        body = base_context + f"## 核心观点\n{summary}\n\n## 依据\n{body_text.strip()}\n\n## 边界\n需要补充来源链接和事实核验。"
+        body = base_context + f"## 核心观点\n{summary}\n\n## 依据\n{filtered_body_text.strip()}\n\n## 边界\n需要补充来源链接和事实核验。"
         metadata = {"references_needed": True, "mode": "article"}
     elif platform == "reddit":
-        body = base_context + f"{summary}\n\n{_bullet_points(body_text, 4)}\n\nQuestion: how are you handling this in practice?"
+        body = base_context + f"{summary}\n\n{_bullet_points(filtered_body_text, 4)}\n\nQuestion: how are you handling this in practice?"
         metadata = {"subreddit_suggestions": ["technology", "programming"], "rule_risks": risk_flags}
     elif platform in {"toutiao", "baijiahao"}:
-        body = base_context + f"## 事件概述\n{summary}\n\n## 关键细节\n{body_text.strip()}\n\n## 影响分析\n请人工补充事实来源和数据边界。"
+        body = base_context + f"## 事件概述\n{summary}\n\n## 关键细节\n{filtered_body_text.strip()}\n\n## 影响分析\n请人工补充事实来源和数据边界。"
         metadata = {"seo_keywords": tags[:5], "cover_suggestion": "使用主题相关的产品或场景图"}
     else:
-        body = base_context + f"# {title}\n\n{body_text.strip()}\n"
+        body = base_context + f"# {title}\n\n{filtered_body_text.strip()}\n"
         metadata = {"author": "", "digest": summary, "aigc_or_assisted_label_suggestion": "AI 辅助创作"}
+    metadata["platform_compliance"] = compliance_report
     return {
         "platform": platform,
         "display_name": platform_name,
@@ -88,3 +107,12 @@ def _bullet_points(text: str, count: int) -> str:
     paragraphs = [p.strip() for p in re.split(r"\n{1,}", text or "") if p.strip()]
     selected = paragraphs[:count] or [summarize_text(text)]
     return "\n".join(f"- {item[:220]}" for item in selected)
+
+
+def _should_apply_platform_filter(classification: dict[str, Any]) -> bool:
+    compliance = classification.get("platform_compliance") or {}
+    if compliance.get("news_like"):
+        return True
+    if classification.get("primary_type") == "news":
+        return True
+    return "platform_sensitive_review" in set(classification.get("risk_flags") or [])

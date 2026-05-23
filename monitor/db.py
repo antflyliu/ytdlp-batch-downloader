@@ -809,6 +809,14 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v21_email_collect_content_sources", today),
         )
 
+    # v22: outlookEmail external mailbox source fields.
+    if "v22_email_collect_outlook_email_source" not in applied:
+        _ensure_email_collect_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v22_email_collect_outlook_email_source", today),
+        )
+
 
 def _ensure_email_collect_schema(conn) -> None:
     from monitor.db.queries import email_collect as _email_collect_queries

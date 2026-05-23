@@ -6,13 +6,15 @@ from typing import Any
 
 EMAIL_PROVIDER_GMAIL = "gmail"
 EMAIL_PROVIDER_IMAP = "imap"
-EMAIL_PROVIDERS = {EMAIL_PROVIDER_GMAIL, EMAIL_PROVIDER_IMAP}
+EMAIL_PROVIDER_OUTLOOK_EMAIL = "outlook_email"
+EMAIL_PROVIDERS = {EMAIL_PROVIDER_GMAIL, EMAIL_PROVIDER_IMAP, EMAIL_PROVIDER_OUTLOOK_EMAIL}
 
 EMAIL_SECRET_FIELDS = {
     "gmail_client_secret",
     "gmail_refresh_token",
     "imap_password",
     "smtp_password",
+    "outlook_email_api_key",
 }
 
 DEFAULT_CONTENT_PLATFORMS = (
