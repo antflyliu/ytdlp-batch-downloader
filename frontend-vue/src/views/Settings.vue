@@ -54,7 +54,6 @@ const { t } = useI18n()
 const $message = (window as any).$message
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
-const token = (window as any).__MONITOR_API_TOKEN__ || ''
 
 const saving = ref(false)
 const formValue = ref({
@@ -68,9 +67,7 @@ const formValue = ref({
 
 onMounted(async () => {
   try {
-    const resp = await axios.get(`${API_BASE}/api/proxy/config`, {
-      params: { api_token: token }
-    })
+    const resp = await axios.get(`${API_BASE}/api/proxy/config`)
     const data = resp.data
     formValue.value = {
       SaveDirectory: data.SaveDirectory || '',
@@ -93,17 +90,9 @@ const saveSettings = async () => {
   saving.value = true
   try {
     // Step 1: Save to Python config.json
-    await axios.post(
-      `${API_BASE}/api/config`,
-      { download_output_path: formValue.value.SaveDirectory },
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    await axios.post(`${API_BASE}/api/config`, { download_output_path: formValue.value.SaveDirectory })
     // Step 2: Sync to Go
-    await axios.post(
-      `${API_BASE}/api/proxy/config`,
-      { SaveDirectory: formValue.value.SaveDirectory },
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    await axios.post(`${API_BASE}/api/proxy/config`, { SaveDirectory: formValue.value.SaveDirectory })
     $message.success(t('settings.saved'))
   } catch (e: any) {
     $message.error(e.message || t('settings.saveFailed'))

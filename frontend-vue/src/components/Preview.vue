@@ -24,12 +24,8 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import "video.js/dist/video-js.css"
-import videojs from "video.js"
-import flvjs from "flv.js"
 import axios from "axios"
 import { useI18n } from 'vue-i18n'
-// @ts-ignore
-import { getDecryptionArray } from '@/assets/js/decrypt.js'
 import { useEncryptedPreview } from '@/composables/useEncryptedPreview'
 import type Player from "video.js/dist/types/player"
 
@@ -38,7 +34,7 @@ const videoPlayerRef = ref<HTMLVideoElement | null>(null)
 const { mediaSource, playerRef, dispose, sourceBuffer: sb } = useEncryptedPreview()
 
 let player: Player | null = null
-let flvPlayer: flvjs.Player | null = null
+let flvPlayer: any = null
 let isLoading = false
 let isOver = false
 let startByte = 0
@@ -48,7 +44,6 @@ let decodeArr: any = null
 let rowUrl = ''
 
 const API_BASE = 'http://127.0.0.1:5000'
-const getToken = () => (window as any).__MONITOR_API_TOKEN__ || ''
 
 const props = defineProps<{
   showModal: boolean
@@ -58,14 +53,14 @@ const emit = defineEmits(["update:showModal"])
 
 const changeShow = (value: boolean) => emit("update:showModal", value)
 
-const onAfterEnter = () => {
+const onAfterEnter = async () => {
   playerRef.value = videoPlayerRef.value
   if (props.previewRow.DecodeKey) {
-    playVideoWithoutTotalLength()
+    await playVideoWithoutTotalLength()
   } else if (props.previewRow.Classify === "live") {
-    playFlvStream()
+    await playFlvStream()
   } else {
-    setupVideoJsPlayer()
+    await setupVideoJsPlayer()
   }
 }
 
@@ -95,9 +90,10 @@ const buildUrlWithParams = (url: string) => {
   return url
 }
 
-const playFlvStream = () => {
+const playFlvStream = async () => {
   try {
-    if (!flvjs.isSupported() || !videoPlayerRef.value) return
+    const flvjs = (await import("flv.js")).default
+    if (!props.showModal || !flvjs.isSupported() || !videoPlayerRef.value) return
 
     flvPlayer = flvjs.createPlayer({
       type: "flv",
@@ -111,8 +107,10 @@ const playFlvStream = () => {
   }
 }
 
-const setupVideoJsPlayer = () => {
+const setupVideoJsPlayer = async () => {
   if (!videoPlayerRef.value) return
+  const videojs = (await import("video.js")).default
+  if (!props.showModal || !videoPlayerRef.value) return
 
   if (!player) {
     player = videojs(videoPlayerRef.value, {
@@ -130,22 +128,24 @@ const setupVideoJsPlayer = () => {
   player.play()
 }
 
-const playVideoWithoutTotalLength = () => {
+const playVideoWithoutTotalLength = async () => {
   rowUrl = `${API_BASE}/api/preview?url=` + encodeURIComponent(buildUrlWithParams(props.previewRow.Url))
-  mediaSource.value = new MediaSource()
-  if (videoPlayerRef.value) {
-    videoPlayerRef.value.src = URL.createObjectURL(mediaSource.value)
-    videoPlayerRef.value.play()
-  }
   isOver = false
   startByte = 0
   endByte = startByte + chunkSize - 1
-  decodeArr = getDecryptionArray(props.previewRow.DecodeKey)
+  const decryptModule = await import('@/assets/js/decrypt.js')
+  if (!props.showModal || !videoPlayerRef.value) return
+  decodeArr = decryptModule.getDecryptionArray(props.previewRow.DecodeKey)
   sb.value = null
+  mediaSource.value = new MediaSource()
   mediaSource.value.addEventListener("sourceopen", () => {
     sb.value = mediaSource.value!.addSourceBuffer('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')
     downloadChunk()
   })
+  if (videoPlayerRef.value) {
+    videoPlayerRef.value.src = URL.createObjectURL(mediaSource.value)
+    videoPlayerRef.value.play()
+  }
 
   videoPlayerRef.value?.addEventListener("seeking", handleSeeking)
   videoPlayerRef.value?.addEventListener("timeupdate", handleTimeupdate)
@@ -181,7 +181,6 @@ const downloadChunk = () => {
     axios.get(rowUrl, {
       headers: {
         Range: `bytes=${startByte}-${endByte}`,
-        Authorization: `Bearer ${getToken()}`
       },
       responseType: 'arraybuffer'
     })

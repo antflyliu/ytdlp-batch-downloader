@@ -112,11 +112,8 @@ onMounted(async () => {
   window.addEventListener('pywebviewready', markDesktopCloseBridgeReady)
   markDesktopCloseBridgeReady()
 
-  // Get token from window.__MONITOR_API_TOKEN__ (injected by Flask)
-  const token = (window as any).__MONITOR_API_TOKEN__ || ''
-
-  // Initialize SSE connection
-  eventStore.init(token)
+  // Initialize SSE connection（Monitor API 无 token 鉴权）
+  eventStore.init()
 
   // Register newResources handler — add to resource store
   eventStore.addHandle('newResources', (data: any) => {
