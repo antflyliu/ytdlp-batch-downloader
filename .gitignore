@@ -55,6 +55,13 @@ package*.json
 logs/
 output/
 patch_provider_ui_obs.py
+.codex-logs/
+.cursorindexingignore
+post-to-wechat/
+
+# Markdown-to-HTML helper needs its own reproducible dependency manifest.
+!scripts/markdown-to-html/md/package.json
+!scripts/markdown-to-html/md/package-lock.json
 
 # User data (sensitive)
 cookies.json

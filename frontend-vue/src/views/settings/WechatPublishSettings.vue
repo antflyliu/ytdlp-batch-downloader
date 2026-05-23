@@ -60,6 +60,25 @@
         </NFormItem>
       </NCard>
 
+      <NCard :title="t('wechatPublish.proxySettings')">
+        <template #header-extra>
+          <NText depth="3" style="font-size: 12px;">{{ t('wechatPublish.proxyUrlDesc') }}</NText>
+        </template>
+
+        <NFormItem :label="t('wechatPublish.proxyUrl')" path="wechat_api_proxy_url">
+          <NInput v-model:value="form.wechat_api_proxy_url" :placeholder="t('wechatPublish.proxyUrlHint')" />
+        </NFormItem>
+
+        <NFormItem :label="t('wechatPublish.proxyToken')" path="wechat_api_proxy_token">
+          <NInput
+            v-model:value="wechatProxyTokenInput"
+            type="password"
+            show-password-on="click"
+            :placeholder="wechatProxyTokenPlaceholder"
+          />
+        </NFormItem>
+      </NCard>
+
       <NCard :title="t('wechatPublish.publishDefaults')">
         <NFormItem :label="t('wechatPublish.theme')" path="wechat_default_theme">
           <NSelect v-model:value="form.wechat_default_theme" :options="themeOptions" style="width: 220px" />
@@ -109,7 +128,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NCard, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch, useMessage } from 'naive-ui'
+import { NButton, NCard, NForm, NFormItem, NInput, NInputNumber, NSelect, NSwitch, NText, useMessage } from 'naive-ui'
 import configApi, { type AppConfig } from '@/api/config'
 import wechatPublishApi from '@/api/wechatPublish'
 
@@ -120,12 +139,20 @@ const MASKED_SECRET_VALUE = '***'
 const saving = ref(false)
 const hasSavedSecret = ref(false)
 const hasSavedExporterAuthKey = ref(false)
+const hasSavedProxyToken = ref(false)
 const wechatAppSecretInput = ref('')
 const wechatExporterAuthKeyInput = ref('')
+const wechatProxyTokenInput = ref('')
+
+const wechatProxyTokenPlaceholder = computed(() => (
+  hasSavedProxyToken.value ? t('wechatPublish.secretSavedPlaceholder') : t('wechatPublish.proxyTokenHint')
+))
 
 const form = reactive<AppConfig>({
   wechat_app_id: '',
   wechat_app_secret: '',
+  wechat_api_proxy_url: '',
+  wechat_api_proxy_token: '',
   wechat_default_author: '',
   wechat_default_theme: 'default',
   wechat_default_color: 'blue',
@@ -211,12 +238,16 @@ const load = async () => {
     form.wechat_collection_default_format = fullConfig.wechat_collection_default_format || 'markdown'
     form.wechat_collection_delay_seconds = Number(fullConfig.wechat_collection_delay_seconds ?? 1)
     form.wechat_collection_max_articles = Number(fullConfig.wechat_collection_max_articles || 50)
+    form.wechat_api_proxy_url = fullConfig.wechat_api_proxy_url || ''
     hasSavedSecret.value = Boolean(data.configured)
     hasSavedExporterAuthKey.value = Boolean(fullConfig.wechat_exporter_auth_key)
+    hasSavedProxyToken.value = Boolean(fullConfig.wechat_api_proxy_token)
     form.wechat_app_secret = hasSavedSecret.value ? MASKED_SECRET_VALUE : ''
     form.wechat_exporter_auth_key = hasSavedExporterAuthKey.value ? MASKED_SECRET_VALUE : ''
+    form.wechat_api_proxy_token = hasSavedProxyToken.value ? MASKED_SECRET_VALUE : ''
     wechatAppSecretInput.value = ''
     wechatExporterAuthKeyInput.value = ''
+    wechatProxyTokenInput.value = ''
   } catch (error: any) {
     message.error(error?.response?.data?.error || error?.message || t('settings.loadFailed'))
   }
@@ -235,14 +266,20 @@ const save = async () => {
       wechat_exporter_auth_key: hasSavedExporterAuthKey.value && !wechatExporterAuthKeyInput.value
         ? MASKED_SECRET_VALUE
         : wechatExporterAuthKeyInput.value,
+      wechat_api_proxy_token: hasSavedProxyToken.value && !wechatProxyTokenInput.value
+        ? MASKED_SECRET_VALUE
+        : wechatProxyTokenInput.value,
     }
     await configApi.save(payload)
     hasSavedSecret.value = Boolean(payload.wechat_app_secret)
     hasSavedExporterAuthKey.value = Boolean(payload.wechat_exporter_auth_key)
+    hasSavedProxyToken.value = Boolean(payload.wechat_api_proxy_token)
     form.wechat_app_secret = hasSavedSecret.value ? MASKED_SECRET_VALUE : ''
     form.wechat_exporter_auth_key = hasSavedExporterAuthKey.value ? MASKED_SECRET_VALUE : ''
+    form.wechat_api_proxy_token = hasSavedProxyToken.value ? MASKED_SECRET_VALUE : ''
     wechatAppSecretInput.value = ''
     wechatExporterAuthKeyInput.value = ''
+    wechatProxyTokenInput.value = ''
     message.success(t('settings.saved'))
   } catch (error: any) {
     message.error(error?.response?.data?.error || error?.message || t('settings.saveFailed'))

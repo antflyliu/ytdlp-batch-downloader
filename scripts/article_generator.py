@@ -1349,8 +1349,10 @@ def _local_whisper(
                     )
             finally:
                 if model is not None:
-                    del model
-                    gc.collect()
+                    try:
+                        del model
+                    except Exception as cleanup_err:
+                        _log.warning("[Whisper] 模型清理时出现异常（非致命）: %s", cleanup_err)
         if failures:
             attempted = ", ".join(f"{compute}({device})" for compute, device in candidate_plan)
             if progress:
@@ -1907,6 +1909,11 @@ class ArticleGenerationPipeline:
                             transcript_source = "remote_whisper"
                         else:
                             self._stage("whisper", "error", "远程 Whisper 转写失败")
+                    _log.info(
+                        "[文章生成] task=%s Whisper transcription returned, length=%d, writing transcript...",
+                        self.task_id,
+                        len(transcript) if transcript else 0,
+                    )
                     if not transcript:
                         raise RuntimeError("无法获取字幕或转写文本，请配置字幕来源或 Whisper 服务")
             transcript_path = _write_text(output_dir / "transcript.txt", transcript)
