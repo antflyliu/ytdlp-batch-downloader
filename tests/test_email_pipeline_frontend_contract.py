@@ -25,6 +25,13 @@ def test_email_pipeline_exposes_outlook_email_source_fields():
     api_text = EMAIL_API.read_text(encoding="utf-8")
 
     assert "{ label: 'outlookEmail', value: 'outlook_email' }" in view_text
+    assert view_text.index("{ label: 'outlookEmail', value: 'outlook_email' }") < view_text.index(
+        "{ label: 'Gmail OAuth', value: 'gmail' }"
+    )
+    assert "accountForm.provider = 'outlook_email'" in view_text
+    assert "accountForm.outlook_email_base_url = 'http://127.0.0.1:5000'" in view_text
+    assert "outlook-email-card" in view_text
+    assert "outlookPrimaryTitle" in view_text
     assert "accountForm.provider === 'outlook_email'" in view_text
     assert "outlook_email_base_url" in view_text
     assert "outlook_email_remote_email" in view_text
@@ -46,6 +53,22 @@ def test_email_pipeline_exposes_deep_reprocess_action_and_api_route():
     assert "reprocessMessage" in api_text
     assert "`/api/email/messages/${id}/reprocess`" in api_text
     assert 'path.endswith("/reprocess")' in server_text
+
+
+def test_email_pipeline_surfaces_generated_article_task_ids():
+    view_text = EMAIL_PIPELINE_VIEW.read_text(encoding="utf-8")
+    server_text = SERVER_MAIN.read_text(encoding="utf-8")
+    api_text = EMAIL_API.read_text(encoding="utf-8")
+
+    assert '"task_id": task_id' in server_text
+    assert "generateVariants(id" in api_text
+    assert "generatedTaskIds" in view_text
+    assert "hydrateGeneratedTaskId" in view_text
+    assert "emailApi.listVariants" in view_text
+    assert "payload?.task_id" in view_text
+    assert "payload?.results" in view_text
+    assert "rememberGeneratedTaskId(messageId, item?.task_id)" in view_text
+    assert "emailPipeline.messages.articleTask" in view_text
 
 
 def test_email_analysis_rules_are_part_of_config_contract():

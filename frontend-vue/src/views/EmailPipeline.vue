@@ -38,6 +38,38 @@
       </div>
     </div>
 
+    <div class="card outlook-email-card">
+      <div class="outlook-email-card__main">
+        <div class="card-title">
+          <div class="card-title-icon email-pipeline-icon" aria-hidden="true">OE</div>
+          <span>{{ t('emailPipeline.accounts.outlookPrimaryTitle') }}</span>
+        </div>
+        <div class="outlook-email-card__desc">{{ t('emailPipeline.accounts.outlookPrimaryDesc') }}</div>
+        <div class="outlook-email-card__facts">
+          <div>
+            <span>{{ t('emailPipeline.accounts.outlookPrimaryEndpoint') }}</span>
+            <strong>http://127.0.0.1:5000</strong>
+          </div>
+          <div>
+            <span>{{ t('emailPipeline.accounts.outlookPrimaryFolder') }}</span>
+            <strong>all</strong>
+          </div>
+          <div>
+            <span>{{ t('emailPipeline.accounts.outlookPrimaryProtocols') }}</span>
+            <strong>IMAP / OAuth / Graph</strong>
+          </div>
+        </div>
+      </div>
+      <div class="outlook-email-card__actions">
+        <NButton type="primary" @click="openAccountModal()">
+          {{ t('emailPipeline.accounts.addOutlookEmail') }}
+        </NButton>
+        <NButton tertiary @click="loadAccounts(false)">
+          {{ t('emailPipeline.refreshSection') }}
+        </NButton>
+      </div>
+    </div>
+
     <div class="card gmail-oauth-card">
       <div class="gmail-oauth-card__main">
         <div class="card-title">
@@ -452,6 +484,11 @@
               <NCode :code="prettyJson(messageDetail.classification)" language="json" />
             </div>
 
+            <div v-if="generatedTaskIds[messageDetail.id]" class="detail-block detail-block--task">
+              <div class="detail-label">{{ t('emailPipeline.messages.articleTask') }}</div>
+              <div class="detail-body">{{ generatedTaskIds[messageDetail.id] }}</div>
+            </div>
+
             <div v-if="messageDetail.attachments?.length" class="detail-block">
               <div class="detail-label">{{ t('emailPipeline.messages.attachments') }}</div>
               <div class="attachment-list">
@@ -701,6 +738,7 @@ const detailIgnoring = ref(false)
 const detailGenerating = ref(false)
 const messageGeneratePlatforms = ref<string[]>([])
 const batchGeneratePlatforms = ref<string[]>([])
+const generatedTaskIds = ref<Record<number, string>>({})
 
 const targets = ref<ContentTarget[]>([])
 const loadingTargets = ref(false)
@@ -740,9 +778,9 @@ const variantForm = reactive({
 })
 
 const providerOptions = [
+  { label: 'outlookEmail', value: 'outlook_email' },
   { label: 'Gmail OAuth', value: 'gmail' },
   { label: 'IMAP / SMTP', value: 'imap' },
-  { label: 'outlookEmail', value: 'outlook_email' },
 ]
 
 const securityOptions = [
@@ -1345,7 +1383,7 @@ async function startGmailOAuth(accountId?: number | null) {
 }
 
 function resetAccountForm() {
-  accountForm.provider = 'gmail'
+  accountForm.provider = 'outlook_email'
   accountForm.status = 'active'
   accountForm.display_name = ''
   accountForm.email_address = ''
@@ -1357,7 +1395,7 @@ function resetAccountForm() {
   accountForm.smtp_port = 465
   accountForm.smtp_security = 'ssl'
   accountForm.smtp_username = ''
-  accountForm.outlook_email_base_url = ''
+  accountForm.outlook_email_base_url = 'http://127.0.0.1:5000'
   accountForm.outlook_email_remote_email = ''
   accountForm.outlook_email_folder = 'all'
   accountForm.outlook_email_subject_contains = ''
@@ -1565,6 +1603,7 @@ async function openMessageDetail(id: number) {
     messageDetail.value = payload?.message || payload?.item || payload || null
     if (messageDetail.value) {
       messageGeneratePlatforms.value = recommendedPlatforms(messageDetail.value)
+      await hydrateGeneratedTaskId(messageDetail.value.id)
     }
   } catch (error: any) {
     messageDetail.value = null
@@ -1578,6 +1617,28 @@ function mergeMessage(updated: EmailMessage) {
   messages.value = messages.value.map(item => (item.id === updated.id ? { ...item, ...updated } : item))
   if (messageDetail.value?.id === updated.id) {
     messageDetail.value = { ...messageDetail.value, ...updated }
+  }
+}
+
+function rememberGeneratedTaskId(messageId: number, taskId: unknown) {
+  const value = String(taskId || '')
+  if (!value) return
+  generatedTaskIds.value = { ...generatedTaskIds.value, [messageId]: value }
+}
+
+async function hydrateGeneratedTaskId(messageId: number) {
+  if (generatedTaskIds.value[messageId]) return
+  try {
+    const response = await emailApi.listVariants({
+      source_type: 'email_message',
+      source_id: String(messageId),
+      include_body: false,
+    })
+    const rows = extractList<ContentVariant>(response, ['variants', 'items', 'rows'])
+    const taskId = rows.map(row => String(row.article_task_id || '')).find(Boolean)
+    if (taskId) rememberGeneratedTaskId(messageId, taskId)
+  } catch {
+    // Variant hydration is secondary; the message drawer should still open.
   }
 }
 
@@ -1670,10 +1731,12 @@ async function runGenerate(id: number, platforms?: string[], fromDetail = false)
   messageActionKind.value = 'generate'
   detailGenerating.value = fromDetail
   try {
-    await emailApi.generateVariants(id, {
+    const response = await emailApi.generateVariants(id, {
       platforms: selectedPlatforms.length ? selectedPlatforms : undefined,
       target_lang: 'zh-Hans',
     })
+    const payload = unwrapPayload<any>(response)
+    rememberGeneratedTaskId(id, payload?.task_id)
     if (messageDetail.value?.id === id) {
       messageDetail.value = { ...messageDetail.value, processing_status: 'generated' }
     }
@@ -1693,11 +1756,19 @@ async function runBatchGenerate() {
   if (!checkedMessageIds.value.length) return
   batchGenerating.value = true
   try {
-    await emailApi.batchGenerate({
+    const response = await emailApi.batchGenerate({
       message_ids: checkedMessageIds.value,
       platforms: batchGeneratePlatforms.value.length ? batchGeneratePlatforms.value : undefined,
       target_lang: 'zh-Hans',
     })
+    const payload = unwrapPayload<any>(response)
+    const results = Array.isArray(payload?.results) ? payload.results : []
+    for (const item of results) {
+      const messageId = Number(item?.message_id)
+      if (Number.isFinite(messageId) && messageId > 0) {
+        rememberGeneratedTaskId(messageId, item?.task_id)
+      }
+    }
     await Promise.all([loadMessages(true), loadVariants(true)])
     message.success(t('emailPipeline.messages.batchGenerated'))
   } catch (error: any) {
@@ -1986,6 +2057,15 @@ onMounted(() => {
   align-items: start;
 }
 
+.outlook-email-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 18px;
+  align-items: start;
+  background: linear-gradient(180deg, rgba(250, 249, 245, 0.96), rgba(255, 255, 255, 0.76));
+}
+
+.outlook-email-card__main,
 .gmail-oauth-card__main {
   display: flex;
   flex-direction: column;
@@ -1993,9 +2073,41 @@ onMounted(() => {
   min-width: 0;
 }
 
+.outlook-email-card__desc,
 .gmail-oauth-card__desc {
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.outlook-email-card__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.outlook-email-card__facts div {
+  min-width: 0;
+  padding: 12px;
+  background: rgba(245, 244, 237, 0.86);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.outlook-email-card__facts span,
+.outlook-email-card__facts strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.outlook-email-card__facts span {
+  margin-bottom: 5px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.outlook-email-card__facts strong {
+  color: var(--text);
+  font-size: 13px;
 }
 
 .gmail-oauth-tags,
@@ -2005,8 +2117,14 @@ onMounted(() => {
   gap: 8px;
 }
 
+.outlook-email-card__actions,
 .gmail-oauth-actions {
   flex-direction: column;
+}
+
+.outlook-email-card__actions {
+  display: flex;
+  gap: 8px;
 }
 
 .gmail-oauth-settings-link {
@@ -2129,6 +2247,10 @@ onMounted(() => {
   border-radius: 16px;
 }
 
+.detail-block--task {
+  background: rgba(232, 230, 220, 0.72);
+}
+
 .detail-block__title {
   font-family: Georgia, serif;
   font-size: 24px;
@@ -2183,6 +2305,7 @@ onMounted(() => {
 
 @media (max-width: 1100px) {
   .email-pipeline-hero,
+  .outlook-email-card,
   .gmail-oauth-card {
     grid-template-columns: 1fr;
   }
@@ -2194,6 +2317,7 @@ onMounted(() => {
 
 @media (max-width: 720px) {
   .email-pipeline-metrics,
+  .outlook-email-card__facts,
   .form-grid {
     grid-template-columns: 1fr;
   }

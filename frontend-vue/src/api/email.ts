@@ -2,7 +2,7 @@ import request from '@/api/request'
 
 export interface EmailAccount {
   id: number
-  provider: 'gmail' | 'imap' | string
+  provider: 'outlook_email' | 'gmail' | 'imap' | string
   display_name: string
   email_address: string
   status?: string
