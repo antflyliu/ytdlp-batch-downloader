@@ -10,6 +10,10 @@
           </main>
         </div>
       </div>
+      <DesktopCloseDialog
+        v-model:show="desktopCloseDialogVisible"
+        @choose="handleDesktopCloseChoice"
+      />
     </NaiveProvider>
     <NGlobalStyle/>
   </NConfigProvider>
@@ -19,15 +23,24 @@
 import NaiveProvider from '@/components/NaiveProvider.vue'
 import AppSider from '@/components/layout/AppSider.vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
+import DesktopCloseDialog from '@/components/DesktopCloseDialog.vue'
 import { NConfigProvider, NGlobalStyle, lightTheme, zhCN, enUS } from 'naive-ui'
 import { useResourceStore } from '@/stores/resourceStore'
 import { useEventStore } from '@/stores/eventStore'
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  closeWithDesktopChoice,
+  forceQuitDesktop,
+  getDesktopBridge,
+  setDesktopCloseLocale,
+  type DesktopCloseChoice,
+} from '@/utils/desktopBridge'
 
 const resourceStore = useResourceStore()
 const eventStore = useEventStore()
 const { locale } = useI18n()
+const desktopCloseDialogVisible = ref(false)
 
 const theme = computed(() => {
   return lightTheme
@@ -59,12 +72,48 @@ const uiLocale = computed(() => {
   return locale.value === 'zh' ? zhCN : enUS
 })
 
-onMounted(async () => {
-  // Get token from window.__MONITOR_API_TOKEN__ (injected by Flask)
-  const token = (window as any).__MONITOR_API_TOKEN__ || ''
+const syncDesktopCloseLocale = () => {
+  void setDesktopCloseLocale(String(locale.value))
+}
 
-  // Initialize SSE connection
-  eventStore.init(token)
+const markDesktopCloseBridgeReady = () => {
+  const bridge = getDesktopBridge()
+  if (!bridge?.closeWithChoice) return
+  window.__YTDLP_DESKTOP_CLOSE_READY__ = true
+  syncDesktopCloseLocale()
+  flushPendingDesktopCloseRequest()
+}
+
+const handleDesktopCloseRequest = () => {
+  desktopCloseDialogVisible.value = true
+}
+
+const flushPendingDesktopCloseRequest = () => {
+  if (!window.__YTDLP_PENDING_DESKTOP_CLOSE__) return
+  window.__YTDLP_PENDING_DESKTOP_CLOSE__ = false
+  handleDesktopCloseRequest()
+}
+
+const handleDesktopCloseChoice = async (choice: DesktopCloseChoice) => {
+  desktopCloseDialogVisible.value = false
+  const handled = await closeWithDesktopChoice(choice)
+  if (!handled) {
+    if (choice.action === 'quit') {
+      const forced = await forceQuitDesktop()
+      if (!forced) window.close()
+      return
+    }
+    desktopCloseDialogVisible.value = true
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener('desktop-close-request', handleDesktopCloseRequest)
+  window.addEventListener('pywebviewready', markDesktopCloseBridgeReady)
+  markDesktopCloseBridgeReady()
+
+  // Initialize SSE connection（Monitor API 无 token 鉴权）
+  eventStore.init()
 
   // Register newResources handler — add to resource store
   eventStore.addHandle('newResources', (data: any) => {
@@ -77,4 +126,13 @@ onMounted(async () => {
     console.debug('[downloadProgress]', data)
   })
 })
+
+onBeforeUnmount(() => {
+  window.__YTDLP_DESKTOP_CLOSE_READY__ = false
+  window.__YTDLP_PENDING_DESKTOP_CLOSE__ = false
+  window.removeEventListener('pywebviewready', markDesktopCloseBridgeReady)
+  window.removeEventListener('desktop-close-request', handleDesktopCloseRequest)
+})
+
+watch(locale, syncDesktopCloseLocale)
 </script>

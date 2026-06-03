@@ -7,7 +7,10 @@ from pathlib import Path
 
 
 _BAOYU_MARKDOWN_TO_HTML_SCRIPT = (
-    Path.home() / ".agents" / "skills" / "baoyu-markdown-to-html" / "scripts" / "main.ts"
+    Path(__file__).resolve().parents[1]  # project root
+    / "scripts"
+    / "markdown-to-html"
+    / "main.ts"
 )
 
 

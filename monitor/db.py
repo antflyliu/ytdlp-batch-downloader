@@ -68,6 +68,40 @@ _SCHEMA_PATH = get_schema_path()
 _CONFIG_PATH = get_config_path()
 
 
+ARTICLE_TASK_COLUMN_DDLS = [
+    ("source_type", "TEXT NOT NULL DEFAULT 'video'"),
+    ("monitor_video_id", "INTEGER"),
+    ("video_id", "TEXT"),
+    ("video_url", "TEXT"),
+    ("video_title", "TEXT"),
+    ("article_source_path", "TEXT"),
+    ("article_text", "TEXT"),
+    ("source_url", "TEXT"),
+    ("source_title", "TEXT"),
+    ("email_message_id", "INTEGER DEFAULT NULL"),
+    ("status", "TEXT NOT NULL DEFAULT 'pending'"),
+    ("current_stage", "TEXT"),
+    ("source_lang", "TEXT"),
+    ("target_lang", "TEXT NOT NULL DEFAULT 'zh-Hans'"),
+    ("auto_translate", "INTEGER NOT NULL DEFAULT 1"),
+    ("output_dir", "TEXT"),
+    ("draft_path", "TEXT"),
+    ("transcript_path", "TEXT"),
+    ("optimized_path", "TEXT"),
+    ("summary_path", "TEXT"),
+    ("translated_path", "TEXT"),
+    ("stage_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ("stages_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ("result_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ("error", "TEXT"),
+    ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+    ("cancel_message", "TEXT"),
+    ("created_at", "TEXT NOT NULL DEFAULT ''"),
+    ("updated_at", "TEXT NOT NULL DEFAULT ''"),
+    ("finished_at", "TEXT"),
+]
+
+
 # ── Backward-compatible public API re-exports ───────────────────
 def get_db_path() -> str:
     """返回数据库路径（兼容旧接口）"""
@@ -102,32 +136,66 @@ def _prepare_legacy_schema_for_bootstrap(conn) -> None:
         row[0]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
-    if "monitor_videos" not in tables:
-        return
+    if "monitor_videos" in tables:
+        cur = conn.execute("PRAGMA table_info(monitor_videos)")
+        cols = {row[1] for row in cur.fetchall()}
+        for col, ddl in [
+            ("channel_id", "TEXT DEFAULT NULL"),
+            ("channel_handle", "TEXT DEFAULT NULL"),
+            ("description", "TEXT DEFAULT NULL"),
+            ("url", "TEXT NOT NULL DEFAULT ''"),
+            ("upload_date", "TEXT DEFAULT NULL"),
+            ("duration_sec", "INTEGER DEFAULT NULL"),
+            ("view_count", "INTEGER DEFAULT NULL"),
+            ("like_count", "INTEGER DEFAULT NULL"),
+            ("comment_count", "INTEGER DEFAULT NULL"),
+            ("thumbnail_url", "TEXT DEFAULT NULL"),
+            ("fetched_at", "TEXT NOT NULL DEFAULT ''"),
+            ("notify_status", "TEXT NOT NULL DEFAULT 'pending'"),
+            ("notify_sent_at", "TEXT DEFAULT NULL"),
+            ("notify_error", "TEXT DEFAULT NULL"),
+            ("download_at", "TEXT DEFAULT NULL"),
+            ("download_path", "TEXT DEFAULT NULL"),
+            ("download_error", "TEXT DEFAULT NULL"),
+        ]:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE monitor_videos ADD COLUMN {col} {ddl}")
+    _ensure_article_task_columns(conn)
+    _dedupe_content_variants_identity_for_bootstrap(conn)
 
-    cur = conn.execute("PRAGMA table_info(monitor_videos)")
-    cols = {row[1] for row in cur.fetchall()}
-    for col, ddl in [
-        ("channel_id", "TEXT DEFAULT NULL"),
-        ("channel_handle", "TEXT DEFAULT NULL"),
-        ("description", "TEXT DEFAULT NULL"),
-        ("url", "TEXT NOT NULL DEFAULT ''"),
-        ("upload_date", "TEXT DEFAULT NULL"),
-        ("duration_sec", "INTEGER DEFAULT NULL"),
-        ("view_count", "INTEGER DEFAULT NULL"),
-        ("like_count", "INTEGER DEFAULT NULL"),
-        ("comment_count", "INTEGER DEFAULT NULL"),
-        ("thumbnail_url", "TEXT DEFAULT NULL"),
-        ("fetched_at", "TEXT NOT NULL DEFAULT ''"),
-        ("notify_status", "TEXT NOT NULL DEFAULT 'pending'"),
-        ("notify_sent_at", "TEXT DEFAULT NULL"),
-        ("notify_error", "TEXT DEFAULT NULL"),
-        ("download_at", "TEXT DEFAULT NULL"),
-        ("download_path", "TEXT DEFAULT NULL"),
-        ("download_error", "TEXT DEFAULT NULL"),
-    ]:
-        if col not in cols:
-            conn.execute(f"ALTER TABLE monitor_videos ADD COLUMN {col} {ddl}")
+
+def _dedupe_content_variants_identity_for_bootstrap(conn) -> None:
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "content_variants" not in tables:
+        return
+    groups = conn.execute(
+        """SELECT source_type, source_id, platform, COUNT(*) AS row_count
+           FROM content_variants
+           GROUP BY source_type, source_id, platform
+           HAVING row_count > 1"""
+    ).fetchall()
+    publication_table_exists = "content_publication_tasks" in tables
+    for group in groups:
+        rows = conn.execute(
+            """SELECT id FROM content_variants
+               WHERE source_type=? AND source_id=? AND platform=?
+               ORDER BY updated_at DESC, created_at DESC, id DESC""",
+            (group[0], group[1], group[2]),
+        ).fetchall()
+        if len(rows) < 2:
+            continue
+        keep_id = int(rows[0][0])
+        stale_ids = [int(row[0]) for row in rows[1:]]
+        placeholders = ",".join("?" for _ in stale_ids)
+        if publication_table_exists:
+            conn.execute(
+                f"UPDATE content_publication_tasks SET variant_id=? WHERE variant_id IN ({placeholders})",
+                [keep_id, *stale_ids],
+            )
+        conn.execute(f"DELETE FROM content_variants WHERE id IN ({placeholders})", stale_ids)
 
 
 def _ensure_schema_migrations(conn) -> None:
@@ -594,6 +662,7 @@ def _migrate_monitor_accounts(conn) -> None:
                 FOREIGN KEY (monitor_video_id) REFERENCES monitor_videos(id) ON DELETE SET NULL
             )"""
         )
+        _ensure_article_task_columns(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_article_tasks_created_at ON article_tasks(created_at DESC)"
         )
@@ -726,29 +795,50 @@ def _migrate_monitor_accounts(conn) -> None:
 
     # v20: Article generation can consume local WeChat article exports directly.
     if "v20_article_wechat_sources" not in applied:
-        _ensure_article_wechat_source_columns(conn)
+        _ensure_article_task_columns(conn)
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v20_article_wechat_sources", today),
         )
 
+    # v21: Email collection and platform content variants.
+    if "v21_email_collect_content_sources" not in applied:
+        _ensure_email_collect_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v21_email_collect_content_sources", today),
+        )
 
-def _ensure_article_wechat_source_columns(conn) -> None:
+    # v22: outlookEmail external mailbox source fields.
+    if "v22_email_collect_outlook_email_source" not in applied:
+        _ensure_email_collect_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v22_email_collect_outlook_email_source", today),
+        )
+
+
+def _ensure_email_collect_schema(conn) -> None:
+    from monitor.db.queries import email_collect as _email_collect_queries
+
+    _email_collect_queries.ensure_schema(conn)
+    _ensure_article_task_columns(conn)
+
+
+def _ensure_article_task_columns(conn) -> None:
     tables = {
         row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     if "article_tasks" not in tables:
         return
     cols = {row[1] for row in conn.execute("PRAGMA table_info(article_tasks)").fetchall()}
-    for col, ddl in [
-        ("source_type", "TEXT NOT NULL DEFAULT 'video'"),
-        ("article_source_path", "TEXT"),
-        ("article_text", "TEXT"),
-        ("source_url", "TEXT"),
-        ("source_title", "TEXT"),
-    ]:
+    for col, ddl in ARTICLE_TASK_COLUMN_DDLS:
         if col not in cols:
             conn.execute(f"ALTER TABLE article_tasks ADD COLUMN {col} {ddl}")
+
+
+def _ensure_article_wechat_source_columns(conn) -> None:
+    _ensure_article_task_columns(conn)
 
 
 def _ensure_wechat_native_collect_schema(conn) -> None:
@@ -2014,6 +2104,7 @@ def create_article_task(
     article_text: str | None = None,
     source_url: str | None = None,
     source_title: str | None = None,
+    email_message_id: int | None = None,
     target_lang: str = "zh-Hans",
     auto_translate: bool = True,
     output_dir: str | None = None,
@@ -2026,9 +2117,10 @@ def create_article_task(
             """INSERT INTO article_tasks
                (task_id, source_type, monitor_video_id, video_id, video_url, video_title,
                 article_source_path, article_text, source_url, source_title,
+                email_message_id,
                 status, target_lang, auto_translate, output_dir,
                 stages_json, result_json, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
             (
                 task_id,
                 source_type or "video",
@@ -2040,6 +2132,7 @@ def create_article_task(
                 article_text,
                 source_url,
                 source_title,
+                email_message_id,
                 target_lang,
                 int(bool(auto_translate)),
                 output_dir,
@@ -2125,6 +2218,8 @@ def list_article_tasks(
     *,
     status: str | None = None,
     monitor_video_id: int | None = None,
+    source_type: str | None = None,
+    email_message_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -2136,6 +2231,12 @@ def list_article_tasks(
     if monitor_video_id is not None:
         where.append("monitor_video_id = ?")
         params.append(monitor_video_id)
+    if source_type:
+        where.append("source_type = ?")
+        params.append(source_type)
+    if email_message_id is not None:
+        where.append("email_message_id = ?")
+        params.append(email_message_id)
     where_sql = " AND ".join(where) if where else "1=1"
     with get_connection() as conn:
         total = conn.execute(

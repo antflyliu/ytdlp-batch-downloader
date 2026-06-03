@@ -1284,14 +1284,12 @@ class MonitorPage:
 
 
 def _shutdown_existing_web_ui(port: int) -> bool:
-    """尝试通过受保护的 shutdown API 关闭已运行的 Web UI。"""
+    """通过 shutdown API 关闭已运行的 Web UI（Monitor API 已为完全开放模式）。"""
     try:
         import urllib.request
-        token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token()
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/system/shutdown",
             method="POST",
-            headers={"Authorization": f"Bearer {token}"},
         )
         with urllib.request.urlopen(req, timeout=5):
             pass
@@ -1351,8 +1349,7 @@ def run_standalone(force_restart: bool = False, port: int = 5000):
         print(f"\nℹ️  Web UI 已在运行: http://127.0.0.1:{port}")
         print("   如需加载最新代码，请执行: python monitor_ui.py --force-restart")
 
-    token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token() or ""
-    url = f"http://127.0.0.1:{port}" + (f"?api_token={token}" if token else "")
+    url = f"http://127.0.0.1:{port}"
     webbrowser.open(url)
     print(f"\n监控 Web UI 已启动: {url}")
     print(f"   按 Ctrl+C 停止\n")
@@ -1478,7 +1475,13 @@ def run_standalone_webview(force_restart: bool = False,
 
 
     # 4. 清理函数（供窗口关闭回调使用）
+    cleanup_done = False
+
     def _cleanup():
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
         _log.info("WebView2 窗口关闭，开始清理...")
         if server is not None:
             try:
@@ -1499,16 +1502,19 @@ def run_standalone_webview(force_restart: bool = False,
         _log.info("清理完成")
 
     # 5. 创建 pywebview 窗口
-    token = os.environ.get("MONITOR_API_TOKEN") or _db.get_api_token() or ""
-    url = f"http://127.0.0.1:{port}" + (f"?api_token={token}" if token else "")
+    url = f"http://127.0.0.1:{port}"
     _log.info(f"创建 WebView2 窗口: {url}")
+    from monitor_ui_desktop_close import DesktopCloseController
+    desktop_close = DesktopCloseController(title="YouTube Monitor", logger=_log)
     try:
         window = create_webview_window(
             url=url,
             title="YouTube Monitor",
             width=width,
             height=height,
+            js_api=desktop_close,
         )
+        desktop_close.bind_window(window)
     except RuntimeError as e:
         _log.error(f"WebView2 窗口创建失败: {e}")
         _log.error("请确保 WebView2 Runtime 已正确安装")
@@ -1522,7 +1528,18 @@ def run_standalone_webview(force_restart: bool = False,
 
     # 6. 注册窗口关闭回调（兼容 pywebview 2.x / 3.x+ / 6.x 语法）
     def on_window_closed():
+        desktop_close.dispose()
         _cleanup()
+
+    try:
+        # pywebview 3.x+ / 6.x: window.events.closing can cancel native close.
+        window.events.closing += desktop_close.handle_window_closing
+    except (AttributeError, TypeError):
+        try:
+            # pywebview 2.x fallback.
+            window.closing += desktop_close.handle_window_closing
+        except Exception:
+            _log.warning("无法注册窗口关闭确认回调，关闭按钮将直接退出")
 
     try:
         # pywebview 3.x+ / 6.x: window.events.closed
@@ -1541,6 +1558,7 @@ def run_standalone_webview(force_restart: bool = False,
     webview.start(debug=True)
 
     # 8. 如果 webview.start() 返回（同步模式），执行清理
+    desktop_close.dispose()
     _cleanup()
 
 
@@ -1549,7 +1567,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch Monitor Web UI")
     parser.add_argument("--force-restart", action="store_true", help="关闭旧的 HTTP 服务并重启")
     parser.add_argument("--browser", action="store_true", help="强制使用外部浏览器（默认：自动选择，WebView2 可用时优先使用）")
-    parser.add_argument("--port", type=int, default=5000, help="HTTP 服务端口（默认 5000，两种模式通用）")
+    parser.add_argument("--port", type=int, default=4999, help="HTTP 服务端口（默认 5000，两种模式通用）")
     parser.add_argument("--width", type=int, default=1400, help="WebView2 窗口宽度（默认 1400）")
     parser.add_argument("--height", type=int, default=900, help="WebView2 窗口高度（默认 900）")
     args = parser.parse_args()

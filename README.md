@@ -84,6 +84,7 @@
 - [快速开始](#快速开始)
 - [打包 exe 使用指南](docs/exe使用指南.md)
 - [YouTube 频道监控](#youtube-频道监控)
+- [邮件监控与 Gmail 一键授权](#邮件监控与-gmail-一键授权)
 - [使用说明（批量下载）](#使用说明批量下载)
 - [打包指南](#打包指南保姆手册)
 - [消息通知](#消息通知)
@@ -302,6 +303,119 @@ curl http://127.0.0.1:5000/api/token
 # 列出 API Keys（需认证）
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:5000/api/api-keys
 ```
+
+### 邮件监控与 Gmail 一键授权
+
+邮件内容流水线支持两类邮箱接入：
+
+- **Gmail 一键授权**：通过 Google OAuth 一次性授权 `gmail.readonly` 和 `gmail.send`，用于 Gmail 收信采集和 Gmail API 发信。授权成功后系统会根据 Google 返回的邮箱地址自动创建或更新 Gmail 账号，不需要先手动新增 Gmail 账号。
+- **通用 IMAP / SMTP**：适用于企业邮箱、自建邮箱、Outlook 等支持标准协议的服务。IMAP 用于收信，SMTP 用于发信，需要手动填写服务器、端口、安全模式和应用密码。
+
+#### 1. 启动本地服务
+
+```powershell
+cd D:\WORKSPACE\video-download-space\ytdlp-batch-downloader
+python monitor_server.py --force-restart
+```
+
+打开 Web UI：
+
+```text
+http://127.0.0.1:5000
+```
+
+如果你使用的是不同端口、局域网 IP 或反向代理域名，后续 Google Cloud 中填写的回调地址必须跟页面显示的 `redirect_uri` 完全一致。
+
+#### 2. 在 Google Cloud 创建 OAuth 客户端
+
+1. 打开 [Google Cloud Console](https://console.cloud.google.com/)。
+2. 创建或选择一个项目。
+3. 进入 **APIs & Services** -> **Library**，搜索并启用 **Gmail API**。
+4. 进入 **APIs & Services** -> **OAuth consent screen**，按页面要求完成同意屏幕配置：
+   - User Type 可先选择 **External**。
+   - Publishing status 在本地测试阶段可以保持 **Testing**。
+   - 填写 App name、User support email、Developer contact information。
+   - 如果保持 Testing，请在 **Test users** 中加入要授权的 Gmail 邮箱，否则授权时可能提示应用不可访问。
+5. 进入 **APIs & Services** -> **Credentials**。
+6. 点击 **Create credentials** -> **OAuth client ID**。
+7. Application type 选择 **Web application**。
+8. 在 **Authorized redirect URIs** 中添加本系统回调地址。默认本地地址为：
+
+```text
+http://127.0.0.1:5000/api/email/auth/gmail/callback
+```
+
+如果 Web UI 中「邮件内容流水线」顶部显示的是其他 `redirect_uri`，以页面显示值为准，逐字符复制到 Google Cloud。协议、主机、端口、路径都必须一致。
+
+9. 创建后复制 **Client ID** 和 **Client Secret**。
+
+#### 3. 在系统中填写 Gmail OAuth 全局配置
+
+1. 打开 Web UI。
+2. 进入 **设置中心** -> **AI**。
+3. 找到 Gmail OAuth 授权配置。
+4. 填写：
+   - `gmail_oauth_client_id`：Google Cloud OAuth Client ID。
+   - `gmail_oauth_client_secret`：Google Cloud OAuth Client Secret。
+   - `gmail_oauth_redirect_uri`：可留空使用默认本地回调；如果你在 Google Cloud 填的是自定义域名或端口，这里必须填写同一个值。
+   - `gmail_oauth_scopes`：保持默认，不要删减，也不要添加额外 Gmail 权限。系统只允许以下两个最小权限，并要求同时存在：
+
+```text
+https://www.googleapis.com/auth/gmail.readonly
+https://www.googleapis.com/auth/gmail.send
+```
+
+5. 保存配置。
+
+#### 4. 一键授权 Gmail 收信和发信
+
+1. 进入左侧菜单 **邮件内容流水线**。
+2. 确认顶部 Gmail 一键授权卡片显示「应用已配置」。
+3. 直接点击 **一键授权 Gmail 收发信**。如果你要接入一个新的 Gmail 邮箱，保持「选择已有 Gmail 账号」为空即可；只有在重连某个已存在账号时才需要主动选择它。
+4. 浏览器会跳转到 Google 授权页，选择要接入的 Gmail 账号。
+5. Google 会提示授权读取 Gmail 和使用 Gmail API 发信，确认授权。
+6. 授权完成后会自动回到本系统：
+   - 如果该 Gmail 邮箱尚不存在，系统会自动创建 Gmail 账号。
+   - 如果该 Gmail 邮箱已存在，系统会更新该账号的 OAuth Client、Refresh Token 和授权范围。
+   - 如果是从旧的“仅收信”授权升级到“收信 + 发信”，但 Google 没有返回新的 Refresh Token，系统会拒绝把旧 token 标记为发信可用。此时需要到 Google 账号的 **安全性** -> **第三方应用和服务** 中移除本应用授权，然后回到系统重新点击一键授权。
+7. 在账号列表中点击 **测试连接**，确认 Gmail profile 与发信授权可用。
+8. 点击 **立即同步**，系统会拉取最近邮件并进入清洗、分类、平台文案生成流程。
+
+需要重连已有 Gmail 账号时，可以先在一键授权卡片中选择已有账号，再点击授权；这样会带上登录提示并校验 Google 返回的邮箱必须与该账号一致。如果 Google 授权页返回的是另一个邮箱，系统会拒绝覆盖，避免把旧账号误绑定到错误邮箱。
+
+#### 5. 通用 IMAP / SMTP 手动填写方式
+
+1. 进入 **邮件内容流水线**。
+2. 点击 **新增账号**。
+3. Provider 选择 **IMAP / SMTP**。
+4. 填写基础信息：
+   - 显示名称：用于列表识别。
+   - 邮箱地址：如 `news@example.com`。
+5. 填写 IMAP 收信配置：
+   - IMAP Host：邮箱服务商提供的 IMAP 服务器，如 `imap.example.com`。
+   - IMAP Port：通常 `993` 为 SSL，`143` 为 STARTTLS。
+   - IMAP Security：推荐 `SSL` 或 `STARTTLS`。
+   - IMAP Username：通常是完整邮箱地址。
+   - IMAP Password：建议使用服务商生成的应用专用密码，不建议使用登录密码。
+6. 填写 SMTP 发信配置：
+   - SMTP Host：邮箱服务商提供的 SMTP 服务器，如 `smtp.example.com`。
+   - SMTP Port：通常 `465` 为 SSL，`587` 为 STARTTLS。
+   - SMTP Security：推荐 `SSL` 或 `STARTTLS`。
+   - SMTP Username：通常是完整邮箱地址。
+   - SMTP Password：建议使用服务商生成的应用专用密码。
+7. 保存后点击 **测试连接**。
+8. 测试通过后点击 **立即同步**。
+
+Gmail 也可以用 IMAP / SMTP + Google 应用专用密码接入，但推荐使用上面的 Gmail 一键授权方式，因为它同时覆盖收信和 Gmail API 发信，并且不需要把邮箱登录密码或应用密码交给系统。
+
+#### 6. 安全与排错
+
+- Google Cloud 的 OAuth Client Secret、Gmail Refresh Token、IMAP/SMTP 密码属于敏感信息。不要把 `config.json`、`monitor/config.json`、`data/monitor.db` 或任何导出的密钥提交到仓库。
+- 回调地址必须完全匹配。常见错误是 Google Cloud 填了 `localhost`，系统使用 `127.0.0.1`，或端口不是 `5000`。
+- 如果授权后没有返回 Refresh Token，重新点击一键授权。系统请求中会带 `access_type=offline` 和 `prompt=consent`，用于让 Google 返回离线刷新凭据。
+- 如果提示应用未验证或用户不可访问，请回到 OAuth consent screen，把当前 Gmail 加入 Test users，或按 Google 要求完成发布/验证。
+- 如果发信测试失败，确认授权范围中仍包含 `https://www.googleapis.com/auth/gmail.send`。
+- 如果收信同步失败，确认授权范围中仍包含 `https://www.googleapis.com/auth/gmail.readonly`，并查看账号的 `last_error`。
 
 ### 与批量下载的关系
 

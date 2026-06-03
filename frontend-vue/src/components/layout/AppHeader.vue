@@ -38,6 +38,7 @@ const routeTitleMap: Record<string, string> = {
   '/settings-hub/api': 'nav.settingsApi',
   '/settings-hub/download': 'nav.settingsDownload',
   '/settings-hub/ai': 'nav.settingsAi',
+  '/settings-hub/email-analysis-rules': 'nav.settingsEmailAnalysisRules',
   '/settings-hub/dynamic': 'nav.settingsDynamic',
   '/settings-hub/proxy': 'nav.settingsProxy',
 }

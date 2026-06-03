@@ -60,6 +60,12 @@ const routes = [
     component: () => import('@/views/AiCreation.vue'),
   },
   {
+    path: '/email-pipeline',
+    name: 'emailPipeline',
+    meta: { keepAlive: false },
+    component: () => import('@/views/EmailPipeline.vue'),
+  },
+  {
     path: '/wechat-collect',
     name: 'wechatCollect',
     meta: { keepAlive: false },
@@ -106,6 +112,12 @@ const routes = [
         name: 'settingsAi',
         meta: { keepAlive: false },
         component: () => import('@/views/settings/AiSettings.vue'),
+      },
+      {
+        path: '/settings-hub/email-analysis-rules',
+        name: 'settingsEmailAnalysisRules',
+        meta: { keepAlive: false },
+        component: () => import('@/views/settings/EmailAnalysisRulesSettings.vue'),
       },
       {
         path: '/settings-hub/wechat',

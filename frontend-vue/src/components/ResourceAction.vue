@@ -39,8 +39,6 @@ import { NButton, NPopconfirm, NDropdown } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import type { MediaInfo } from '@/stores/resourceStore'
-// @ts-ignore
-import { getDecryptionArray } from '@/assets/js/decrypt.js'
 
 const props = defineProps<{ row: MediaInfo }>()
 const emit = defineEmits<{
@@ -51,7 +49,6 @@ const { t } = useI18n()
 const $message = (window as any).$message
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
-const token = (window as any).__MONITOR_API_TOKEN__ || ''
 
 const canDownload = (row: MediaInfo) => {
   return row.Classify !== 'live' && row.Classify !== 'm3u8'
@@ -61,21 +58,21 @@ const uint8ArrayToBase64 = (bytes: any) => {
   return window.btoa(Array.from(bytes, (byte: any) => String.fromCharCode(byte)).join(''))
 }
 
+const buildDecodeString = async () => {
+  if (!props.row.DecodeKey) return ''
+  const decryptModule = await import('@/assets/js/decrypt.js')
+  return uint8ArrayToBase64(decryptModule.getDecryptionArray(props.row.DecodeKey))
+}
+
 const handleDownload = async () => {
   try {
     // Transform DecodeKey to decodeStr like master version:
     // 1. Use ISAAC64 WASM to generate 128KB keystream from DecodeKey
     // 2. Convert to base64 for transmission to Go backend
-    const decodeStr = props.row.DecodeKey
-      ? uint8ArrayToBase64(getDecryptionArray(props.row.DecodeKey))
-      : ''
+    const decodeStr = await buildDecodeString()
 
     const payload = { ...props.row, decodeStr }
-    const resp = await axios.post(
-      `${API_BASE}/api/res/download`,
-      payload,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    const resp = await axios.post(`${API_BASE}/api/res/download`, payload)
     const data = resp.data
     if (data && data.code === 1) {
       $message.success(t('message.downloadSuccess'))

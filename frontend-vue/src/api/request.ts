@@ -1,22 +1,22 @@
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
+/**
+ * 默认同源：页面与 API 由同一 MonitorHandler 提供（如 monitor_ui.py --port 4999）。
+ * 仅当需要固定跨端口时再设置 VITE_API_BASE（例如独立运行 python -m server --port 5000）。
+ */
+const API_BASE = import.meta.env.VITE_API_BASE || ''
+
+/** 占位导出：Monitor HTTP API 已不做 Bearer / api_token 鉴权 */
+export function _getToken(): string {
+  return ''
+}
+
+/** 占位：不再持久化 Monitor API token */
+export function _saveToken(_token: string): void {}
 
 const request = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
-})
-
-// Inject auth token into every request
-request.interceptors.request.use(config => {
-  const token = (window as any).__MONITOR_API_TOKEN__ || ''
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-    if ((config as any).useQueryToken === true) {
-      config.params = { ...config.params, api_token: token }
-    }
-  }
-  return config
 })
 
 export default request

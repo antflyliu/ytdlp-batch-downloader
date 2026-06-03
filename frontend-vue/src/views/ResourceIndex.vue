@@ -43,16 +43,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, defineAsyncComponent, h, ref } from 'vue'
 import { NDataTable, NButton, NButtonGroup, NTag } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useResourceStore } from '@/stores/resourceStore'
 import type { MediaInfo } from '@/stores/resourceStore'
-import ResourceAction from '@/components/ResourceAction.vue'
-import Preview from '@/components/Preview.vue'
 
 const { t } = useI18n()
 const store = useResourceStore()
+const ResourceAction = defineAsyncComponent(() => import('@/components/ResourceAction.vue'))
+const Preview = defineAsyncComponent(() => import('@/components/Preview.vue'))
 
 const filter = computed(() => store.filter)
 const filteredResources = computed(() => store.filteredResources)

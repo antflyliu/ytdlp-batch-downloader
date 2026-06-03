@@ -24,8 +24,6 @@ class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 class TestStaticFileAuthBoundary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # 避免测试触发真实数据库 token 生成逻辑
-        monitor_server.MonitorHandler._api_token = "test-token"
         cls.server = _ThreadedHTTPServer(("127.0.0.1", 0), monitor_server.MonitorHandler)
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -36,8 +34,6 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=2)
-        if hasattr(monitor_server.MonitorHandler, "_api_token"):
-            delattr(monitor_server.MonitorHandler, "_api_token")
 
     def _request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
@@ -64,16 +60,17 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertNotIn("401".encode(), body)
 
-    def test_api_still_requires_bearer_token(self):
+    def test_api_accounts_allowed_without_monitor_token(self):
         status, body, headers = self._request("GET", "/api/accounts")
-        self.assertEqual(status, 401)
+        self.assertEqual(status, 200)
         self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
-        self.assertIn("未授权".encode("utf-8"), body)
 
-    def test_shutdown_api_requires_bearer_token(self):
-        status, body, headers = self._request("POST", "/api/system/shutdown")
-        self.assertEqual(status, 401)
+    def test_shutdown_api_allows_without_auth_when_open(self):
+        with mock.patch.object(TestStaticFileAuthBoundary.server, "shutdown"):
+            status, body, headers = self._request("POST", "/api/system/shutdown")
+        self.assertEqual(status, 200)
         self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
+        self.assertIn(b'"ok"', body)
 
     def test_account_api_accepts_handle_channel_url(self):
         with mock.patch.object(_server_main, "_db") as mock_db, mock.patch.object(monitor_server, "_scheduler") as mock_scheduler:
@@ -89,7 +86,6 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
                 "/api/accounts",
                 body=body,
                 headers={
-                    "Authorization": "Bearer test-token",
                     "Content-Type": "application/json",
                     "Content-Length": str(len(body)),
                 },
@@ -114,7 +110,6 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
                 "/api/accounts",
                 body=body,
                 headers={
-                    "Authorization": "Bearer test-token",
                     "Content-Type": "application/json",
                     "Content-Length": str(len(body)),
                 },
@@ -127,7 +122,8 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
 
     def test_static_get_ignores_client_aborted_connection(self):
         handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
-        handler.path = "/"
+        handler.path = "/__nonexistent_unit_test__.html"
+        handler.requestline = "GET /__nonexistent_unit_test__.html HTTP/1.0"
         with mock.patch.object(_server_main.SimpleHTTPRequestHandler, "do_GET", side_effect=ConnectionAbortedError(10053, "aborted")):
             with mock.patch.object(_server_main, "_log") as mock_log:
                 # should not re-raise when browser aborts static response mid-stream
@@ -136,7 +132,8 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
 
     def test_static_get_ignores_broken_pipe(self):
         handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)
-        handler.path = "/"
+        handler.path = "/__nonexistent_unit_test__.html"
+        handler.requestline = "GET /__nonexistent_unit_test__.html HTTP/1.0"
         with mock.patch.object(_server_main.SimpleHTTPRequestHandler, "do_GET", side_effect=BrokenPipeError("pipe closed")):
             with mock.patch.object(_server_main, "_log") as mock_log:
                 handler.do_GET()

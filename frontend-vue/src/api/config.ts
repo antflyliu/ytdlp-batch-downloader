@@ -57,6 +57,11 @@ export interface AppConfig {
   article_subtitle_proxy_mode?: string
   article_subtitle_proxy_pool_id?: number | null
   article_author?: string
+  gmail_oauth_client_id?: string
+  gmail_oauth_client_secret?: string
+  gmail_oauth_redirect_uri?: string
+  gmail_oauth_scopes?: string
+  email_analysis_rules?: Record<string, unknown>
   article_wechat_prompt_role?: string
   article_wechat_prompt_reader_persona?: string
   article_wechat_prompt_style?: string
@@ -92,11 +97,16 @@ export interface AppConfig {
   gemini_image_model?: string
   wechat_app_id?: string
   wechat_app_secret?: string
+  wechat_api_proxy_url?: string
+  wechat_api_proxy_token?: string
   wechat_default_author?: string
   wechat_default_theme?: string
   wechat_default_color?: string
   wechat_markdown_renderer?: string
   wechat_baoyu_markdown_to_html_script?: string
+  wechat_baoyu_ai_cover?: boolean
+  wechat_baoyu_layout_modules?: boolean
+  wechat_baoyu_timeout?: number
   wechat_need_open_comment?: boolean
   wechat_only_fans_can_comment?: boolean
   wechat_exporter_base_url?: string

@@ -11,11 +11,11 @@ export const useEventStore = defineStore('event', () => {
   const eventSourceRef = shallowRef<EventSource | null>(null)
   const reconnectAttempt = ref(0)
 
-  const init = (token: string) => {
+  const init = () => {
     // Close existing connection before creating new one
     eventSourceRef.value?.close()
 
-    const url = `/api/res-events?api_token=${encodeURIComponent(token)}`
+    const url = `/api/res-events`
     const es = new EventSource(url)
 
     es.onmessage = (e) => {
@@ -52,7 +52,7 @@ export const useEventStore = defineStore('event', () => {
       // Exponential back-off: min(30s, 1s * 2^attempt)
       const delay = Math.min(30_000, 1000 * Math.pow(2, reconnectAttempt.value))
       reconnectAttempt.value++
-      setTimeout(() => init(token), delay)
+      setTimeout(() => init(), delay)
     }
 
     eventSourceRef.value = es

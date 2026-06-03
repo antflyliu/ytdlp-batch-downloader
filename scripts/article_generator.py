@@ -1349,8 +1349,10 @@ def _local_whisper(
                     )
             finally:
                 if model is not None:
-                    del model
-                    gc.collect()
+                    try:
+                        del model
+                    except Exception as cleanup_err:
+                        _log.warning("[Whisper] 模型清理时出现异常（非致命）: %s", cleanup_err)
         if failures:
             attempted = ", ".join(f"{compute}({device})" for compute, device in candidate_plan)
             if progress:
@@ -1521,7 +1523,7 @@ class WechatArticlePromptEngine:
         )
 
     def build_style_analysis_prompt(self, source_type: str) -> str:
-        source_label = "公众号文章" if source_type == "wechat_article" else "视频字幕/转写"
+        source_label = _source_material_label(source_type)
         return (
             self._common_contract()
             + f"任务：分析输入的{source_label}，产出可复用的二次创作风格画像。\n"
@@ -1681,7 +1683,7 @@ def _parse_article_quality_evaluation(response: str, threshold: float) -> dict[s
 
 
 def _fallback_style_profile(source_type: str, material: str) -> str:
-    source_label = "公众号文章" if source_type == "wechat_article" else "视频字幕/转写"
+    source_label = _source_material_label(source_type)
     plain = _markdown_plain_text(material)
     paragraph_count = len([part for part in re.split(r"\n\s*\n", material or "") if part.strip()])
     return (
@@ -1697,6 +1699,14 @@ def _fallback_style_profile(source_type: str, material: str) -> str:
         "## 需要规避的问题\n"
         "- 不复制原文句子，不补造输入中没有的来源、数据或人物观点。\n"
     )
+
+
+def _source_material_label(source_type: str) -> str:
+    if source_type == "wechat_article":
+        return "公众号文章"
+    if source_type == "email_message":
+        return "邮件正文"
+    return "视频字幕/转写"
 
 
 def _article_generation_payload(
@@ -1781,6 +1791,19 @@ class ArticleGenerationPipeline:
                 transcript_source = "wechat_article"
                 subtitle_details = {
                     "path": article_source_path,
+                    "source_url": task.get("source_url") or "",
+                }
+                video_url = task.get("source_url") or ""
+                video_title = task.get("source_title") or task.get("video_title") or self.task_id
+            elif source_type == "email_message":
+                self._stage("subtitles", "running", "正在读取邮件正文")
+                article_text = str(task.get("article_text") or "")
+                if not article_text.strip():
+                    raise RuntimeError("邮件正文为空，无法生成 AI 文章")
+                transcript = article_text
+                transcript_source = "email_message"
+                subtitle_details = {
+                    "email_message_id": task.get("email_message_id"),
                     "source_url": task.get("source_url") or "",
                 }
                 video_url = task.get("source_url") or ""
@@ -1886,6 +1909,11 @@ class ArticleGenerationPipeline:
                             transcript_source = "remote_whisper"
                         else:
                             self._stage("whisper", "error", "远程 Whisper 转写失败")
+                    _log.info(
+                        "[文章生成] task=%s Whisper transcription returned, length=%d, writing transcript...",
+                        self.task_id,
+                        len(transcript) if transcript else 0,
+                    )
                     if not transcript:
                         raise RuntimeError("无法获取字幕或转写文本，请配置字幕来源或 Whisper 服务")
             transcript_path = _write_text(output_dir / "transcript.txt", transcript)
@@ -1906,6 +1934,8 @@ class ArticleGenerationPipeline:
                 self._stage("subtitles", "done", "已读取本地字幕文件")
             elif transcript_source == "wechat_article":
                 self._stage("subtitles", "done", "已读取公众号文章正文")
+            elif transcript_source == "email_message":
+                self._stage("subtitles", "done", "已读取邮件正文")
             elif subtitle_failure_message:
                 self._stage("subtitles", "done", "字幕下载失败，已切换 Whisper 生成文本")
             else:

@@ -41,10 +41,11 @@ from typing import Optional
 
 _log = logging.getLogger("monitor.wechat_publisher")
 
-TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
-UPLOAD_URL = "https://api.weixin.qq.com/cgi-bin/material/add_material"
-DRAFT_URL = "https://api.weixin.qq.com/cgi-bin/draft/add"
-PUBLISH_URL = "https://api.weixin.qq.com/cgi-bin/freepublish/submit"
+_WECHAT_API_ORIGIN = "https://api.weixin.qq.com"
+TOKEN_URL = f"{_WECHAT_API_ORIGIN}/cgi-bin/token"
+UPLOAD_URL = f"{_WECHAT_API_ORIGIN}/cgi-bin/material/add_material"
+DRAFT_URL = f"{_WECHAT_API_ORIGIN}/cgi-bin/draft/add"
+PUBLISH_URL = f"{_WECHAT_API_ORIGIN}/cgi-bin/freepublish/submit"
 
 _ACCESS_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
 _DEFAULT_COVER_FILENAME = "_wechat_default_cover.png"
@@ -56,7 +57,12 @@ _WECHAT_DIGEST_MAX_CHARS = 128
 _WECHAT_DIGEST_MAX_BYTES = 120
 _WECHAT_CONTENT_MAX_CHARS = 20_000
 _WECHAT_CONTENT_MAX_BYTES = 1_000_000
-_BAOYU_SKILL_SCRIPT = Path.home() / ".agents" / "skills" / "baoyu-markdown-to-html" / "scripts" / "main.ts"
+_BAOYU_SKILL_SCRIPT = (
+    Path(__file__).resolve().parents[1]  # project root
+    / "scripts"
+    / "markdown-to-html"
+    / "main.ts"
+)
 _LLM_THINKING_BLOCK_RE = re.compile(r"<(think|thinking)\b[^>]*>[\s\S]*?</\1>", re.IGNORECASE)
 _LEADING_LLM_THINKING_RE = re.compile(r"^\s*<(?:think|thinking)\b", re.IGNORECASE)
 _MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+\S")
@@ -285,6 +291,8 @@ class WechatPublisher:
         self.default_author = cfg.get("wechat_default_author") or ""
         self.default_theme = cfg.get("wechat_default_theme") or "default"
         self.default_color = cfg.get("wechat_default_color") or "blue"
+        self._proxy_url = (cfg.get("wechat_api_proxy_url") or "").strip().rstrip("/")
+        self._proxy_token = (cfg.get("wechat_api_proxy_token") or "").strip()
         self.cfg = cfg
         self._validate_credentials()
 
@@ -295,6 +303,18 @@ class WechatPublisher:
             raise ValueError("wechat_app_secret is required")
         if not re.match(r"^wx[a-zA-Z0-9]{16}$", self.app_id):
             raise ValueError(f"wechat_app_id 格式不正确: {self.app_id}")
+
+    def _resolve_url(self, url: str) -> str:
+        """Route URL through Cloudflare Worker proxy when configured."""
+        if not self._proxy_url:
+            return url
+        return url.replace(_WECHAT_API_ORIGIN, self._proxy_url, 1)
+
+    def _proxy_headers(self) -> dict[str, str]:
+        """Extra headers needed when routing through the proxy."""
+        if not self._proxy_url or not self._proxy_token:
+            return {}
+        return {"Authorization": f"Bearer {self._proxy_token}"}
 
     def _get_access_token(self) -> str:
         cache_key = self.app_id
@@ -311,8 +331,10 @@ class WechatPublisher:
                 "secret": self.app_secret,
             }
         )
+        url = self._resolve_url(f"{TOKEN_URL}?{query}")
+        req = urllib.request.Request(url, headers=self._proxy_headers())
         try:
-            with urllib.request.urlopen(f"{TOKEN_URL}?{query}", timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as exc:
             raise RuntimeError(f"获取 access_token 失败: {exc}") from exc
@@ -327,13 +349,10 @@ class WechatPublisher:
         return token
 
     def _api_post(self, url: str, payload: dict) -> dict:
+        url = self._resolve_url(url)
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        headers = {"Content-Type": "application/json", **self._proxy_headers()}
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8") or "{}")
@@ -380,10 +399,16 @@ class WechatPublisher:
         ).encode("utf-8")
         tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
         body = head + file_bytes + tail
+        upload_url = self._resolve_url(
+            f"{UPLOAD_URL}?access_token={urllib.parse.quote(token)}&type=image"
+        )
         req = urllib.request.Request(
-            f"{UPLOAD_URL}?access_token={urllib.parse.quote(token)}&type=image",
+            upload_url,
             data=body,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                **self._proxy_headers(),
+            },
             method="POST",
         )
         try:
