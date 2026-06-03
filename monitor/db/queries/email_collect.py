@@ -12,6 +12,7 @@ from config.encryption import _decrypt_config_value, _encrypt_config_value
 import monitor.db.connection as db_connection
 from monitor.db.connection import get_connection
 from monitor.db.db_core import _UNSET, now_iso
+from monitor.email_collect.platforms import DEFAULT_CONTENT_TARGETS
 from monitor.email_collect.security import validate_mail_endpoint
 
 SECRET_COLUMNS = {
@@ -21,16 +22,8 @@ SECRET_COLUMNS = {
     "smtp_password": "smtp_password_enc",
     "outlook_email_api_key": "outlook_email_api_key_enc",
 }
-DEFAULT_TARGETS = [
-    ("wechat", "微信公众号", "draft", {"max_chars": 6000, "format": "long_article"}),
-    ("xiaohongshu", "小红书", "export", {"max_chars": 1000, "format": "note"}),
-    ("toutiao", "今日头条", "export", {"max_chars": 5000, "format": "search_friendly_article"}),
-    ("baijiahao", "百度百家号", "export", {"max_chars": 5000, "format": "search_friendly_article"}),
-    ("juejin", "掘金", "export", {"max_chars": 6000, "format": "technical_article"}),
-    ("zhihu", "知乎", "export", {"max_chars": 6000, "format": "answer_or_article"}),
-    ("x", "X / Twitter", "export", {"max_items": 8, "format": "thread"}),
-    ("reddit", "Reddit", "export", {"max_chars": 4000, "format": "discussion_post"}),
-]
+DEFAULT_TARGETS = DEFAULT_CONTENT_TARGETS
+OUTLOOK_EMAIL_DEFAULT_BASE_URL = "http://127.0.0.1:5000"
 CONTENT_VARIANT_STATUSES = {"draft", "ready", "exported", "published"}
 DEFAULT_GMAIL_OAUTH_SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -531,15 +524,40 @@ def _ensure_article_email_column(conn) -> None:
 
 def _seed_content_targets(conn) -> None:
     now = now_iso()
-    for platform, display_name, publish_mode, contract in DEFAULT_TARGETS:
+    for platform, display_name, publish_mode, contract, prompt_profile in DEFAULT_TARGETS:
         conn.execute(
             """INSERT INTO content_targets
                (platform, display_name, enabled, output_contract_json, prompt_profile_json,
                 publish_mode, created_at, updated_at)
-               VALUES (?, ?, 1, ?, '{}', ?, ?, ?)
+               VALUES (?, ?, 1, ?, ?, ?, ?, ?)
                ON CONFLICT(platform) DO NOTHING""",
-            (platform, display_name, _json_dumps(contract), publish_mode, now, now),
+            (platform, display_name, _json_dumps(contract), _json_dumps(prompt_profile), publish_mode, now, now),
         )
+        row = conn.execute(
+            "SELECT output_contract_json, prompt_profile_json FROM content_targets WHERE platform=?",
+            (platform,),
+        ).fetchone()
+        if not row:
+            continue
+        existing_contract = _json_loads(row["output_contract_json"], {})
+        existing_profile = _json_loads(row["prompt_profile_json"], {})
+        merged_contract = _merge_missing_defaults(existing_contract, contract)
+        merged_profile = _merge_missing_defaults(existing_profile, prompt_profile)
+        if merged_contract != existing_contract or merged_profile != existing_profile:
+            conn.execute(
+                """UPDATE content_targets
+                   SET output_contract_json=?, prompt_profile_json=?, updated_at=?
+                   WHERE platform=?""",
+                (_json_dumps(merged_contract), _json_dumps(merged_profile), now, platform),
+            )
+
+
+def _merge_missing_defaults(existing: Any, defaults: dict[str, Any]) -> dict[str, Any]:
+    result = dict(existing) if isinstance(existing, dict) else {}
+    for key, value in defaults.items():
+        if key not in result:
+            result[key] = value
+    return result
 
 
 def _encrypt_secret(value: Any) -> str | None:
@@ -739,6 +757,19 @@ def _validate_outlook_email_update(existing: dict | None, values: dict[str, Any]
         raise ValueError("outlook_email_api_key is required")
 
 
+def _infer_email_provider(data: dict[str, Any]) -> str:
+    explicit = str(data.get("provider") or "").strip().lower()
+    if explicit:
+        return explicit
+    gmail_fields = ("gmail_client_id", "gmail_client_secret", "gmail_refresh_token", "gmail_scope")
+    if any(data.get(field) for field in gmail_fields):
+        return "gmail"
+    imap_fields = ("imap_host", "imap_username", "imap_password", "smtp_host", "smtp_username", "smtp_password")
+    if any(data.get(field) for field in imap_fields):
+        return "imap"
+    return "outlook_email"
+
+
 def save_email_account(payload: dict[str, Any], *, account_id: int | None = None, preserve_masked: bool = True) -> int:
     now = now_iso()
     existing = get_email_account(account_id, include_secrets=True) if account_id else None
@@ -746,7 +777,7 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
         raise ValueError("email account not found")
     data = dict(existing or {})
     data.update(payload or {})
-    provider = str(data.get("provider") or "imap").strip().lower()
+    provider = _infer_email_provider(data)
     display_name = str(data.get("display_name") or data.get("email_address") or "").strip()
     email_address = str(data.get("email_address") or "").strip()
     if not display_name:
@@ -771,7 +802,12 @@ def save_email_account(payload: dict[str, Any], *, account_id: int | None = None
         "smtp_port": int(data.get("smtp_port") or 465),
         "smtp_security": str(data.get("smtp_security") or "ssl").strip().lower(),
         "smtp_username": str(data.get("smtp_username") or "").strip() or None,
-        "outlook_email_base_url": str(data.get("outlook_email_base_url") or "").strip().rstrip("/") or None,
+        "outlook_email_base_url": (
+            str(data.get("outlook_email_base_url") or (OUTLOOK_EMAIL_DEFAULT_BASE_URL if provider == "outlook_email" else ""))
+            .strip()
+            .rstrip("/")
+            or None
+        ),
         "outlook_email_remote_email": (
             str(data.get("outlook_email_remote_email") or email_address or "").strip() or None
         ),
@@ -1038,7 +1074,12 @@ def upsert_email_message(message: dict[str, Any], attachments: list[dict[str, An
                  dedupe_key=excluded.dedupe_key,
                  classification_json=excluded.classification_json,
                  cleaning_report_json=excluded.cleaning_report_json,
-                 processing_status=excluded.processing_status,
+                 processing_status=CASE
+                   WHEN email_messages.processing_status IN ('generated', 'ignored')
+                    AND excluded.processing_status IN ('classified', 'ignored')
+                   THEN email_messages.processing_status
+                   ELSE excluded.processing_status
+                 END,
                  source_url=excluded.source_url,
                  error=excluded.error,
                  updated_at=excluded.updated_at""",

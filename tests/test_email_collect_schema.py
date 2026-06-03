@@ -215,9 +215,38 @@ def test_init_db_bootstrap_seeds_content_targets_idempotently(db_module):
         rows = conn.execute(
             "SELECT platform, COUNT(*) AS row_count FROM content_targets GROUP BY platform"
         ).fetchall()
+        wechat = conn.execute(
+            "SELECT output_contract_json, prompt_profile_json FROM content_targets WHERE platform='wechat'"
+        ).fetchone()
 
     assert rows
     assert all(row["row_count"] == 1 for row in rows)
+    output_contract = email_queries._json_loads(wechat["output_contract_json"], {})
+    prompt_profile = email_queries._json_loads(wechat["prompt_profile_json"], {})
+    assert output_contract["format"] == "long_article"
+    assert output_contract["editorial_focus"] == "深度结构化解读"
+    assert prompt_profile["platform_role"] == "公众号深度编辑"
+    assert "事实核验" in prompt_profile["review_checklist"]
+
+
+def test_seed_content_targets_backfills_missing_platform_contract_keys(db_module):
+    with db_module.get_connection() as conn:
+        email_queries.ensure_schema(conn)
+        conn.execute(
+            "UPDATE content_targets SET output_contract_json=?, prompt_profile_json=? WHERE platform='wechat'",
+            ('{"format":"long_article","max_chars":4500}', '{"tone":"custom"}'),
+        )
+        email_queries.ensure_schema(conn)
+        row = conn.execute(
+            "SELECT output_contract_json, prompt_profile_json FROM content_targets WHERE platform='wechat'"
+        ).fetchone()
+
+    output_contract = email_queries._json_loads(row["output_contract_json"], {})
+    prompt_profile = email_queries._json_loads(row["prompt_profile_json"], {})
+    assert output_contract["max_chars"] == 4500
+    assert output_contract["editorial_focus"] == "深度结构化解读"
+    assert prompt_profile["tone"] == "custom"
+    assert prompt_profile["platform_role"] == "公众号深度编辑"
 
 
 def test_email_oauth_states_legacy_notnull_account_id_is_migrated(db_module):

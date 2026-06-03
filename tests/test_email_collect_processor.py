@@ -151,6 +151,32 @@ def test_platform_sensitive_filter_is_applied_to_news_variants():
     assert variant["metadata"]["platform_compliance"]["changed"] is True
 
 
+def test_platform_variant_carries_platform_contract_prompt_and_review_plan():
+    variant = build_platform_variant(
+        platform="xiaohongshu",
+        source_title="New model workflow",
+        body_text=(
+            "This guide explains a developer workflow, API migration steps, "
+            "evaluation notes, and practical risks that should be adapted per platform."
+        ),
+        classification={
+            "primary_type": "tutorial",
+            "secondary_types": ["developer_practice"],
+            "language": "en",
+            "risk_flags": ["needs_fact_check"],
+        },
+    )
+
+    assert variant["metadata"]["output_contract"]["format"] == "note"
+    assert variant["metadata"]["prompt_profile"]["platform_role"] == "小红书知识笔记策划"
+    assert "封面图文案" in variant["metadata"]["style_guidance"]
+    assert "目标读者" in variant["body"]
+    assert "平台写作要求" in variant["body"]
+    assert "发布前检查" in variant["body"]
+    assert "事实核验" in variant["quality"]["checklist"]
+    assert "平台原生表达" in variant["quality"]["checklist"]
+
+
 def test_extract_relevant_links_rejects_private_urls():
     report = extract_relevant_links(
         subject="Internal report",

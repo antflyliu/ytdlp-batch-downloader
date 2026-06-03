@@ -158,6 +158,25 @@ def test_outlook_email_account_contract_masks_api_key_and_preserves_masked_updat
     assert updated["outlook_email_folder"] == "inbox"
 
 
+def test_email_account_defaults_to_outlook_email_service_with_local_base_url(service_env):
+    service, _data_dir = service_env
+
+    account_id = service.save_account(
+        {
+            "display_name": "Service Inbox",
+            "email_address": "reader@example.com",
+            "outlook_email_api_key": "external-key-1",
+        }
+    )
+    saved = service.get_account(account_id, include_secrets=True)
+
+    assert saved["provider"] == "outlook_email"
+    assert saved["outlook_email_base_url"] == "http://127.0.0.1:5000"
+    assert saved["outlook_email_remote_email"] == "reader@example.com"
+    assert saved["outlook_email_folder"] == "all"
+    assert saved["outlook_email_api_key"] == "external-key-1"
+
+
 class _FakeResponse:
     def __init__(self, body: str):
         self.body = body.encode("utf-8")
@@ -215,6 +234,55 @@ def test_outlook_email_client_maps_external_messages_to_parsed_email():
     assert "folder=all" in request.full_url
     assert dict(request.header_items())["X-api-key"] == "external-key"
     assert timeout == 45
+
+
+def test_outlook_email_client_accepts_nested_service_shapes_and_body_objects():
+    client = OutlookEmailClient(
+        {
+            "email_address": "reader+tag@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000",
+            "outlook_email_api_key": "external-key",
+        }
+    )
+    client._opener = _FakeOpener(
+        [
+            """{"success": true, "data": {"emails": [{"message_id": "msg-2", "subject": "Nested report", "from": {"email": "news@example.com"}, "to": [{"email": "reader@example.com"}], "received_at": "2026-05-01T10:00:00Z", "body": {"contentType": "html", "content": "<p>Full <strong>report</strong> body</p>"}, "body_preview": "Preview only"}]}}""",
+        ]
+    )
+
+    messages = list(client.fetch_recent(max_messages=3))
+    request, _timeout = client._opener.calls[0]
+
+    assert len(messages) == 1
+    assert messages[0].provider_message_id == "msg-2"
+    assert messages[0].from_addr == "news@example.com"
+    assert messages[0].to_addr == "reader@example.com"
+    assert messages[0].body_text == "Full report body"
+    assert messages[0].html_body == "<p>Full <strong>report</strong> body</p>"
+    assert messages[0].snippet == "Preview only"
+    assert "email=reader%2Btag%40example.com" in request.full_url
+
+
+def test_outlook_email_client_prefers_top_level_html_body_over_preview():
+    client = OutlookEmailClient(
+        {
+            "email_address": "reader@example.com",
+            "outlook_email_base_url": "http://127.0.0.1:5000",
+            "outlook_email_api_key": "external-key",
+        }
+    )
+    client._opener = _FakeOpener(
+        [
+            """{"success": true, "emails": [{"id": "html-only-1", "subject": "HTML only", "body_html": "<p>Full <strong>body</strong> from HTML</p>", "body_preview": "Preview only"}]}""",
+        ]
+    )
+
+    messages = list(client.fetch_recent(max_messages=1))
+
+    assert len(messages) == 1
+    assert messages[0].body_text == "Full body from HTML"
+    assert messages[0].html_body == "<p>Full <strong>body</strong> from HTML</p>"
+    assert messages[0].snippet == "Preview only"
 
 
 def test_outlook_email_sync_routes_through_client_and_persists_messages(service_env, monkeypatch):
@@ -1099,6 +1167,57 @@ def test_duplicate_sync_does_not_clear_persisted_html_source_for_reprocess(servi
     assert second_detail["html_body_path"] == first_detail["html_body_path"]
     assert Path(second_detail["html_body_path"]).is_file()
     assert reprocessed["classification"]["links"]["items"][0]["url"] == "https://example.com/report"
+
+
+def test_duplicate_sync_preserves_generated_or_manually_ignored_status(service_env):
+    service, _data_dir = service_env
+    account_id = service.save_account(_create_account())
+    account = service.get_account(account_id, include_secrets=True)
+
+    generated_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-preserve-generated",
+            subject="Developer API migration guide",
+            body_text=(
+                "This developer guide explains the API migration methodology, "
+                "release risk, and model evaluation."
+            ),
+        ),
+    )
+    service.generate_variants(generated_id, article_task_id="article-generated", platforms=["wechat"])
+
+    ignored_id = service.persist_parsed_message(
+        account,
+        ParsedEmailMessage(
+            provider="gmail",
+            provider_message_id="gmail-preserve-ignored",
+            subject="Developer API migration guide ignored",
+            body_text=(
+                "This developer guide explains the API migration methodology, "
+                "release risk, and model evaluation."
+            ),
+        ),
+    )
+    service.mark_ignored(ignored_id)
+
+    for provider_message_id in ("gmail-preserve-generated", "gmail-preserve-ignored"):
+        service.persist_parsed_message(
+            account,
+            ParsedEmailMessage(
+                provider="gmail",
+                provider_message_id=provider_message_id,
+                subject="Duplicate sync",
+                body_text=(
+                    "This duplicate sync contains enough developer migration details "
+                    "to normally be classified again."
+                ),
+            ),
+        )
+
+    assert service.get_message(generated_id)["processing_status"] == "generated"
+    assert service.get_message(ignored_id)["processing_status"] == "ignored"
 
 
 def test_generate_variants_uses_configured_platform_sensitive_words(service_env, monkeypatch):

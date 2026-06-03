@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import ProxyHandler, Request, build_opener
 
+from .cleaner import html_to_text
 from .errors import EmailProviderError
 from .models import ParsedEmailMessage
 
@@ -37,7 +38,7 @@ class OutlookEmailClient:
             url = f"{url}?{urlencode(clean)}"
         return url
 
-    def _request_json(self, path: str, query: dict[str, Any] | None = None, *, timeout: int | None = None) -> dict:
+    def _request_json(self, path: str, query: dict[str, Any] | None = None, *, timeout: int | None = None) -> Any:
         if not self.api_key:
             raise EmailProviderError("outlookEmail api_key is required")
         request = Request(
@@ -59,7 +60,7 @@ class OutlookEmailClient:
             data = json.loads(raw or "{}")
         except json.JSONDecodeError as exc:
             raise EmailProviderError("outlookEmail returned non-JSON response") from exc
-        if data.get("success") is False:
+        if isinstance(data, dict) and data.get("success") is False:
             raise EmailProviderError(f"outlookEmail returned failure: {data.get('error') or data}")
         return data
 
@@ -76,7 +77,7 @@ class OutlookEmailClient:
             "ok": True,
             "base_url": self.base_url,
             "remote_email": remote_email,
-            "account_count": accounts_payload.get("total"),
+            "account_count": self._payload_total(accounts_payload, "accounts"),
         }
         if remote_email:
             result["sample_count"] = len(list(self.fetch_recent(max_messages=1)))
@@ -96,7 +97,7 @@ class OutlookEmailClient:
             "keyword": self.account.get("outlook_email_keyword") or "",
         }
         payload = self._request_json("/api/external/emails", query, timeout=max(self.timeout, 45))
-        for item in payload.get("emails") or []:
+        for item in self._extract_items(payload, "emails", "items", "messages"):
             if isinstance(item, dict):
                 yield self._parse_message(item, payload)
 
@@ -109,15 +110,7 @@ class OutlookEmailClient:
             provider_message_id = hashlib.sha256(
                 json.dumps(item, ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest()
-        body_text = str(
-            item.get("body_text")
-            or item.get("text")
-            or item.get("body")
-            or item.get("body_preview")
-            or item.get("snippet")
-            or ""
-        )
-        html_body = str(item.get("html_body") or item.get("body_html") or "")
+        body_text, html_body = self._message_body(item)
         snippet = str(item.get("body_preview") or item.get("snippet") or body_text[:240])
         return ParsedEmailMessage(
             provider="outlook_email",
@@ -139,7 +132,9 @@ class OutlookEmailClient:
                 "resolved_email": payload.get("resolved_email"),
                 "matched_alias": payload.get("matched_alias"),
                 "method": payload.get("method"),
-            },
+            }
+            if isinstance(payload, dict)
+            else {"payload_type": type(payload).__name__},
         )
 
     def _address_text(self, value: Any) -> str:
@@ -157,3 +152,84 @@ class OutlookEmailClient:
                     parts.append(text)
             return ", ".join(parts)
         return str(value)
+
+    def _message_body(self, item: dict[str, Any]) -> tuple[str, str]:
+        html_body = self._html_body(item.get("html_body") or item.get("body_html") or "")
+        for key in ("body_text", "text", "body", "content"):
+            value = item.get(key)
+            body_text, extracted_html = self._body_value_text(value)
+            if extracted_html and not html_body:
+                html_body = extracted_html
+            if body_text:
+                return body_text, html_body
+        if html_body:
+            return html_to_text(html_body).strip(), html_body
+        for key in ("body_preview", "snippet"):
+            body_text, _extracted_html = self._body_value_text(item.get(key))
+            if body_text:
+                return body_text, html_body
+        return "", html_body
+
+    def _body_value_text(self, value: Any) -> tuple[str, str]:
+        if value is None:
+            return "", ""
+        if isinstance(value, dict):
+            content = (
+                value.get("content")
+                or value.get("body")
+                or value.get("text")
+                or value.get("html")
+                or value.get("value")
+                or ""
+            )
+            content_type = str(value.get("contentType") or value.get("content_type") or "").lower()
+            if "html" in content_type or value.get("html"):
+                html_body = self._html_body(content)
+                return html_to_text(html_body).strip(), html_body
+            return str(content or "").strip(), ""
+        text = str(value or "")
+        if self._looks_like_html(text):
+            html_body = self._html_body(text)
+            return html_to_text(html_body).strip(), html_body
+        return text.strip(), ""
+
+    @staticmethod
+    def _html_body(value: Any) -> str:
+        text = str(value or "").strip()
+        return text
+
+    @staticmethod
+    def _looks_like_html(value: str) -> bool:
+        lowered = str(value or "").lower()
+        return "<html" in lowered or "<body" in lowered or "<p" in lowered or "<br" in lowered
+
+    def _extract_items(self, payload: Any, *keys: str) -> list[Any]:
+        if isinstance(payload, list):
+            return payload
+        if not isinstance(payload, dict):
+            return []
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+        for container_key in ("data", "result", "payload"):
+            nested = payload.get(container_key)
+            items = self._extract_items(nested, *keys)
+            if items:
+                return items
+        return []
+
+    def _payload_total(self, payload: Any, list_key: str) -> int | None:
+        if isinstance(payload, dict):
+            for key in ("total", "count", "total_count"):
+                if payload.get(key) is not None:
+                    try:
+                        return int(payload[key])
+                    except (TypeError, ValueError):
+                        return None
+            for container_key in ("data", "result", "payload"):
+                nested_total = self._payload_total(payload.get(container_key), list_key)
+                if nested_total is not None:
+                    return nested_total
+        items = self._extract_items(payload, list_key, "items", "rows")
+        return len(items) if items else None

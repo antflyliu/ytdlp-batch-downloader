@@ -3,18 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .platforms import PLATFORM_DISPLAY_NAMES, get_platform_strategy
 from .processor import RULE_VERSION, apply_platform_sensitive_filter
-
-PLATFORM_DISPLAY_NAMES = {
-    "wechat": "微信公众号",
-    "xiaohongshu": "小红书",
-    "toutiao": "今日头条",
-    "baijiahao": "百度百家号",
-    "juejin": "掘金",
-    "zhihu": "知乎",
-    "x": "X / Twitter",
-    "reddit": "Reddit",
-}
 
 
 def summarize_text(text: str, *, limit: int = 180) -> str:
@@ -51,11 +41,21 @@ def build_platform_variant(
     risk_flags = classification.get("risk_flags") or []
     tags = classification.get("secondary_types") or [classification.get("primary_type") or "email"]
     platform_name = PLATFORM_DISPLAY_NAMES.get(platform, platform)
-    base_context = (
-        f"来源标题: {title}\n"
-        f"内容摘要: {summary}\n"
-        f"分类: {classification.get('primary_type', 'unknown')}\n"
-        f"风险提示: {', '.join(risk_flags) if risk_flags else '需要人工事实核验'}\n\n"
+    strategy = get_platform_strategy(platform)
+    output_contract = strategy["output_contract"]
+    prompt_profile = strategy["prompt_profile"]
+    checklist = _dedupe_list(
+        list(prompt_profile.get("review_checklist") or [])
+        + ["事实核验", "来源授权", "平台规则", "AIGC 标识", "平台原生表达"]
+    )
+    base_context = _base_context(
+        title=title,
+        summary=summary,
+        classification=classification,
+        risk_flags=risk_flags,
+        output_contract=output_contract,
+        prompt_profile=prompt_profile,
+        checklist=checklist,
     )
     if platform == "x":
         body = base_context + "\n".join(
@@ -82,6 +82,9 @@ def build_platform_variant(
         body = base_context + f"# {title}\n\n{filtered_body_text.strip()}\n"
         metadata = {"author": "", "digest": summary, "aigc_or_assisted_label_suggestion": "AI 辅助创作"}
     metadata["platform_compliance"] = compliance_report
+    metadata["output_contract"] = output_contract
+    metadata["prompt_profile"] = prompt_profile
+    metadata["style_guidance"] = strategy.get("style_guidance") or []
     return {
         "platform": platform,
         "display_name": platform_name,
@@ -92,9 +95,34 @@ def build_platform_variant(
         "quality": {
             "needs_review": True,
             "risk_flags": risk_flags,
-            "checklist": ["事实核验", "授权/转载边界", "平台规则", "AIGC 标识"],
+            "checklist": checklist,
+            "style_review": strategy.get("style_guidance") or [],
         },
     }
+
+
+def _base_context(
+    *,
+    title: str,
+    summary: str,
+    classification: dict[str, Any],
+    risk_flags: list[str],
+    output_contract: dict[str, Any],
+    prompt_profile: dict[str, Any],
+    checklist: list[str],
+) -> str:
+    required_sections = output_contract.get("required_sections") or []
+    style_line = "、".join(required_sections) if required_sections else str(output_contract.get("format") or "article")
+    return (
+        f"来源标题: {title}\n"
+        f"内容摘要: {summary}\n"
+        f"分类: {classification.get('primary_type', 'unknown')}\n"
+        f"目标读者: {prompt_profile.get('audience', '目标平台读者')}\n"
+        f"平台写作要求: {prompt_profile.get('structure', style_line)}\n"
+        f"语气: {prompt_profile.get('tone', '清晰、准确')}\n"
+        f"风险提示: {', '.join(risk_flags) if risk_flags else '需要人工事实核验'}\n"
+        f"发布前检查: {' / '.join(checklist[:6])}\n\n"
+    )
 
 
 def _split_thread_items(text: str, *, max_items: int) -> list[str]:
@@ -107,6 +135,18 @@ def _bullet_points(text: str, count: int) -> str:
     paragraphs = [p.strip() for p in re.split(r"\n{1,}", text or "") if p.strip()]
     selected = paragraphs[:count] or [summarize_text(text)]
     return "\n".join(f"- {item[:220]}" for item in selected)
+
+
+def _dedupe_list(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _should_apply_platform_filter(classification: dict[str, Any]) -> bool:
