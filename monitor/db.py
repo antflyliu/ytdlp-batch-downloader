@@ -79,6 +79,7 @@ ARTICLE_TASK_COLUMN_DDLS = [
     ("source_url", "TEXT"),
     ("source_title", "TEXT"),
     ("email_message_id", "INTEGER DEFAULT NULL"),
+    ("rss_item_id", "INTEGER DEFAULT NULL"),
     ("status", "TEXT NOT NULL DEFAULT 'pending'"),
     ("current_stage", "TEXT"),
     ("source_lang", "TEXT"),
@@ -817,11 +818,29 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v22_email_collect_outlook_email_source", today),
         )
 
+    if "v23_rss_collect_sources" not in applied:
+        _ensure_rss_collect_schema(conn)
+        _ensure_article_task_columns(conn)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_article_tasks_rss_item "
+            "ON article_tasks(rss_item_id, created_at DESC)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v23_rss_collect_sources", today),
+        )
+
 
 def _ensure_email_collect_schema(conn) -> None:
     from monitor.db.queries import email_collect as _email_collect_queries
 
     _email_collect_queries.ensure_schema(conn)
+
+
+def _ensure_rss_collect_schema(conn) -> None:
+    from monitor.db.queries import rss_collect as _rss_collect_queries
+
+    _rss_collect_queries.ensure_schema(conn)
     _ensure_article_task_columns(conn)
 
 
@@ -2105,6 +2124,7 @@ def create_article_task(
     source_url: str | None = None,
     source_title: str | None = None,
     email_message_id: int | None = None,
+    rss_item_id: int | None = None,
     target_lang: str = "zh-Hans",
     auto_translate: bool = True,
     output_dir: str | None = None,
@@ -2117,10 +2137,10 @@ def create_article_task(
             """INSERT INTO article_tasks
                (task_id, source_type, monitor_video_id, video_id, video_url, video_title,
                 article_source_path, article_text, source_url, source_title,
-                email_message_id,
+                email_message_id, rss_item_id,
                 status, target_lang, auto_translate, output_dir,
                 stages_json, result_json, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, '{}', '{}', ?, ?)""",
             (
                 task_id,
                 source_type or "video",
@@ -2133,6 +2153,7 @@ def create_article_task(
                 source_url,
                 source_title,
                 email_message_id,
+                rss_item_id,
                 target_lang,
                 int(bool(auto_translate)),
                 output_dir,
@@ -2220,6 +2241,7 @@ def list_article_tasks(
     monitor_video_id: int | None = None,
     source_type: str | None = None,
     email_message_id: int | None = None,
+    rss_item_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -2237,6 +2259,9 @@ def list_article_tasks(
     if email_message_id is not None:
         where.append("email_message_id = ?")
         params.append(email_message_id)
+    if rss_item_id is not None:
+        where.append("rss_item_id = ?")
+        params.append(rss_item_id)
     where_sql = " AND ".join(where) if where else "1=1"
     with get_connection() as conn:
         total = conn.execute(

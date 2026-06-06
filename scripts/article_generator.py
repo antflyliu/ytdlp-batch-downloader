@@ -1706,6 +1706,8 @@ def _source_material_label(source_type: str) -> str:
         return "公众号文章"
     if source_type == "email_message":
         return "邮件正文"
+    if source_type == "rss_item":
+        return "RSS 文章"
     return "视频字幕/转写"
 
 
@@ -1804,6 +1806,19 @@ class ArticleGenerationPipeline:
                 transcript_source = "email_message"
                 subtitle_details = {
                     "email_message_id": task.get("email_message_id"),
+                    "source_url": task.get("source_url") or "",
+                }
+                video_url = task.get("source_url") or ""
+                video_title = task.get("source_title") or task.get("video_title") or self.task_id
+            elif source_type == "rss_item":
+                self._stage("subtitles", "running", "正在读取 RSS 条目")
+                article_text = str(task.get("article_text") or "")
+                if not article_text.strip():
+                    raise RuntimeError("RSS 条目正文为空，无法生成 AI 文章")
+                transcript = article_text
+                transcript_source = "rss_item"
+                subtitle_details = {
+                    "rss_item_id": task.get("rss_item_id"),
                     "source_url": task.get("source_url") or "",
                 }
                 video_url = task.get("source_url") or ""

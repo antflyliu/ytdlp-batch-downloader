@@ -62,6 +62,7 @@ from monitor.email_collect.processor import (
     validate_email_analysis_rules,
 )
 from monitor.email_collect.service import GMAIL_OAUTH_FAILURE_PAGE, GMAIL_OAUTH_SUCCESS_PAGE
+from monitor.rss_collect import RssCollectService
 from go_proxy_manager import get_proxy_manager
 import logging_config
 from utils.paths import get_static_dir as _get_static_dir
@@ -99,6 +100,7 @@ _CONFIG_RESPONSE_SECRET_KEYS = {
     "wechat_app_secret",
     "wechat_exporter_auth_key",
 }
+_MAX_RSS_OPML_BODY_BYTES = 1_100_000
 _ACCOUNT_RESPONSE_SECRET_KEYS = {
     "dingtalk_sign_secret",
     "telegram_bot_token",
@@ -394,6 +396,7 @@ _wechat_native_login_mgr = NativeLoginManager(
 )
 _wechat_native_task_service = NativeCollectionTaskService()
 _email_collect_service = EmailCollectService()
+_rss_collect_service = RssCollectService()
 
 class _BatchUploadStore:
     """缓存 Web 批量下载上传解析结果，避免前端持有完整 URL 集。"""
@@ -965,6 +968,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/content/variants/"):
             variant_id = path.rsplit("/", 1)[-1]
             self._api_content_variant_get(variant_id)
+        elif path == "/api/rss/feeds":
+            self._api_rss_feeds()
+        elif path == "/api/rss/items":
+            self._api_rss_items()
+        elif path == "/api/rss/opml/export":
+            self._api_rss_opml_export()
         elif path == "/api/article/list":
             self._api_article_list()
         elif path == "/api/article/file":
@@ -1082,6 +1091,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 return
             self._send_json({"error": "未知 multipart API"}, 404)
             return
+        if path == "/api/rss/opml/import":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+            except (TypeError, ValueError):
+                content_length = 0
+            if content_length > _MAX_RSS_OPML_BODY_BYTES:
+                self._send_json({"error": "OPML 内容过大"}, 413)
+                return
         body = self._read_json()
         if body is None:
             self._send_json({"error": "invalid json body"}, 400)
@@ -1213,6 +1230,16 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/content/variants/") and path.endswith("/wechat-draft"):
             variant_id = path.split("/")[-2]
             self._api_content_variant_wechat_draft(variant_id)
+        elif path == "/api/rss/feeds":
+            self._api_rss_feed_save(body)
+        elif path.startswith("/api/rss/feeds/") and path.endswith("/refresh"):
+            feed_id = path.split("/")[-2]
+            self._api_rss_feed_refresh(feed_id, body)
+        elif path == "/api/rss/opml/import":
+            self._api_rss_opml_import(body)
+        elif path.startswith("/api/rss/items/") and path.endswith("/generate"):
+            item_id = path.split("/")[-2]
+            self._api_rss_item_generate(item_id, body)
         elif path == "/api/article/generate":
             self._api_article_generate(body)
         elif path.startswith("/api/article/") and path.endswith("/cancel"):
@@ -1329,6 +1356,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/email/accounts/"):
             account_id = path.split("/")[-1]
             self._api_email_account_delete(account_id)
+        elif path.startswith("/api/rss/feeds/"):
+            feed_id = path.split("/")[-1]
+            self._api_rss_feed_delete(feed_id)
         elif path.startswith("/api/api-keys/"):
             key_id = path.split("/")[-1]
             if key_id.isdigit():
@@ -2839,6 +2869,137 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_email_error(exc)
 
+    # ── RSS Content Sources ──────────────────────────────────────
+
+    def _api_rss_error(self, exc: Exception, status: int = 400) -> None:
+        self._send_json({"error": str(exc)}, status)
+
+    def _api_rss_feeds(self):
+        try:
+            self._send_json({"feeds": _rss_collect_service.list_feeds()})
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
+    def _api_rss_feed_save(self, body: dict):
+        try:
+            feed = _rss_collect_service.save_feed(body or {})
+            self._send_json({"ok": True, "feed": feed})
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_feed_delete(self, feed_id: str):
+        parsed_id = self._positive_int(feed_id)
+        if parsed_id is None:
+            self._send_json({"error": "feed_id 必须是数字"}, 400)
+            return
+        if not _rss_collect_service.delete_feed(parsed_id):
+            self._send_json({"error": "RSS 订阅源不存在"}, 404)
+            return
+        self._send_json({"ok": True})
+
+    def _api_rss_items(self):
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+        raw_feed_id = params.get("feed_id", [None])[0]
+        feed_id = self._positive_int(raw_feed_id) if raw_feed_id not in (None, "") else None
+        if raw_feed_id not in (None, "") and feed_id is None:
+            self._send_json({"error": "feed_id 必须是数字"}, 400)
+            return
+        raw_limit = params.get("limit", [None])[0]
+        limit = self._positive_int(raw_limit, default=50) if raw_limit not in (None, "") else 50
+        if raw_limit not in (None, "") and self._positive_int(raw_limit) is None:
+            self._send_json({"error": "limit 必须是正整数"}, 400)
+            return
+        raw_offset = params.get("offset", [None])[0]
+        if raw_offset in (None, ""):
+            offset = 0
+        else:
+            try:
+                offset = int(raw_offset)
+            except (TypeError, ValueError):
+                self._send_json({"error": "offset 必须是非负整数"}, 400)
+                return
+            if offset < 0:
+                self._send_json({"error": "offset 必须是非负整数"}, 400)
+                return
+        try:
+            items = _rss_collect_service.list_items(feed_id=feed_id, limit=limit, offset=offset)
+            self._send_json({"items": items, "limit": limit, "offset": offset})
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
+    def _api_rss_feed_refresh(self, feed_id: str, body: dict):
+        parsed_id = self._positive_int(feed_id)
+        if parsed_id is None:
+            self._send_json({"error": "feed_id 必须是数字"}, 400)
+            return
+        max_items = self._positive_int((body or {}).get("max_items"), default=50) or 50
+        try:
+            self._send_json(_rss_collect_service.refresh_feed(parsed_id, max_items=max_items))
+        except ValueError as exc:
+            self._api_rss_error(exc, 404)
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_opml_import(self, body: dict):
+        xml_text = str((body or {}).get("opml") or (body or {}).get("xml") or "")
+        if not xml_text.strip():
+            self._send_json({"error": "opml 内容不能为空"}, 400)
+            return
+        try:
+            self._send_json(_rss_collect_service.import_opml(xml_text))
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_opml_export(self):
+        try:
+            self._send_json({"opml": _rss_collect_service.export_opml()})
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
+    def _api_rss_item_generate(self, item_id: str, body: dict):
+        parsed_id = self._positive_int(item_id)
+        if parsed_id is None:
+            self._send_json({"error": "rss_item_id 必须是数字"}, 400)
+            return
+        cfg = _db.load_config()
+        target_lang = (
+            (body or {}).get("target_lang")
+            or cfg.get("article_default_target_lang")
+            or cfg.get("article_target_lang")
+            or "zh-Hans"
+        )
+        try:
+            payload = _rss_collect_service.prepare_article_payload(parsed_id, target_lang=target_lang)
+            task_id = _db.create_article_task(
+                monitor_video_id=None,
+                video_id=None,
+                video_url=None,
+                video_title=payload["source_title"],
+                source_type="rss_item",
+                article_text=payload["article_text"],
+                source_url=payload["source_url"],
+                source_title=payload["source_title"],
+                rss_item_id=parsed_id,
+                target_lang=payload["target_lang"],
+                auto_translate=bool((body or {}).get("auto_translate", True)),
+            )
+            _rss_collect_service.mark_item_article_task(parsed_id, task_id)
+        except ValueError as exc:
+            self._api_rss_error(exc, 404)
+            return
+        except Exception as exc:
+            self._api_rss_error(exc)
+            return
+
+        threading.Thread(
+            target=_run_article_task_safely,
+            args=(task_id, cfg),
+            name=f"article-task-{task_id}",
+            daemon=True,
+        ).start()
+        self._send_json({"ok": True, "task_id": task_id}, 202)
+
     # ── AI Article + Video Generation Tasks ───────────────────────
 
     def _ai_task_query_params(self) -> tuple[str | None, int, int]:
@@ -2864,8 +3025,49 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             source_type = "wechat_article"
         if source_type == "emailMessage":
             source_type = "email_message"
-        if source_type not in {"video", "wechat_article", "email_message"}:
+        if source_type == "rssItem":
+            source_type = "rss_item"
+        if source_type not in {"video", "wechat_article", "email_message", "rss_item"}:
             self._send_json({"error": "source_type 不支持"}, 400)
+            return
+
+        if source_type == "rss_item":
+            rss_item_id = self._positive_int(body.get("rss_item_id") or body.get("item_id"))
+            if rss_item_id is None:
+                self._send_json({"error": "rss_item_id 必须是数字"}, 400)
+                return
+            target_lang = (
+                body.get("target_lang")
+                or cfg.get("article_default_target_lang")
+                or cfg.get("article_target_lang")
+                or "zh-Hans"
+            )
+            try:
+                payload = _rss_collect_service.prepare_article_payload(rss_item_id, target_lang=target_lang)
+                task_id = _db.create_article_task(
+                    monitor_video_id=None,
+                    video_id=None,
+                    video_url=None,
+                    video_title=payload["source_title"],
+                    source_type="rss_item",
+                    article_text=payload["article_text"],
+                    source_url=payload["source_url"],
+                    source_title=payload["source_title"],
+                    rss_item_id=rss_item_id,
+                    target_lang=payload["target_lang"],
+                    auto_translate=bool(body.get("auto_translate", True)),
+                )
+                _rss_collect_service.mark_item_article_task(rss_item_id, task_id)
+            except Exception as exc:
+                self._api_rss_error(exc)
+                return
+            threading.Thread(
+                target=_run_article_task_safely,
+                args=(task_id, cfg),
+                name=f"article-task-{task_id}",
+                daemon=True,
+            ).start()
+            self._send_json({"ok": True, "task_id": task_id}, 202)
             return
 
         if source_type == "email_message":
@@ -3006,6 +3208,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         monitor_video_id = params.get("monitor_video_id", [None])[0] or params.get("video_id", [None])[0]
         source_type = (params.get("source_type", [""])[0] or "").strip() or None
         email_message_id = params.get("email_message_id", [None])[0] or params.get("message_id", [None])[0]
+        rss_item_id = params.get("rss_item_id", [None])[0] or params.get("item_id", [None])[0]
         try:
             monitor_video_id_int = int(monitor_video_id) if monitor_video_id else None
         except (TypeError, ValueError):
@@ -3016,11 +3219,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             self._send_json({"error": "email_message_id 必须是数字"}, 400)
             return
+        try:
+            rss_item_id_int = int(rss_item_id) if rss_item_id else None
+        except (TypeError, ValueError):
+            self._send_json({"error": "rss_item_id 必须是数字"}, 400)
+            return
         tasks, total = _db.list_article_tasks(
             status=status,
             monitor_video_id=monitor_video_id_int,
             source_type=source_type,
             email_message_id=email_message_id_int,
+            rss_item_id=rss_item_id_int,
             limit=limit,
             offset=offset,
         )

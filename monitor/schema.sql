@@ -380,6 +380,7 @@ CREATE TABLE IF NOT EXISTS article_tasks (
     source_url        TEXT,
     source_title      TEXT,
     email_message_id  INTEGER,
+    rss_item_id       INTEGER,
     status            TEXT    NOT NULL DEFAULT 'pending',
     current_stage     TEXT,
     source_lang       TEXT,
@@ -407,6 +408,47 @@ CREATE INDEX IF NOT EXISTS idx_article_tasks_created_at ON article_tasks(created
 CREATE INDEX IF NOT EXISTS idx_article_tasks_status ON article_tasks(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_article_tasks_video ON article_tasks(monitor_video_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_article_tasks_email_message ON article_tasks(email_message_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_article_tasks_rss_item ON article_tasks(rss_item_id, created_at DESC);
+
+-- ── RSS 内容源（FeedFuse 能力迁移）──────────────────────────────
+CREATE TABLE IF NOT EXISTS rss_feeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    feed_url TEXT NOT NULL UNIQUE,
+    site_url TEXT,
+    category TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    fetch_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    last_fetch_at TEXT,
+    last_fetch_status TEXT,
+    last_fetch_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rss_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feed_id INTEGER NOT NULL,
+    guid TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT,
+    author TEXT,
+    published_at TEXT,
+    summary TEXT,
+    content_html TEXT,
+    preview_image TEXT,
+    media_json TEXT NOT NULL DEFAULT '[]',
+    article_task_id TEXT,
+    read_status TEXT NOT NULL DEFAULT 'unread',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE,
+    UNIQUE(feed_id, guid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_enabled ON rss_feeds(enabled, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rss_items_feed_published ON rss_items(feed_id, published_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_rss_items_article_task ON rss_items(article_task_id);
 
 CREATE TABLE IF NOT EXISTS video_gen_tasks (
     task_id           TEXT PRIMARY KEY,

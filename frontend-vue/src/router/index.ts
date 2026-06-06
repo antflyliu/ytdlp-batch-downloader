@@ -66,6 +66,12 @@ const routes = [
     component: () => import('@/views/EmailPipeline.vue'),
   },
   {
+    path: '/rss-pipeline',
+    name: 'rssPipeline',
+    meta: { keepAlive: false },
+    component: () => import('@/views/RssPipeline.vue'),
+  },
+  {
     path: '/wechat-collect',
     name: 'wechatCollect',
     meta: { keepAlive: false },
