@@ -63,6 +63,7 @@ from monitor.email_collect.processor import (
 )
 from monitor.email_collect.service import GMAIL_OAUTH_FAILURE_PAGE, GMAIL_OAUTH_SUCCESS_PAGE
 from monitor.rss_collect import RssCollectService
+from monitor.weread_exporter import WeReadExportTaskService, default_output_root
 from go_proxy_manager import get_proxy_manager
 import logging_config
 from utils.paths import get_static_dir as _get_static_dir
@@ -397,6 +398,7 @@ _wechat_native_login_mgr = NativeLoginManager(
 _wechat_native_task_service = NativeCollectionTaskService()
 _email_collect_service = EmailCollectService()
 _rss_collect_service = RssCollectService()
+_weread_export_service = WeReadExportTaskService()
 
 class _BatchUploadStore:
     """缓存 Web 批量下载上传解析结果，避免前端持有完整 URL 集。"""
@@ -917,6 +919,20 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path == "/api/wechat-native/config":
             self._api_wechat_native_config()
             return
+        elif path == "/api/weread-exporter/config":
+            self._api_weread_exporter_config()
+            return
+        elif path == "/api/weread-exporter/tasks":
+            self._api_weread_exporter_tasks_list()
+            return
+        elif path.startswith("/api/weread-exporter/artifacts/"):
+            artifact_id = unquote(path.split("/api/weread-exporter/artifacts/", 1)[1])
+            self._api_weread_exporter_artifact(artifact_id)
+            return
+        elif path.startswith("/api/weread-exporter/tasks/"):
+            task_id = path.rsplit("/", 1)[-1]
+            self._api_weread_exporter_task_status(task_id)
+            return
         elif path == "/api/wechat-native/sessions":
             self._api_wechat_native_sessions()
             return
@@ -1166,6 +1182,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/wechat-native/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_wechat_native_cancel(task_id)
+        elif path == "/api/weread-exporter/tasks/start":
+            self._api_weread_exporter_start(body)
+        elif path.startswith("/api/weread-exporter/tasks/") and path.endswith("/cancel"):
+            task_id = path.split("/")[-2]
+            self._api_weread_exporter_cancel(task_id)
         elif path == "/api/email/auth/gmail/start":
             self._api_email_gmail_oauth_start(body)
         elif path == "/api/email/gmail/send":
@@ -1751,6 +1772,73 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "任务不存在或不可取消"}, 404)
             return
         self._send_json({"ok": True, "task_id": task_id, "status": "cancelling"})
+
+    def _weread_data_dir(self) -> str:
+        return str(getattr(_db, "_DATA_DIR", os.path.join(_PROJECT_ROOT, "data")))
+
+    def _api_weread_exporter_config(self):
+        self._send_json(_weread_export_service.config(data_dir=self._weread_data_dir()))
+
+    def _api_weread_exporter_start(self, body: dict):
+        body = body or {}
+        try:
+            task_id = _weread_export_service.create_task(body, data_dir=self._weread_data_dir())
+            _weread_export_service.start_background(task_id)
+            self._send_json({"ok": True, "task_id": task_id, "status": "pending"}, 202)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 400)
+
+    def _api_weread_exporter_tasks_list(self):
+        self._send_json({"tasks": _weread_export_service.list_tasks()})
+
+    def _api_weread_exporter_task_status(self, task_id: str):
+        task = _weread_export_service.get_task(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        self._send_json(task)
+
+    def _api_weread_exporter_cancel(self, task_id: str):
+        if not _weread_export_service.request_cancel(task_id):
+            self._send_json({"error": "task not running"}, 409)
+            return
+        self._send_json({"ok": True})
+
+    def _api_weread_exporter_artifact(self, artifact_id: str):
+        try:
+            resolved = Path(_weread_export_service.resolve_artifact_path(artifact_id)).expanduser().resolve()
+            allowed_root = Path(default_output_root(self._weread_data_dir())).expanduser().resolve()
+            resolved.relative_to(allowed_root)
+        except ValueError:
+            self._send_json({"error": "无效的微信读书导出结果路径"}, 400)
+            return
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 400)
+            return
+        if not resolved.is_file():
+            self._send_json({"error": "文件不存在"}, 404)
+            return
+        ctype = mimetypes.guess_type(str(resolved))[0] or {
+            ".md": "text/markdown",
+            ".markdown": "text/markdown",
+            ".txt": "text/plain",
+            ".json": "application/json",
+        }.get(resolved.suffix.lower(), "application/octet-stream")
+        if ctype.startswith("text/") and "charset=" not in ctype:
+            ctype = f"{ctype}; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(resolved.stat().st_size))
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(resolved.name, safe='')}")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.end_headers()
+        with resolved.open("rb") as file_obj:
+            self.wfile.write(file_obj.read())
 
     def _api_wechat_native_config(self):
         """GET /api/wechat-native/config — return native collection defaults safely."""
@@ -5614,6 +5702,9 @@ def main():
                 error="服务重启导致任务中断",
             )
         _log.info(f"[startup] {len(running_tasks)} 个 running 任务已标记为 interrupted")
+    weread_interrupted = _weread_export_service.mark_incomplete_tasks_interrupted()
+    if weread_interrupted:
+        _log.info("[startup] %s 个微信读书导出任务已标记为 interrupted", weread_interrupted)
 
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:

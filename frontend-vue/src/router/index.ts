@@ -72,6 +72,12 @@ const routes = [
     component: () => import('@/views/RssPipeline.vue'),
   },
   {
+    path: '/weread-exporter',
+    name: 'wereadExporter',
+    meta: { keepAlive: false },
+    component: () => import('@/views/WeReadExporter.vue'),
+  },
+  {
     path: '/wechat-collect',
     name: 'wechatCollect',
     meta: { keepAlive: false },

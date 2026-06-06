@@ -31,6 +31,7 @@ const routeTitleMap: Record<string, string> = {
   '/clip-history': 'nav.clipHistory',
   '/resources': 'nav.resources',
   '/ai-creation': 'nav.aiCreation',
+  '/weread-exporter': 'nav.wereadExporter',
   '/wechat-collect': 'nav.wechatCollect',
   '/wechat-native-collect': 'nav.wechatNativeCollect',
   '/settings-hub': 'nav.settings',

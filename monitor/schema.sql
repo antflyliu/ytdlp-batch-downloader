@@ -450,6 +450,38 @@ CREATE INDEX IF NOT EXISTS idx_rss_feeds_enabled ON rss_feeds(enabled, updated_a
 CREATE INDEX IF NOT EXISTS idx_rss_items_feed_published ON rss_items(feed_id, published_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_rss_items_article_task ON rss_items(article_task_id);
 
+-- ── 微信读书导出任务（weread-exporter 可选集成）──────────────────
+CREATE TABLE IF NOT EXISTS weread_export_tasks (
+    task_id TEXT PRIMARY KEY,
+    book_id TEXT NOT NULL,
+    book_input TEXT,
+    title TEXT,
+    author TEXT,
+    output_dir TEXT NOT NULL,
+    cache_dir TEXT NOT NULL,
+    save_raw INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    total INTEGER NOT NULL DEFAULT 0,
+    completed INTEGER NOT NULL DEFAULT 0,
+    success INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    current TEXT,
+    error TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    result_json TEXT NOT NULL DEFAULT '[]',
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_weread_export_tasks_created_at
+ON weread_export_tasks(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_weread_export_tasks_status
+ON weread_export_tasks(status, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS video_gen_tasks (
     task_id           TEXT PRIMARY KEY,
     mode              TEXT    NOT NULL DEFAULT 'generate',

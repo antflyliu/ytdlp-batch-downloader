@@ -830,6 +830,13 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v23_rss_collect_sources", today),
         )
 
+    if "v24_weread_exporter_tasks" not in applied:
+        _ensure_weread_exporter_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v24_weread_exporter_tasks", today),
+        )
+
 
 def _ensure_email_collect_schema(conn) -> None:
     from monitor.db.queries import email_collect as _email_collect_queries
@@ -842,6 +849,12 @@ def _ensure_rss_collect_schema(conn) -> None:
 
     _rss_collect_queries.ensure_schema(conn)
     _ensure_article_task_columns(conn)
+
+
+def _ensure_weread_exporter_schema(conn) -> None:
+    from monitor.db.queries import weread_exporter as _weread_exporter_queries
+
+    _weread_exporter_queries.ensure_schema(conn)
 
 
 def _ensure_article_task_columns(conn) -> None:
