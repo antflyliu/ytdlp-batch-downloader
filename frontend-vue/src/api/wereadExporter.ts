@@ -5,6 +5,12 @@ export interface WeReadExporterConfig {
   output_root: string
   cache_dir: string
   requires_visible_browser: boolean
+  browser_mode: string
+  browser_mode_default: string
+  chrome_cdp_endpoint: string
+  chrome_cdp_available: boolean
+  chrome_cdp_launchable: boolean
+  chrome_cdp_profile_dir: string
   source_project: string
   supported_formats: string[]
 }
@@ -51,6 +57,8 @@ export interface WeReadStartPayload {
   book: string
   output_dir?: string
   save_raw?: boolean
+  chrome_cdp_endpoint?: string
+  chrome_cdp_profile_dir?: string
 }
 
 export default {
@@ -60,6 +68,10 @@ export default {
 
   start(payload: WeReadStartPayload) {
     return request.post<{ ok: boolean; task_id: string; status: string }>('/api/weread-exporter/tasks/start', payload)
+  },
+
+  startChromeCdp(payload: { initial_url?: string; chrome_cdp_endpoint?: string; chrome_cdp_profile_dir?: string } = {}) {
+    return request.post<Record<string, any>>('/api/weread-exporter/chrome/start', payload)
   },
 
   listTasks() {

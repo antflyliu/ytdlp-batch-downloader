@@ -102,14 +102,10 @@ def test_comfyui_failure_falls_back_to_runninghub_when_configured(tmp_path, monk
 def test_configured_local_tts_failure_is_not_silently_replaced(tmp_path, monkeypatch):
     pipeline = VideoGenerationPipeline("video_gen_contract", cfg={"local_tts_url": "http://tts.invalid"})
 
-    class FakeResponse:
-        headers = {"Content-Type": "text/plain"}
-        content = b""
+    def fail_urlopen(*_args, **_kwargs):
+        raise RuntimeError("tts down")
 
-        def raise_for_status(self):
-            raise RuntimeError("tts down")
-
-    monkeypatch.setattr("scripts.video_gen_pipeline.requests.post", lambda *_a, **_k: FakeResponse())
+    monkeypatch.setattr("monitor.voice.synthesis.urllib.request.urlopen", fail_urlopen)
 
     with pytest.raises(RuntimeError, match="tts down"):
         pipeline._synthesize_narration(
@@ -170,6 +166,38 @@ def test_article_llm_empty_response_reports_selected_backend(monkeypatch):
     assert "provider=openai" in message
     assert "model=gpt-test" in message
     assert "base_url=http://llm.invalid/v1" in message
+
+
+def test_article_llm_auth_failure_reports_key_reentry_guidance(monkeypatch):
+    class AuthFailingClient:
+        def call_with_retry(self, *_args, **_kwargs):
+            from scripts.llm_client import LLMAuthenticationError
+
+            raise LLMAuthenticationError(
+                "LLM 认证失败: Error code: 401 - invalid_api_key: missing or invalid API key"
+            )
+
+    monkeypatch.setattr(article_generator, "create_llm_client", lambda **_kwargs: AuthFailingClient())
+
+    with pytest.raises(RuntimeError) as exc_info:
+        article_generator._llm_or_fallback(
+            {
+                "llm_provider": "openai",
+                "llm_base_url": "http://localhost:19081/v1",
+                "llm_api_key": "sk-old",
+                "article_llm_optimize_model": "gpt-test",
+            },
+            f"prompt {article_generator.PROMPT_INPUT_PLACEHOLDER}",
+            "source text",
+            model_key="article_llm_optimize_model",
+            fallback_prefix="fallback",
+        )
+
+    message = str(exc_info.value)
+    assert "LLM 处理失败: 认证失败" in message
+    assert "重新输入 LLM API Key" in message
+    assert "provider=openai" in message
+    assert "base_url=http://localhost:19081/v1" in message
 
 
 def test_article_proxy_auto_uses_source_video_account(monkeypatch):
@@ -288,6 +316,11 @@ def test_article_subtitle_429_falls_back_to_whisper_with_source_audio(tmp_path, 
     assert "<source_type>" not in draft
     assert "<style_profile>" not in final_body
     assert "<summary_strategy>" not in final_body
+    assert final_body.endswith(
+        "## 参考链接\n\n- 原视频链接：<https://www.youtube.com/watch?v=contract-video>\n"
+    )
+    publish_body = Path(result["result"]["article_publish_markdown_path"]).read_text(encoding="utf-8")
+    assert "## 参考链接\n\n- 原视频链接：<https://www.youtube.com/watch?v=contract-video>" in publish_body
     assert "已切换 Whisper" in result["stages"]["subtitles"]["message"]
 
 
@@ -350,6 +383,7 @@ def test_article_wechat_source_never_enters_video_or_whisper_branches(tmp_path, 
             "task_id": "article_contract",
             "source_type": "wechat_article",
             "article_text": "公众号原文第一段。\n\n公众号原文第二段。",
+            "source_url": "https://mp.weixin.qq.com/s/source-article",
             "source_title": "公众号原文",
             "target_lang": "zh-Hans",
             "auto_translate": True,
@@ -388,8 +422,68 @@ def test_article_wechat_source_never_enters_video_or_whisper_branches(tmp_path, 
 
     assert result["status"] == "done"
     assert result["result"]["transcript_source"] == "wechat_article"
+    final_body = Path(result["result"]["article_final_body_path"]).read_text(encoding="utf-8")
+    assert final_body.endswith("## 参考链接\n\n- 原文链接：<https://mp.weixin.qq.com/s/source-article>\n")
+    publish_body = Path(result["result"]["article_publish_markdown_path"]).read_text(encoding="utf-8")
+    assert "## 参考链接\n\n- 原文链接：<https://mp.weixin.qq.com/s/source-article>" in publish_body
     assert "whisper" not in result["stages"]
     assert result["stages"]["subtitles"]["message"] == "已读取公众号文章正文"
+
+
+def test_article_pipeline_reads_rss_source_from_local_archive_path(tmp_path, monkeypatch):
+    source = tmp_path / "rss-source.md"
+    source.write_text("# Local RSS Archive\n\nArchived body from disk.", encoding="utf-8")
+    state = {
+        "task": {
+            "task_id": "article_contract",
+            "source_type": "rss_item",
+            "rss_item_id": 42,
+            "article_source_path": str(source),
+            "article_text": "stale database snapshot",
+            "source_url": "https://example.com/posts/rss-source",
+            "source_title": "RSS Source",
+            "target_lang": "zh-Hans",
+            "auto_translate": True,
+            "status": "pending",
+            "stages": {},
+        }
+    }
+
+    def update_task(_task_id, **kwargs):
+        task = state["task"]
+        for key, value in kwargs.items():
+            if key == "stages":
+                task["stages"] = value
+            elif value is not monitor_db._UNSET:
+                task[key] = value
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("video subtitle/Whisper branch must not run for rss_item source")
+
+    monkeypatch.setattr(article_generator.db, "get_article_task", lambda _task_id: state["task"])
+    monkeypatch.setattr(article_generator.db, "update_article_task", update_task)
+    monkeypatch.setattr(article_generator.db, "now_iso", lambda: "2026-05-01T12:00:00+08:00")
+    monkeypatch.setattr(article_generator, "_download_subtitles", fail_if_called)
+    monkeypatch.setattr(article_generator, "_download_audio_for_whisper", fail_if_called)
+    monkeypatch.setattr(article_generator, "_local_whisper", fail_if_called)
+    monkeypatch.setattr(article_generator, "_remote_whisper", fail_if_called)
+
+    result = article_generator.ArticleGenerationPipeline(
+        "article_contract",
+        cfg={
+            "article_output_dir": str(tmp_path / "articles"),
+            "whisper_provider": "local",
+            "llm_base_url": "",
+        },
+    ).run()
+
+    assert result["status"] == "done"
+    draft = Path(result["draft_path"]).read_text(encoding="utf-8")
+    assert "Archived body from disk." in draft
+    assert "stale database snapshot" not in draft
+    assert result["result"]["transcript_source"] == "rss_item"
+    assert result["result"]["subtitle_details"]["path"] == str(source)
+    assert result["result"]["article_source_path"] == str(source)
 
 
 def test_llm_or_fallback_strips_thinking_blocks(monkeypatch):

@@ -450,6 +450,52 @@ CREATE INDEX IF NOT EXISTS idx_rss_feeds_enabled ON rss_feeds(enabled, updated_a
 CREATE INDEX IF NOT EXISTS idx_rss_items_feed_published ON rss_items(feed_id, published_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_rss_items_article_task ON rss_items(article_task_id);
 
+CREATE TABLE IF NOT EXISTS rss_catalog_sources (
+    source_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    homepage_url TEXT,
+    feeds_url TEXT,
+    status_url TEXT,
+    readme_url TEXT,
+    license TEXT,
+    last_synced_at TEXT,
+    last_sync_status TEXT,
+    last_sync_error TEXT,
+    feed_total INTEGER NOT NULL DEFAULT 0,
+    valid_count INTEGER NOT NULL DEFAULT 0,
+    invalid_count INTEGER NOT NULL DEFAULT 0,
+    limited_count INTEGER NOT NULL DEFAULT 0,
+    success_rate TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rss_catalog_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT NOT NULL,
+    entry_key TEXT NOT NULL UNIQUE,
+    entry_type TEXT NOT NULL DEFAULT 'feed',
+    title TEXT NOT NULL,
+    category TEXT,
+    feed_url TEXT,
+    site_url TEXT,
+    route_template TEXT,
+    description TEXT,
+    status TEXT,
+    status_valid INTEGER,
+    status_limited INTEGER NOT NULL DEFAULT 0,
+    status_code INTEGER,
+    status_error TEXT,
+    status_checked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (source_key) REFERENCES rss_catalog_sources(source_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_rss_catalog_source_type ON rss_catalog_entries(source_key, entry_type);
+CREATE INDEX IF NOT EXISTS idx_rss_catalog_category ON rss_catalog_entries(category COLLATE NOCASE, title COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_rss_catalog_feed_url ON rss_catalog_entries(feed_url);
+
 -- ── 微信读书导出任务（weread-exporter 可选集成）──────────────────
 CREATE TABLE IF NOT EXISTS weread_export_tasks (
     task_id TEXT PRIMARY KEY,
@@ -515,6 +561,39 @@ CREATE TABLE IF NOT EXISTS video_gen_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_created_at ON video_gen_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_status ON video_gen_tasks(status, created_at DESC);
+
+-- ── AI 语音任务表 ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS voice_tasks (
+    task_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    mode TEXT,
+    source TEXT,
+    source_task_id TEXT,
+    status TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    stage TEXT,
+    message TEXT,
+    input_text_hash TEXT,
+    input_path TEXT,
+    output_audio_path TEXT,
+    output_text_path TEXT,
+    output_srt_path TEXT,
+    metadata_path TEXT,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    cancel_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_tasks_created_at ON voice_tasks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_voice_tasks_status ON voice_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_voice_tasks_kind ON voice_tasks(kind, created_at DESC);
 
 -- ── 微信公众号发布任务表 ───────────────────────────────
 CREATE TABLE IF NOT EXISTS wechat_publish_tasks (

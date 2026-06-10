@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import monitor.db as db
 import logging_config
+from monitor.article_source_archive import ArticleSourceArchiveResult, archive_article_source
 from monitor.db.queries import email_collect as queries
 
 from .cleaner import clean_parsed_email, clean_text
@@ -33,6 +34,22 @@ GMAIL_OAUTH_CALLBACK_PATH = "/api/email/auth/gmail/callback"
 GMAIL_OAUTH_SUCCESS_PAGE = "/#/email-pipeline?gmail_auth=success"
 GMAIL_OAUTH_FAILURE_PAGE = "/#/email-pipeline?gmail_auth=failed"
 REQUIRED_GMAIL_OAUTH_SCOPES = {GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE}
+
+
+def _email_attachment_media(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    media: list[dict[str, Any]] = []
+    for item in attachments:
+        content_type = str(item.get("content_type") or "").strip().lower()
+        filename = str(item.get("filename") or "").strip()
+        if content_type.startswith(("image/", "audio/", "video/")):
+            media.append(
+                {
+                    "url": filename,
+                    "mime_type": content_type,
+                    "size_bytes": item.get("size"),
+                }
+            )
+    return media
 
 
 class EmailCollectService:
@@ -420,6 +437,8 @@ class EmailCollectService:
         body = self._message_analysis_text(message)
         if not body:
             raise EmailAccountValidationError("email message body is empty")
+        source_url = message.get("source_url") or self._local_message_url(message_id)
+        archive = self._archive_message_source(message_id, message, body, source_url)
         return {
             "monitor_video_id": None,
             "video_id": None,
@@ -427,8 +446,9 @@ class EmailCollectService:
             "video_title": message.get("subject") or f"Email {message_id}",
             "source_type": "email_message",
             "email_message_id": message_id,
-            "article_text": body,
-            "source_url": message.get("source_url") or self._local_message_url(message_id),
+            "article_source_path": archive.markdown_path,
+            "article_text": archive.markdown_text,
+            "source_url": source_url,
             "source_title": message.get("subject") or f"Email {message_id}",
             "target_lang": target_lang,
         }
@@ -606,6 +626,36 @@ class EmailCollectService:
         classification = message.get("classification") or {}
         analysis_text = str(classification.get("analysis_text") or "").strip()
         return analysis_text or str(message.get("body_text") or "").strip()
+
+    def _archive_message_source(
+        self,
+        message_id: int,
+        message: dict[str, Any],
+        body: str,
+        source_url: str,
+    ) -> ArticleSourceArchiveResult:
+        existing_path = str(message.get("body_markdown_path") or "").strip()
+        if existing_path:
+            existing = Path(existing_path)
+            if existing.is_file():
+                return ArticleSourceArchiveResult(
+                    markdown_path=str(existing),
+                    markdown_text=existing.read_text(encoding="utf-8", errors="replace"),
+                    reused=True,
+                )
+        html_body = self._read_message_source_text(message.get("html_body_path"))
+        archive = archive_article_source(
+            source_type="email_message",
+            source_id=f"email-{message_id}",
+            title=message.get("subject") or f"Email {message_id}",
+            source_url=source_url,
+            text=body,
+            html_body=html_body,
+            media=_email_attachment_media(message.get("attachments") or []),
+            prefer_text=True,
+        )
+        queries.update_email_message(message_id, body_markdown_path=archive.markdown_path)
+        return archive
 
     @staticmethod
     def _classification_after_reclean(classification: dict[str, Any]) -> dict[str, Any]:

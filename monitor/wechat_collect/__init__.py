@@ -13,6 +13,7 @@ from monitor.wechat_collect.models import (
     is_valid_mp_article_url,
     normalize_account_preview,
     normalize_article_preview,
+    normalize_mp_article_url,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "is_valid_mp_article_url",
     "normalize_account_preview",
     "normalize_article_preview",
+    "normalize_mp_article_url",
 ]

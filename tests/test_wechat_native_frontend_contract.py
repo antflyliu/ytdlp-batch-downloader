@@ -59,6 +59,34 @@ def test_native_wechat_result_links_to_ai_creation():
     assert "confirmPublishSelectedArticleNow()" in ai_view
     assert "previewNextPage" in native_view
     assert "previewPreviousPage" in native_view
+    assert "selectedPreviewUrls" in native_view
+    assert "downloadSelectedPreviewArticles" in native_view
+    assert "downloadPreviewArticle(article)" in native_view
+    assert "downloadArtifact(item)" in native_view
+    assert "getArtifactBlob" in api
+    assert "urls?: Array<string | WechatNativeArticlePreview>" in api
+    assert "article-original-link" in native_view
+    assert "task-result-original-link" in native_view
+    assert "wechatNativeCollect.originalLink" in native_view
+
+
+def test_native_wechat_task_result_download_reuses_article_download_flow():
+    native_view = (ROOT / "frontend-vue" / "src" / "views" / "WechatNativeCollect.vue").read_text(encoding="utf-8")
+
+    match = re.search(
+        r"(?:async\s+)?function downloadArtifact\(item: Record<string, any>\) \{(?P<body>.*?)\n\}",
+        native_view,
+        re.S,
+    )
+    assert match
+    download_artifact = match.group("body")
+
+    assert "startArticleDownload([item]" in download_artifact
+    assert "wechatNativeApi.getArtifactBlob" not in download_artifact
+    assert "URL.createObjectURL" not in download_artifact
+    assert "link.download" not in download_artifact
+    assert ':loading="startingTask"' in native_view
+    assert ':loading="downloadingArtifactId === item.artifact_id"' not in native_view
 
 
 def test_native_wechat_preview_controls_use_cached_article_api_after_refresh():

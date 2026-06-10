@@ -256,6 +256,34 @@ def test_wechat_article_payload_validation_catches_publish_limits():
     assert any("<script>/<style>" in item for item in errors)
 
 
+def test_create_draft_truncates_long_title_before_api_call(monkeypatch, tmp_path: Path):
+    publisher = wechat_publisher.WechatPublisher(
+        app_id="wx1234567890abcdef",
+        app_secret="0123456789abcdef0123456789abcdef",
+        data_dir=str(tmp_path / "articles"),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(publisher, "_get_access_token", lambda: "token")
+
+    def fake_api_post(_url, payload):
+        captured["payload"] = payload
+        return {"media_id": "draft-id"}
+
+    monkeypatch.setattr(publisher, "_api_post", fake_api_post)
+
+    media_id = publisher._create_draft(
+        title="标" * 34,
+        content="<p>正文</p>",
+        thumb_media_id="thumb-id",
+    )
+
+    assert media_id == "draft-id"
+    article = captured["payload"]["articles"][0]  # type: ignore[index]
+    assert article["title"] == "标" * 32
+    assert len(article["title"]) == 32
+
+
 def test_wechat_publish_api_rejects_invalid_article_before_task_creation(monkeypatch, tmp_path: Path):
     import server.__main__ as server_main
 
@@ -282,13 +310,90 @@ def test_wechat_publish_api_rejects_invalid_article_before_task_creation(monkeyp
 
     server_main.MonitorHandler._handle_wechat_publish(
         handler,
-        {"title": "超" * 33, "content": "<p>body</p>"},
+        {"title": "超" * 33, "content": "<p>body</p><style>bad</style>"},
         "draft",
     )
 
     assert sent
     assert sent[0][1] == 400
-    assert "标题不能超过" in sent[0][0]["error"]
+    assert "<script>/<style>" in sent[0][0]["error"]
+
+
+def test_wechat_publish_api_prefers_optimized_publish_markdown(monkeypatch, tmp_path: Path):
+    import server.__main__ as server_main
+
+    article_root = tmp_path / "articles"
+    draft_dir = article_root / "task-1"
+    draft_dir.mkdir(parents=True)
+    draft = draft_dir / "draft.md"
+    publish = draft_dir / "wechat_publish.md"
+    draft.write_text("# 原始任务标题很长很长很长很长很长\n\n正文", encoding="utf-8")
+    publish.write_text("# 发布短标题\n\n正文", encoding="utf-8")
+    captured: dict[str, object] = {}
+    sent = []
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            captured["thread_name"] = kwargs.get("name")
+
+        def start(self):
+            captured["thread_started"] = True
+
+    handler = object.__new__(server_main.MonitorHandler)
+    handler._send_json = lambda data, status=200: sent.append((data, status))
+    monkeypatch.setattr(
+        server_main._db,
+        "load_config",
+        lambda: {
+            "wechat_app_id": "wx1234567890abcdef",
+            "wechat_app_secret": "0123456789abcdef0123456789abcdef",
+            "wechat_default_theme": "default",
+            "wechat_default_color": "blue",
+            "wechat_markdown_renderer": "local",
+            "article_output_dir": str(article_root),
+        },
+    )
+    monkeypatch.setattr(
+        server_main._db,
+        "get_article_task",
+        lambda task_id: {
+            "task_id": task_id,
+            "draft_path": str(draft),
+            "video_title": "原始任务标题很长很长很长很长很长",
+            "result": {"article_publish_markdown_path": str(publish)},
+        },
+    )
+
+    def fake_render(input_path, **_kwargs):
+        captured["render_path"] = Path(input_path)
+        return wechat_publisher.WechatArticleRenderResult(
+            title="发布短标题",
+            author="作者",
+            digest="摘要",
+            content="<p>正文</p>",
+            renderer="local",
+            html_path=str(publish.with_suffix(".html")),
+        )
+
+    def fake_create_wechat_publish_task(**kwargs):
+        captured["create_kwargs"] = kwargs
+        return "wechat-publish-1"
+
+    monkeypatch.setattr(wechat_publisher, "render_md_to_html_for_wechat", fake_render)
+    monkeypatch.setattr(server_main._db, "create_wechat_publish_task", fake_create_wechat_publish_task)
+    monkeypatch.setattr(server_main.threading, "Thread", FakeThread)
+
+    server_main.MonitorHandler._handle_wechat_publish(
+        handler,
+        {"article_task_id": "article-1", "draft_path": str(draft)},
+        "draft",
+    )
+
+    assert sent[0][1] == 202
+    assert captured["render_path"] == publish
+    assert captured["create_kwargs"]["draft_path"] == str(publish)  # type: ignore[index]
+    assert captured["create_kwargs"]["title"] == "发布短标题"  # type: ignore[index]
+    assert captured["thread_started"] is True
 
 
 def test_wechat_publish_api_returns_render_metadata_on_success(monkeypatch, tmp_path: Path):

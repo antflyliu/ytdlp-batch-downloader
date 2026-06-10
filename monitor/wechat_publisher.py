@@ -68,6 +68,14 @@ _LEADING_LLM_THINKING_RE = re.compile(r"^\s*<(?:think|thinking)\b", re.IGNORECAS
 _MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+\S")
 
 
+def normalize_wechat_title(value: object) -> str:
+    """Return a title that satisfies WeChat draft/freepublish title limits."""
+    title = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(title) <= _WECHAT_TITLE_MAX_CHARS:
+        return title
+    return title[:_WECHAT_TITLE_MAX_CHARS].rstrip()
+
+
 @dataclass
 class WechatPublishResult:
     success: bool
@@ -529,7 +537,7 @@ class WechatPublisher:
         need_open_comment: bool = True,
         only_fans_can_comment: bool = False,
     ) -> str:
-        title = (title or "").strip()
+        title = normalize_wechat_title(title)
         author = (author or "").strip() or None
         content = _strip_llm_thinking_blocks(content).strip()
         digest = _normalize_wechat_digest(digest, fallback_content=content) or None

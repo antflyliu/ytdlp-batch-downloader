@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import requests
+
 from monitor.wechat_collect.models import ArticleDownload
 from monitor.wechat_collect.tasks import NativeCollectionTaskService
 
@@ -244,6 +246,159 @@ def test_native_collection_urls_mode_validates_urls_before_download(monkeypatch,
     assert task["status"] == "error"
     assert "文章链接不合法" in task["error"]
     assert calls == []
+
+
+def test_native_collection_urls_mode_preserves_selected_article_metadata(monkeypatch, tmp_path):
+    _init_temp_db(monkeypatch, tmp_path)
+    calls: list[tuple[str, str]] = []
+
+    class SelectedArticleProvider(FakeProvider):
+        def download_article(self, article_url, export_format):
+            calls.append((article_url, export_format))
+            return ArticleDownload(
+                body=b"# selected\n\n![cover](https://example.test/cover.jpg)",
+                content_type="text/markdown; charset=utf-8",
+                title="预览里的标题",
+                metadata={"title": "预览里的标题"},
+            )
+
+    service = NativeCollectionTaskService(provider_factory=lambda payload: SelectedArticleProvider())
+    task_id = service.create_task(
+        {
+            "provider": "native",
+            "session_id": "sess",
+            "source_mode": "urls",
+            "urls": [
+                {
+                    "aid": "aid-selected",
+                    "title": "预览里的标题",
+                    "link": "https://mp.weixin.qq.com/s/selected",
+                    "author_name": "作者",
+                    "update_time": FIXED_UPDATE_TIME,
+                }
+            ],
+            "format": "markdown",
+            "max_articles": 1,
+            "delay_seconds": 0,
+        },
+        output_dir=str(tmp_path / "out"),
+    )
+
+    service.run_task(task_id)
+    task = service.get_task(task_id)
+    result_path = Path(service.resolve_artifact_path(task["results"][0]["artifact_id"]))
+
+    assert task["status"] == "done"
+    assert calls == [("https://mp.weixin.qq.com/s/selected", "markdown")]
+    assert result_path.name == "20240101-预览里的标题.md"
+    assert "![cover](https://example.test/cover.jpg)" in result_path.read_text(encoding="utf-8")
+
+
+def test_native_collection_urls_mode_normalizes_backend_article_links(monkeypatch, tmp_path):
+    _init_temp_db(monkeypatch, tmp_path)
+    calls: list[str] = []
+
+    class HttpLinkProvider(FakeProvider):
+        def download_article(self, article_url, export_format):
+            calls.append(article_url)
+            return super().download_article(article_url, export_format)
+
+    service = NativeCollectionTaskService(provider_factory=lambda payload: HttpLinkProvider())
+    task_id = service.create_task(
+        {
+            "provider": "native",
+            "session_id": "sess",
+            "source_mode": "urls",
+            "urls": [
+                {
+                    "title": "后台 HTTP 链接",
+                    "link": "http://mp.weixin.qq.com/s?__biz=x&amp;mid=1#rd",
+                    "update_time": FIXED_UPDATE_TIME,
+                }
+            ],
+            "format": "markdown",
+            "max_articles": 1,
+            "delay_seconds": 0,
+        },
+        output_dir=str(tmp_path / "out"),
+    )
+
+    service.run_task(task_id)
+    task = service.get_task(task_id)
+
+    assert task["status"] == "done"
+    assert calls == ["https://mp.weixin.qq.com/s?__biz=x&mid=1#rd"]
+    assert task["results"][0]["url"] == "https://mp.weixin.qq.com/s?__biz=x&mid=1#rd"
+
+
+def test_native_collection_download_localizes_markdown_images_and_preserves_links(monkeypatch, tmp_path):
+    _init_temp_db(monkeypatch, tmp_path)
+    downloaded_urls: list[str] = []
+
+    class FakeImageResponse:
+        headers = {"content-type": "image/png"}
+        content = b"\x89PNG\r\n\x1a\nimage-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeImageSession:
+        def get(self, url, headers=None, timeout=None):
+            downloaded_urls.append(url)
+            if len(downloaded_urls) == 1:
+                raise requests.exceptions.ReadTimeout("Read timed out")
+            return FakeImageResponse()
+
+    class AssetProvider(FakeProvider):
+        def download_article(self, article_url, export_format):
+            return ArticleDownload(
+                body=(
+                    b"# article\n\n"
+                    b"![cover](https://mmbiz.qpic.cn/mmbiz_png/test/0?wx_fmt=png)\n\n"
+                    b"[read more](https://example.test/original)"
+                ),
+                content_type="text/markdown; charset=utf-8",
+                title="带图文章",
+                metadata={"localize_assets": True, "source_url": article_url},
+            )
+
+    monkeypatch.setattr("monitor.wechat_collect.tasks.requests.Session", lambda: FakeImageSession())
+    monkeypatch.setattr("monitor.wechat_collect.tasks.ASSET_RETRY_BACKOFF_SECONDS", 0)
+
+    service = NativeCollectionTaskService(provider_factory=lambda payload: AssetProvider())
+    task_id = service.create_task(
+        {
+            "provider": "native",
+            "session_id": "sess",
+            "source_mode": "urls",
+            "urls": [
+                {
+                    "title": "带图文章",
+                    "link": "https://mp.weixin.qq.com/s/asset",
+                    "update_time": FIXED_UPDATE_TIME,
+                }
+            ],
+            "format": "markdown",
+            "max_articles": 1,
+            "delay_seconds": 0,
+        },
+        output_dir=str(tmp_path / "out"),
+    )
+
+    service.run_task(task_id)
+    task = service.get_task(task_id)
+    result_path = Path(service.resolve_artifact_path(task["results"][0]["artifact_id"]))
+    body = result_path.read_text(encoding="utf-8")
+    asset_files = list((result_path.parent / f"{result_path.stem}_assets").glob("*"))
+
+    assert task["status"] == "done"
+    assert downloaded_urls == [
+        "https://mmbiz.qpic.cn/mmbiz_png/test/0?wx_fmt=png",
+        "https://mmbiz.qpic.cn/mmbiz_png/test/0?wx_fmt=png",
+    ]
+    assert asset_files and asset_files[0].read_bytes() == b"\x89PNG\r\n\x1a\nimage-bytes"
+    assert "![cover](20240101-带图文章_assets/image-1.png)" in body
+    assert "[read more](https://example.test/original)" in body
 
 
 def test_native_collection_passes_cancel_check_during_article_listing(monkeypatch, tmp_path):

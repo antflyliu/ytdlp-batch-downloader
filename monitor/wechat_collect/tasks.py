@@ -1,21 +1,37 @@
 from __future__ import annotations
 
 import os
+import html
+import ipaddress
+import mimetypes
 import re
 import threading
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import requests
 
 from monitor.db.queries import wechat_collect as queries
 from monitor.wechat_collect.errors import WechatTaskError, safe_error_message
-from monitor.wechat_collect.models import SUPPORTED_EXPORT_FORMATS, is_valid_mp_article_url
+from monitor.wechat_collect.models import SUPPORTED_EXPORT_FORMATS, is_valid_mp_article_url, normalize_mp_article_url
 from monitor.wechat_collect.providers import NativeMpProvider
 from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
 from monitor.wechat_collect.serializers import public_task
 
 FILENAME_SAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
+HTML_IMAGE_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=)(["\'])(https?://[^"\']+)(\2)', re.IGNORECASE)
+ASSET_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36 WAE/1.0"
+)
+ASSET_REQUEST_TIMEOUT = (10, 60)
+ASSET_DOWNLOAD_ATTEMPTS = 3
+ASSET_RETRY_BACKOFF_SECONDS = 0.5
+ASSET_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 def sanitize_filename(value: str, *, fallback: str = "article", max_length: int = 90) -> str:
@@ -46,6 +62,150 @@ def unique_output_path(output_dir: Path, base: str, extension: str, used: set[st
         suffix += 1
     used.add(filename.lower())
     return output_dir / filename
+
+
+def _is_public_http_asset_url(value: str) -> bool:
+    parsed = urlparse((value or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if not host or host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return True
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved)
+
+
+def _asset_extension(url: str, content_type: str = "") -> str:
+    parsed = urlparse(url)
+    wx_fmt = (parse_qs(parsed.query).get("wx_fmt") or [""])[0].lower()
+    if wx_fmt in {"jpg", "jpeg", "png", "gif", "webp"}:
+        return ".jpg" if wx_fmt == "jpeg" else f".{wx_fmt}"
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    guessed = mimetypes.guess_extension(mime) if mime else ""
+    if guessed:
+        return ".jpg" if guessed == ".jpe" else guessed
+    suffix = Path(parsed.path).suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}:
+        return ".jpg" if suffix == ".jpeg" else suffix
+    return ".bin"
+
+
+def _is_retryable_asset_error(exc: requests.RequestException) -> bool:
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return isinstance(exc, requests.HTTPError) and status_code in ASSET_RETRY_STATUS_CODES
+
+
+def _download_asset(url: str, asset_dir: Path, index: int, session, *, referer: str = "") -> str | None:
+    normalized_url = html.unescape((url or "").strip())
+    if not _is_public_http_asset_url(normalized_url):
+        return None
+    response = None
+    for attempt in range(1, ASSET_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            response = session.get(
+                normalized_url,
+                headers={
+                    "User-Agent": ASSET_USER_AGENT,
+                    "Referer": referer or "https://mp.weixin.qq.com/",
+                },
+                timeout=ASSET_REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            if attempt >= ASSET_DOWNLOAD_ATTEMPTS or not _is_retryable_asset_error(exc):
+                return None
+            if ASSET_RETRY_BACKOFF_SECONDS > 0:
+                time.sleep(ASSET_RETRY_BACKOFF_SECONDS * attempt)
+    if response is None:
+        return None
+    extension = _asset_extension(normalized_url, response.headers.get("content-type", ""))
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    target = asset_dir / f"image-{index}{extension}"
+    target.write_bytes(response.content)
+    return target.name
+
+
+def _localize_article_assets(body: bytes, content_type: str, out_path: Path, metadata: dict) -> bytes:
+    if not metadata.get("localize_assets"):
+        return body
+    lowered = (content_type or "").lower()
+    if "markdown" not in lowered and "html" not in lowered:
+        return body
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body
+
+    asset_dir = out_path.parent / f"{out_path.stem}_assets"
+    session = requests.Session()
+    source_url = str(metadata.get("source_url") or "")
+    url_to_relpath: dict[str, str] = {}
+
+    def local_path_for(url: str) -> str | None:
+        normalized_url = html.unescape((url or "").strip())
+        if normalized_url in url_to_relpath:
+            return url_to_relpath[normalized_url]
+        filename = _download_asset(normalized_url, asset_dir, len(url_to_relpath) + 1, session, referer=source_url)
+        if not filename:
+            return None
+        relpath = f"{asset_dir.name}/{filename}"
+        url_to_relpath[normalized_url] = relpath
+        return relpath
+
+    if "markdown" in lowered:
+        def replace_markdown_image(match: re.Match) -> str:
+            local = local_path_for(match.group(2))
+            if not local:
+                return match.group(0)
+            return f"![{match.group(1)}]({local})"
+
+        text = MARKDOWN_IMAGE_RE.sub(replace_markdown_image, text)
+    else:
+        def replace_html_image(match: re.Match) -> str:
+            local = local_path_for(match.group(3))
+            if not local:
+                return match.group(0)
+            return f"{match.group(1)}{match.group(2)}{local}{match.group(4)}"
+
+        text = HTML_IMAGE_SRC_RE.sub(replace_html_image, text)
+    return text.encode("utf-8")
+
+
+def _selected_article_from_url_entry(entry, index: int) -> dict | None:
+    now = int(time.time())
+    if isinstance(entry, dict):
+        url = normalize_mp_article_url(entry.get("link") or entry.get("url") or "")
+        if not url:
+            return None
+        article = {
+            "aid": str(entry.get("aid") or ""),
+            "title": str(entry.get("title") or "").strip() or f"article-{index}",
+            "link": url,
+            "url": url,
+            "digest": str(entry.get("digest") or ""),
+            "cover": str(entry.get("cover") or entry.get("cover_img") or ""),
+            "author_name": str(entry.get("author_name") or ""),
+            "update_time": entry.get("update_time") or entry.get("create_time") or now,
+            "create_time": entry.get("create_time") or entry.get("update_time") or 0,
+        }
+        return article
+    url = normalize_mp_article_url(entry)
+    if not url:
+        return None
+    return {"title": f"article-{index}", "link": url, "url": url, "update_time": now, "create_time": 0}
+
+
+def _raw_url_from_url_entry(entry) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get("link") or entry.get("url") or "").strip()
+    return str(entry).strip()
 
 
 class NativeCollectionTaskService:
@@ -193,22 +353,28 @@ class NativeCollectionTaskService:
         raw_urls = task.get("urls") or []
         if raw_urls and not isinstance(raw_urls, list):
             raise WechatTaskError("urls 必须是文章链接数组")
-        urls = [str(url).strip() for url in raw_urls if str(url).strip()]
         max_articles = max(1, min(int(task.get("max_articles") or 50), 1000))
-        if urls:
-            for url in urls[:max_articles]:
-                if not is_valid_mp_article_url(url):
+        for entry in raw_urls[:max_articles]:
+            raw_url = _raw_url_from_url_entry(entry)
+            if raw_url and not normalize_mp_article_url(raw_url):
+                raise WechatTaskError("文章链接不合法")
+        selected_articles = [
+            article
+            for idx, entry in enumerate(raw_urls[:max_articles], start=1)
+            if (article := _selected_article_from_url_entry(entry, idx))
+        ]
+        if selected_articles:
+            for article in selected_articles:
+                if not is_valid_mp_article_url(article.get("link") or article.get("url") or ""):
                     raise WechatTaskError("文章链接不合法")
-            return [
-                {"title": f"article-{idx}", "link": url, "update_time": int(time.time())}
-                for idx, url in enumerate(urls[:max_articles], start=1)
-            ], {}
+            return selected_articles[:max_articles], {}
         if (task.get("source_mode") or "") == "urls":
             raise WechatTaskError("urls 至少提供一个合法文章链接")
         if (task.get("source_mode") or "") == "url" and task.get("article_url"):
-            article_url = str(task.get("article_url") or "").strip()
+            article_url = normalize_mp_article_url(task.get("article_url") or "")
             if not is_valid_mp_article_url(article_url):
                 raise WechatTaskError("文章链接不合法")
+            task = {**task, "article_url": article_url}
         fakeid = task.get("fakeid") or ""
         account = {}
         if not fakeid:
@@ -249,7 +415,7 @@ class NativeCollectionTaskService:
         for idx, article in enumerate(articles, start=1):
             if self._cancel_if_requested(task_id):
                 return
-            url = article.get("link") or article.get("url") or ""
+            url = normalize_mp_article_url(article.get("link") or article.get("url") or "")
             title = article.get("title") or f"article-{idx}"
             update_time = int(article.get("update_time") or article.get("create_time") or time.time())
             date_part = datetime.fromtimestamp(update_time).strftime("%Y%m%d")
@@ -258,7 +424,13 @@ class NativeCollectionTaskService:
             try:
                 queries.update_task(task_id, current=f"正在导出 {idx}/{len(articles)}: {title}")
                 downloaded = provider.download_article(url, fmt)
-                out_path.write_bytes(downloaded.body)
+                body = _localize_article_assets(
+                    downloaded.body,
+                    downloaded.content_type,
+                    out_path,
+                    downloaded.metadata or {},
+                )
+                out_path.write_bytes(body)
                 if fakeid:
                     queries.upsert_article(fakeid, article, local_path=str(out_path), export_format=fmt, status="downloaded")
                 queries.append_task_result(

@@ -8,12 +8,14 @@ from typing import Any
 from urllib.parse import urljoin
 
 import monitor.db as db
+from monitor.article_source_archive import archive_article_source
 from monitor.db.queries import rss_collect as rss_queries
 
 from .parser import build_opml_document, parse_feed_xml, parse_opml_document
 from .security import validate_external_http_url, validate_external_ip_address
 
 MAX_OPML_CHARS = 1_000_000
+MAX_FEED_BYTES = 2_000_000
 MAX_FEED_REDIRECTS = 5
 
 
@@ -70,7 +72,7 @@ class RssCollectService:
             rss_queries.ensure_schema(conn)
             feed = rss_queries.get_feed(conn, feed_id)
         if not feed:
-            raise ValueError("RSS 订阅源不存在")
+            raise LookupError("RSS 订阅源不存在")
 
         try:
             xml_text = self._fetch_feed_xml(str(feed["feed_url"]))
@@ -132,12 +134,15 @@ class RssCollectService:
                         }
                     )
                     continue
+                existing = rss_queries.get_feed_by_url(conn, feed_url)
                 rss_queries.upsert_feed(
                     conn,
                     title=entry.title,
                     feed_url=feed_url,
-                    site_url=site_url,
+                    site_url=site_url or str((existing or {}).get("site_url") or ""),
                     category=entry.category,
+                    enabled=bool(existing["enabled"]) if existing else True,
+                    fetch_interval_minutes=int(existing["fetch_interval_minutes"]) if existing else 60,
                 )
                 imported += 1
         return {
@@ -156,15 +161,26 @@ class RssCollectService:
     def prepare_article_payload(self, item_id: int, *, target_lang: str = "zh-Hans") -> dict[str, Any]:
         item = self.get_item(item_id)
         if not item:
-            raise ValueError("RSS 条目不存在")
+            raise LookupError("RSS 条目不存在")
         text = _article_text_from_item(item)
         if not text.strip():
             raise ValueError("RSS 条目正文为空，无法生成 AI 文章")
+        source_url = item.get("link") or item.get("feed_url") or ""
+        archive = archive_article_source(
+            source_type="rss_item",
+            source_id=f"rss-{item_id}",
+            title=item.get("title") or "",
+            source_url=source_url,
+            text=text,
+            html_body=item.get("content_html") or "",
+            media=_rss_item_media(item),
+        )
         return {
             "source_type": "rss_item",
             "rss_item_id": item_id,
-            "article_text": text,
-            "source_url": item.get("link") or item.get("feed_url") or "",
+            "article_source_path": archive.markdown_path,
+            "article_text": archive.markdown_text,
+            "source_url": source_url,
             "source_title": item.get("title") or "",
             "target_lang": target_lang,
         }
@@ -187,7 +203,9 @@ class RssCollectService:
             try:
                 with opener.open(request, timeout=20) as response:
                     _validate_response_peer(response)
-                    data = response.read(2_000_000)
+                    data = response.read(MAX_FEED_BYTES + 1)
+                    if len(data) > MAX_FEED_BYTES:
+                        raise RuntimeError("RSS Feed 内容过大")
                     charset = response.headers.get_content_charset() or "utf-8"
                     return data.decode(charset, errors="replace")
             except urllib.error.HTTPError as exc:
@@ -231,6 +249,14 @@ def _article_text_from_item(item: dict[str, Any]) -> str:
         parts.append("")
         parts.append(body)
     return "\n".join(parts).strip()
+
+
+def _rss_item_media(item: dict[str, Any]) -> list[dict[str, Any]]:
+    media = list(item.get("media") or [])
+    preview = str(item.get("preview_image") or "").strip()
+    if preview:
+        media.insert(0, {"url": preview, "mime_type": "image/*"})
+    return media
 
 
 def _validate_response_peer(response: Any) -> None:

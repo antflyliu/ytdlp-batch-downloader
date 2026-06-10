@@ -34,6 +34,7 @@ def test_monitor_handler_routes_ai_content_endpoints():
             'elif path == "/api/video-generate":',
             'elif path == "/api/article/list":',
             'elif path == "/api/video-generate/list":',
+            'elif path.startswith("/api/article/") and path.endswith("/rerun"):',
             'elif path.startswith("/api/article/") and path.endswith("/cancel"):',
             'elif path.startswith("/api/video-generate/") and path.endswith("/cancel"):',
         ],
@@ -49,6 +50,7 @@ def test_ai_content_api_uses_explicit_post_cancel_endpoints_instead_of_delete():
         [
             "/api/article/{task_id}/cancel",
             "/api/video-generate/{task_id}/cancel",
+            "/api/article/{task_id}/rerun",
         ],
         "Explicit AI content cancel endpoints are not documented in server source yet",
     )
@@ -157,6 +159,84 @@ def test_article_generate_accepts_wechat_artifact_url_without_artifact_id(monkey
     assert captured["create_kwargs"]["source_title"] == "标题"
     assert captured["payload"] == {"ok": True, "task_id": "article-task-1"}
     assert captured["status"] == 202
+
+
+def test_article_rerun_clones_terminal_task_and_starts_new_run(monkeypatch):
+    server = importlib.import_module("server.__main__")
+    captured: dict[str, object] = {}
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            captured["thread_args"] = args
+            captured["thread_kwargs"] = kwargs
+
+        def start(self):
+            captured["thread_started"] = True
+
+    def fake_create_article_task(*args, **kwargs):
+        captured["create_args"] = args
+        captured["create_kwargs"] = kwargs
+        return "article_retry_1"
+
+    handler = object.__new__(server.MonitorHandler)
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+    monkeypatch.setattr(
+        server._db,
+        "get_article_task",
+        lambda task_id: {
+            "task_id": task_id,
+            "status": "error",
+            "source_type": "wechat_article",
+            "monitor_video_id": None,
+            "video_id": None,
+            "video_url": None,
+            "video_title": "AI takes people at their word",
+            "article_source_path": "D:/articles/source.md",
+            "article_text": "",
+            "source_url": "https://example.test/article",
+            "source_title": "AI takes people at their word",
+            "email_message_id": None,
+            "rss_item_id": None,
+            "target_lang": "zh-Hans",
+            "auto_translate": True,
+        },
+    )
+    monkeypatch.setattr(server._db, "load_config", lambda: {"article_default_target_lang": "zh-Hans"})
+    monkeypatch.setattr(server._db, "create_article_task", fake_create_article_task)
+    monkeypatch.setattr(server.threading, "Thread", FakeThread)
+
+    handler._api_article_rerun("article_failed_1")
+
+    assert captured["status"] == 202
+    assert captured["payload"] == {
+        "ok": True,
+        "task_id": "article_retry_1",
+        "source_task_id": "article_failed_1",
+    }
+    assert captured["create_kwargs"]["source_type"] == "wechat_article"
+    assert captured["create_kwargs"]["video_title"] == "AI takes people at their word"
+    assert captured["create_kwargs"]["article_source_path"] == "D:/articles/source.md"
+    assert captured["create_kwargs"]["source_title"] == "AI takes people at their word"
+    assert captured["thread_started"] is True
+    assert captured["thread_kwargs"]["name"] == "article-task-article_retry_1"
+
+
+def test_article_rerun_rejects_running_task(monkeypatch):
+    server = importlib.import_module("server.__main__")
+    captured: dict[str, object] = {}
+
+    handler = object.__new__(server.MonitorHandler)
+    handler._send_json = lambda payload, status=200: captured.update({"payload": payload, "status": status})
+    monkeypatch.setattr(
+        server._db,
+        "get_article_task",
+        lambda task_id: {"task_id": task_id, "status": "running"},
+    )
+
+    handler._api_article_rerun("article_running_1")
+
+    assert captured["status"] == 409
+    assert "不能重新执行" in captured["payload"]["error"]
 
 
 def test_article_get_exposes_intermediate_output_files(monkeypatch, tmp_path):

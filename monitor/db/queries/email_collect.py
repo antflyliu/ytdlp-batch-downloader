@@ -1048,7 +1048,7 @@ def upsert_email_message(message: dict[str, Any], attachments: list[dict[str, An
     now = now_iso()
     dedupe_key = message.get("dedupe_key") or f"{message.get('provider')}:{message.get('provider_message_id')}"
     with get_connection() as conn:
-        cursor = conn.execute(
+        conn.execute(
             """INSERT INTO email_messages
                (account_id, mailbox_id, provider, provider_message_id, provider_thread_id,
                 rfc_message_id, subject, from_addr, to_addr, cc_addr, received_at, sent_at,
@@ -1190,6 +1190,7 @@ def get_email_message(message_id: int, *, include_body: bool = True) -> dict | N
 def update_email_message(message_id: int, **fields) -> bool:
     mapping = {
         "body_text": fields.get("body_text", _UNSET),
+        "body_markdown_path": fields.get("body_markdown_path", _UNSET),
         "snippet": fields.get("snippet", _UNSET),
         "body_hash": fields.get("body_hash", _UNSET),
         "classification_json": _json_dumps(fields["classification"]) if "classification" in fields else _UNSET,

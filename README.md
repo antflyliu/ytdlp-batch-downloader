@@ -85,6 +85,7 @@
 - [打包 exe 使用指南](docs/exe使用指南.md)
 - [YouTube 频道监控](#youtube-频道监控)
 - [邮件监控与 Gmail 一键授权](#邮件监控与-gmail-一键授权)
+- [统一语音 Provider](docs/voice-provider-architecture.md)
 - [使用说明（批量下载）](#使用说明批量下载)
 - [打包指南](#打包指南保姆手册)
 - [消息通知](#消息通知)
@@ -115,6 +116,7 @@
 - **通知**：飞书（含 JSON 2.0 卡片 / 模板）、钉钉、企业微信 Webhook
 - **Web UI**：`server/__main__.py` + `monitor_web/`，支持账户管理、API Key 管理、通知配置、全局配置（含「启用 aria2」等）、后台下载任务（含取消功能）；设置中心分栏、Hash 路由、中英文界面（`static/i18n/`）
 - **代理池**：动态代理提供商（`_provider_scheduler`）定时刷新候选，支持按健康/最快策略自动选择代理用于下载和扫描
+- **统一语音 Provider**：视频配音、手动语音任务和文章 ASR fallback 通过 `monitor/voice` 选择 Edge TTS、OpenAI、Azure、MiniMax、VoxCPM、VibeVoice、Whisper 或 silent provider；配置与外部服务合同见 [docs/voice-provider-architecture.md](docs/voice-provider-architecture.md) 和 [docs/voice-provider-external-services.md](docs/voice-provider-external-services.md)
 - 可选阅读：[扫描后自动下载方案说明](docs/auto-download-on-scan-plan-v2.md)
 
 ---

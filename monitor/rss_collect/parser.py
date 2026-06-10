@@ -38,8 +38,19 @@ def _local_name(tag: str) -> str:
 def _child_text(node: ET.Element, *names: str) -> str:
     wanted = {name.lower() for name in names}
     for child in list(node):
-        if _local_name(child.tag) in wanted and child.text:
-            return child.text.strip()
+        if _local_name(child.tag) in wanted:
+            return "".join(child.itertext()).strip()
+    return ""
+
+
+def _child_markup(node: ET.Element, *names: str) -> str:
+    wanted = {name.lower() for name in names}
+    for child in list(node):
+        if _local_name(child.tag) not in wanted:
+            continue
+        parts = [child.text or ""]
+        parts.extend(ET.tostring(nested, encoding="unicode") for nested in list(child))
+        return "".join(parts).strip()
     return ""
 
 
@@ -161,7 +172,7 @@ def parse_feed_xml(xml_text: str, *, feed_url: str = "") -> ParsedFeed:
                     break
         link = normalize_http_url(raw_link, feed_link or feed_url)
         guid = _child_text(node, "guid", "id") or link or title
-        content_html = _child_text(node, "content", "encoded", "content:encoded")
+        content_html = _child_markup(node, "content", "encoded", "content:encoded")
         summary = _child_text(node, "description", "summary") or _strip_html(content_html)
         published_at = _parse_date(_child_text(node, "pubDate", "published", "updated"))
         items.append(

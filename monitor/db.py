@@ -711,6 +711,7 @@ def _migrate_monitor_accounts(conn) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_video_gen_tasks_status ON video_gen_tasks(status, created_at DESC)"
         )
+        _ensure_voice_tasks_schema(conn)
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v17_ai_content_workflows", today),
@@ -742,9 +743,17 @@ def _migrate_monitor_accounts(conn) -> None:
             ]:
                 if col not in cols:
                     conn.execute(f"ALTER TABLE video_gen_tasks ADD COLUMN {col} {ddl}")
+        _ensure_voice_tasks_schema(conn)
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             ("v17_ai_content_contract_aliases", today),
+        )
+
+    if "v18_voice_tasks" not in applied:
+        _ensure_voice_tasks_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v18_voice_tasks", today),
         )
 
     # v18: WeChat Official Account publish tasks
@@ -837,6 +846,13 @@ def _migrate_monitor_accounts(conn) -> None:
             ("v24_weread_exporter_tasks", today),
         )
 
+    if "v25_rss_catalog_sources" not in applied:
+        _ensure_rss_collect_schema(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("v25_rss_catalog_sources", today),
+        )
+
 
 def _ensure_email_collect_schema(conn) -> None:
     from monitor.db.queries import email_collect as _email_collect_queries
@@ -867,6 +883,41 @@ def _ensure_article_task_columns(conn) -> None:
     for col, ddl in ARTICLE_TASK_COLUMN_DDLS:
         if col not in cols:
             conn.execute(f"ALTER TABLE article_tasks ADD COLUMN {col} {ddl}")
+
+
+def _ensure_voice_tasks_schema(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS voice_tasks (
+            task_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            mode TEXT,
+            source TEXT,
+            source_task_id TEXT,
+            status TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            stage TEXT,
+            message TEXT,
+            input_text_hash TEXT,
+            input_path TEXT,
+            output_audio_path TEXT,
+            output_text_path TEXT,
+            output_srt_path TEXT,
+            metadata_path TEXT,
+            options_json TEXT NOT NULL DEFAULT '{}',
+            result_json TEXT NOT NULL DEFAULT '{}',
+            error TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            cancel_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            finished_at TEXT
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_voice_tasks_created_at ON voice_tasks(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_voice_tasks_status ON voice_tasks(status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_voice_tasks_kind ON voice_tasks(kind, created_at DESC)")
 
 
 def _ensure_article_wechat_source_columns(conn) -> None:
@@ -2123,6 +2174,169 @@ def _normalize_video_gen_task_row(row) -> dict | None:
     item["template_name"] = item.get("template_name") or item.get("template_key")
     item["output_path"] = item.get("output_path") or item.get("video_path")
     return item
+
+
+def _normalize_voice_task_row(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    item["cancel_requested"] = bool(item.get("cancel_requested"))
+    item["progress"] = int(item.get("progress") or 0)
+    item["options"] = _json_loads_or(item.pop("options_json", "{}"), {})
+    item["result"] = _json_loads_or(item.pop("result_json", "{}"), {})
+    return item
+
+
+def create_voice_task(
+    *,
+    kind: str,
+    provider: str,
+    capability: str,
+    mode: str | None = None,
+    source: str | None = None,
+    source_task_id: str | None = None,
+    input_text_hash: str | None = None,
+    input_path: str | None = None,
+    options: dict | None = None,
+    task_id: str | None = None,
+) -> str:
+    task_id = task_id or _build_ai_task_id("voice")
+    now = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT INTO voice_tasks
+               (task_id, kind, provider, capability, mode, source, source_task_id,
+                status, progress, input_text_hash, input_path, options_json, result_json,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, '{}', ?, ?)""",
+            (
+                task_id,
+                kind,
+                provider,
+                capability,
+                mode,
+                source,
+                source_task_id,
+                input_text_hash,
+                input_path,
+                json.dumps(options or {}, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+    return task_id
+
+
+def update_voice_task(
+    task_id: str,
+    *,
+    provider=_UNSET,
+    status=_UNSET,
+    progress=_UNSET,
+    stage=_UNSET,
+    message=_UNSET,
+    input_path=_UNSET,
+    output_audio_path=_UNSET,
+    output_text_path=_UNSET,
+    output_srt_path=_UNSET,
+    metadata_path=_UNSET,
+    result=_UNSET,
+    error=_UNSET,
+    cancel_requested=_UNSET,
+    cancel_message=_UNSET,
+    finished_at=_UNSET,
+) -> None:
+    fields = []
+    values = []
+    mapping = [
+        ("provider", provider),
+        ("status", status),
+        ("progress", progress),
+        ("stage", stage),
+        ("message", message),
+        ("input_path", input_path),
+        ("output_audio_path", output_audio_path),
+        ("output_text_path", output_text_path),
+        ("output_srt_path", output_srt_path),
+        ("metadata_path", metadata_path),
+        ("error", error),
+        ("cancel_message", cancel_message),
+        ("finished_at", finished_at),
+    ]
+    for field, value in mapping:
+        if value is not _UNSET:
+            fields.append(f"{field}=?")
+            values.append(value)
+    if result is not _UNSET:
+        fields.append("result_json=?")
+        values.append(json.dumps(result or {}, ensure_ascii=False))
+    if cancel_requested is not _UNSET:
+        fields.append("cancel_requested=?")
+        values.append(int(bool(cancel_requested)))
+    if not fields:
+        return
+    fields.append("updated_at=?")
+    values.append(now_iso())
+    values.append(task_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE voice_tasks SET {', '.join(fields)} WHERE task_id = ?", values)
+
+
+def get_voice_task(task_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM voice_tasks WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+    return _normalize_voice_task_row(row)
+
+
+def list_voice_tasks(
+    *,
+    kind: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    where = []
+    params = []
+    if kind:
+        where.append("kind = ?")
+        params.append(kind)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where) if where else "1=1"
+    with get_connection() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM voice_tasks WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT * FROM voice_tasks
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+    return ([_normalize_voice_task_row(row) for row in rows], total)
+
+
+def request_cancel_voice_task(task_id: str, message: str | None = None) -> dict | None:
+    task = get_voice_task(task_id)
+    if not task:
+        return None
+    if task.get("status") not in _AI_TASK_TERMINAL_STATUSES:
+        next_status = "cancelling" if task.get("status") != "pending" else "cancelled"
+        finished_at = now_iso() if next_status == "cancelled" else _UNSET
+        update_voice_task(
+            task_id,
+            status=next_status,
+            cancel_requested=True,
+            cancel_message=message or "正在取消语音任务…",
+            finished_at=finished_at,
+        )
+    return get_voice_task(task_id)
 
 
 def create_article_task(

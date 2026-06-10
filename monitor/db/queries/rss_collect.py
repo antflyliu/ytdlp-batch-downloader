@@ -51,6 +51,57 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_feeds_enabled ON rss_feeds(enabled, updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_items_feed_published ON rss_items(feed_id, published_at DESC, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_items_article_task ON rss_items(article_task_id)")
+    ensure_catalog_schema(conn)
+
+
+def ensure_catalog_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS rss_catalog_sources (
+            source_key TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            homepage_url TEXT,
+            feeds_url TEXT,
+            status_url TEXT,
+            readme_url TEXT,
+            license TEXT,
+            last_synced_at TEXT,
+            last_sync_status TEXT,
+            last_sync_error TEXT,
+            feed_total INTEGER NOT NULL DEFAULT 0,
+            valid_count INTEGER NOT NULL DEFAULT 0,
+            invalid_count INTEGER NOT NULL DEFAULT 0,
+            limited_count INTEGER NOT NULL DEFAULT 0,
+            success_rate TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS rss_catalog_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_key TEXT NOT NULL,
+            entry_key TEXT NOT NULL UNIQUE,
+            entry_type TEXT NOT NULL DEFAULT 'feed',
+            title TEXT NOT NULL,
+            category TEXT,
+            feed_url TEXT,
+            site_url TEXT,
+            route_template TEXT,
+            description TEXT,
+            status TEXT,
+            status_valid INTEGER,
+            status_limited INTEGER NOT NULL DEFAULT 0,
+            status_code INTEGER,
+            status_error TEXT,
+            status_checked_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (source_key) REFERENCES rss_catalog_sources(source_key) ON DELETE CASCADE
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_catalog_source_type ON rss_catalog_entries(source_key, entry_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_catalog_category ON rss_catalog_entries(category COLLATE NOCASE, title COLLATE NOCASE)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_catalog_feed_url ON rss_catalog_entries(feed_url)")
 
 
 def _feed_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -58,6 +109,24 @@ def _feed_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return None
     item = dict(row)
     item["enabled"] = bool(item.get("enabled"))
+    return item
+
+
+def _catalog_source_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return dict(row)
+
+
+def _catalog_entry_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    item = dict(row)
+    if item.get("status_valid") is not None:
+        item["status_valid"] = bool(item.get("status_valid"))
+    item["status_limited"] = bool(item.get("status_limited"))
+    item["imported"] = bool(item.get("imported", 0))
+    item["feed_id"] = item.get("feed_id")
     return item
 
 
@@ -84,6 +153,251 @@ def list_feeds(conn: sqlite3.Connection, *, enabled: bool | None = None) -> list
         params,
     ).fetchall()
     return [_feed_from_row(row) for row in rows if row is not None]
+
+
+def upsert_catalog_source(
+    conn: sqlite3.Connection,
+    *,
+    source_key: str,
+    name: str,
+    homepage_url: str = "",
+    feeds_url: str = "",
+    status_url: str = "",
+    readme_url: str = "",
+    license: str = "",
+    last_synced_at: str = "",
+    last_sync_status: str = "",
+    last_sync_error: str = "",
+    feed_total: int = 0,
+    valid_count: int = 0,
+    invalid_count: int = 0,
+    limited_count: int = 0,
+    success_rate: str = "",
+) -> None:
+    now = now_iso()
+    existing = conn.execute("SELECT source_key FROM rss_catalog_sources WHERE source_key=?", (source_key,)).fetchone()
+    if existing:
+        conn.execute(
+            """UPDATE rss_catalog_sources
+               SET name=?, homepage_url=?, feeds_url=?, status_url=?, readme_url=?, license=?,
+                   last_synced_at=?, last_sync_status=?, last_sync_error=?, feed_total=?,
+                   valid_count=?, invalid_count=?, limited_count=?, success_rate=?, updated_at=?
+               WHERE source_key=?""",
+            (
+                name,
+                homepage_url,
+                feeds_url,
+                status_url,
+                readme_url,
+                license,
+                last_synced_at,
+                last_sync_status,
+                last_sync_error,
+                int(feed_total or 0),
+                int(valid_count or 0),
+                int(invalid_count or 0),
+                int(limited_count or 0),
+                success_rate,
+                now,
+                source_key,
+            ),
+        )
+        return
+    conn.execute(
+        """INSERT INTO rss_catalog_sources
+           (source_key, name, homepage_url, feeds_url, status_url, readme_url, license,
+            last_synced_at, last_sync_status, last_sync_error, feed_total, valid_count,
+            invalid_count, limited_count, success_rate, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            source_key,
+            name,
+            homepage_url,
+            feeds_url,
+            status_url,
+            readme_url,
+            license,
+            last_synced_at,
+            last_sync_status,
+            last_sync_error,
+            int(feed_total or 0),
+            int(valid_count or 0),
+            int(invalid_count or 0),
+            int(limited_count or 0),
+            success_rate,
+            now,
+            now,
+        ),
+    )
+
+
+def list_catalog_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM rss_catalog_sources ORDER BY updated_at DESC, name COLLATE NOCASE"
+    ).fetchall()
+    return [_catalog_source_from_row(row) for row in rows if row is not None]
+
+
+def upsert_catalog_entry(
+    conn: sqlite3.Connection,
+    *,
+    source_key: str,
+    entry_key: str,
+    entry_type: str,
+    title: str,
+    category: str = "",
+    feed_url: str = "",
+    site_url: str = "",
+    route_template: str = "",
+    description: str = "",
+    status: str = "",
+    status_valid: bool | None = None,
+    status_limited: bool = False,
+    status_code: int | None = None,
+    status_error: str = "",
+    status_checked_at: str = "",
+) -> None:
+    now = now_iso()
+    valid_value = None if status_valid is None else 1 if status_valid else 0
+    existing = conn.execute("SELECT id FROM rss_catalog_entries WHERE entry_key=?", (entry_key,)).fetchone()
+    values = (
+        source_key,
+        entry_key,
+        entry_type,
+        title,
+        category,
+        feed_url,
+        site_url,
+        route_template,
+        description,
+        status,
+        valid_value,
+        1 if status_limited else 0,
+        status_code,
+        status_error,
+        status_checked_at,
+        now,
+    )
+    if existing:
+        conn.execute(
+            """UPDATE rss_catalog_entries
+               SET source_key=?, entry_key=?, entry_type=?, title=?, category=?, feed_url=?,
+                   site_url=?, route_template=?, description=?, status=?, status_valid=?,
+                   status_limited=?, status_code=?, status_error=?, status_checked_at=?, updated_at=?
+               WHERE id=?""",
+            (*values, existing["id"]),
+        )
+        return
+    conn.execute(
+        """INSERT INTO rss_catalog_entries
+           (source_key, entry_key, entry_type, title, category, feed_url, site_url,
+            route_template, description, status, status_valid, status_limited,
+            status_code, status_error, status_checked_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (*values, now),
+    )
+
+
+def delete_catalog_entries_not_in(conn: sqlite3.Connection, source_key: str, entry_keys: list[str]) -> None:
+    if not entry_keys:
+        conn.execute("DELETE FROM rss_catalog_entries WHERE source_key=?", (source_key,))
+        return
+    placeholders = ",".join("?" for _ in entry_keys)
+    conn.execute(
+        f"DELETE FROM rss_catalog_entries WHERE source_key=? AND entry_key NOT IN ({placeholders})",
+        (source_key, *entry_keys),
+    )
+
+
+def list_catalog_entries(
+    conn: sqlite3.Connection,
+    *,
+    source_key: str | None = None,
+    entry_type: str | None = None,
+    category: str | None = None,
+    query: str = "",
+    available_only: bool = False,
+    limit: int = 500,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    if source_key:
+        where.append("e.source_key=?")
+        params.append(source_key)
+    if entry_type:
+        where.append("e.entry_type=?")
+        params.append(entry_type)
+    if category:
+        where.append("e.category=?")
+        params.append(category)
+    if query:
+        where.append("(e.title LIKE ? OR e.category LIKE ? OR e.feed_url LIKE ? OR e.route_template LIKE ? OR e.description LIKE ?)")
+        needle = f"%{query}%"
+        params.extend([needle, needle, needle, needle, needle])
+    if available_only:
+        where.append("(e.status_valid IS NULL OR e.status_valid=1 OR e.status_limited=1)")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    rows = conn.execute(
+        f"""SELECT e.*, f.id AS feed_id, CASE WHEN f.id IS NULL THEN 0 ELSE 1 END AS imported
+            FROM rss_catalog_entries e
+            LEFT JOIN rss_feeds f ON f.feed_url = e.feed_url
+            {where_sql}
+            ORDER BY e.category COLLATE NOCASE, e.entry_type, e.title COLLATE NOCASE
+            LIMIT ? OFFSET ?""",
+        (*params, max(min(int(limit), 1000), 1), max(int(offset), 0)),
+    ).fetchall()
+    return [_catalog_entry_from_row(row) for row in rows if row is not None]
+
+
+def get_catalog_entries_by_ids(conn: sqlite3.Connection, entry_ids: list[int]) -> list[dict[str, Any]]:
+    ids = [int(entry_id) for entry_id in entry_ids if int(entry_id) > 0]
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""SELECT e.*, f.id AS feed_id, CASE WHEN f.id IS NULL THEN 0 ELSE 1 END AS imported
+            FROM rss_catalog_entries e
+            LEFT JOIN rss_feeds f ON f.feed_url = e.feed_url
+            WHERE e.id IN ({placeholders})
+            ORDER BY e.category COLLATE NOCASE, e.title COLLATE NOCASE""",
+        ids,
+    ).fetchall()
+    return [_catalog_entry_from_row(row) for row in rows if row is not None]
+
+
+def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+    totals = conn.execute(
+        """SELECT
+               COUNT(*) AS total,
+               SUM(CASE WHEN entry_type='feed' THEN 1 ELSE 0 END) AS feed_count,
+               SUM(CASE WHEN entry_type='rsshub_route' THEN 1 ELSE 0 END) AS route_count,
+               SUM(CASE WHEN status_valid=1 THEN 1 ELSE 0 END) AS valid_count,
+               SUM(CASE WHEN status_limited=1 THEN 1 ELSE 0 END) AS limited_count,
+               SUM(CASE WHEN status_valid=0 AND status_limited=0 THEN 1 ELSE 0 END) AS invalid_count,
+               COUNT(DISTINCT category) AS category_count
+           FROM rss_catalog_entries"""
+    ).fetchone()
+    categories = [
+        row["category"]
+        for row in conn.execute(
+            "SELECT DISTINCT category FROM rss_catalog_entries WHERE category IS NOT NULL AND category != '' ORDER BY category COLLATE NOCASE"
+        ).fetchall()
+    ]
+    source = conn.execute(
+        "SELECT * FROM rss_catalog_sources ORDER BY updated_at DESC LIMIT 1"
+    ).fetchone()
+    return {
+        "total": int(totals["total"] or 0),
+        "feed_count": int(totals["feed_count"] or 0),
+        "route_count": int(totals["route_count"] or 0),
+        "valid_count": int(totals["valid_count"] or 0),
+        "limited_count": int(totals["limited_count"] or 0),
+        "invalid_count": int(totals["invalid_count"] or 0),
+        "category_count": int(totals["category_count"] or 0),
+        "categories": categories,
+        "source": _catalog_source_from_row(source),
+    }
 
 
 def get_feed(conn: sqlite3.Connection, feed_id: int) -> dict[str, Any] | None:

@@ -12,7 +12,7 @@ from unittest import mock
 _ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(_ROOT))
 
-import monitor_server
+import monitor_server  # noqa: E402
 import server.__main__ as _server_main  # noqa: E402 — 实际实现位置
 
 
@@ -59,6 +59,12 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         status, body, _ = self._request("GET", "/missing-static-file.js")
         self.assertEqual(status, 404)
         self.assertNotIn("401".encode(), body)
+
+    def test_vue_spa_route_redirects_to_hash_route(self):
+        status, body, headers = self._request("GET", "/rss-pipeline")
+        self.assertEqual(status, 302)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers.get("Location"), "/#/rss-pipeline")
 
     def test_api_accounts_allowed_without_monitor_token(self):
         status, body, headers = self._request("GET", "/api/accounts")
@@ -119,6 +125,39 @@ class TestStaticFileAuthBoundary(unittest.TestCase):
         self.assertIn(b'"ok": true', resp_body)
         mock_db.add_account.assert_called_once()
         self.assertEqual(mock_db.add_account.call_args.kwargs["channel_url"], "UC_x5XG1OV2P6uZZ5FSM9Ttw")
+
+    def test_weread_chrome_start_endpoint_is_registered_on_monitor_server(self):
+        with mock.patch.object(_server_main._weread_export_service, "start_chrome_cdp") as mock_start_chrome:
+            mock_start_chrome.return_value = {
+                "available": True,
+                "chrome_cdp_endpoint": "http://127.0.0.1:9444",
+                "chrome_cdp_profile_dir": "D:/tmp/weread-cdp",
+            }
+            body = json.dumps({
+                "chrome_cdp_endpoint": "http://127.0.0.1:9444",
+                "chrome_cdp_profile_dir": "D:/tmp/weread-cdp",
+                "initial_url": "https://weread.qq.com/web/reader/test",
+            }).encode("utf-8")
+            status, resp_body, headers = self._request(
+                "POST",
+                "/api/weread-exporter/chrome/start",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type", "").split(";")[0], "application/json")
+        data = json.loads(resp_body.decode("utf-8"))
+        self.assertTrue(data["available"])
+        mock_start_chrome.assert_called_once_with(
+            data_dir=mock.ANY,
+            endpoint="http://127.0.0.1:9444",
+            profile_dir="D:/tmp/weread-cdp",
+            initial_url="https://weread.qq.com/web/reader/test",
+        )
 
     def test_static_get_ignores_client_aborted_connection(self):
         handler = monitor_server.MonitorHandler.__new__(monitor_server.MonitorHandler)

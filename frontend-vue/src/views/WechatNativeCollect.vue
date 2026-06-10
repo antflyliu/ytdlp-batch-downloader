@@ -171,6 +171,19 @@
             <NTag v-if="previewTotalCount" size="small" :bordered="false" type="success">
               {{ t('wechatNativeCollect.articleCount', { n: previewTotalCount }) }}
             </NTag>
+            <NTag v-if="selectedPreviewUrls.length" size="small" :bordered="false" type="info">
+              {{ t('wechatNativeCollect.selectedArticleCount', { n: selectedPreviewUrls.length }) }}
+            </NTag>
+            <NButton
+              size="small"
+              tertiary
+              type="primary"
+              :loading="startingTask"
+              :disabled="!canDownloadSelectedPreview"
+              @click="downloadSelectedPreviewArticles"
+            >
+              {{ t('wechatNativeCollect.downloadSelected') }}
+            </NButton>
             <div class="preview-size-control">
               <span>{{ t('wechatNativeCollect.pageSize') }}</span>
               <NSelect
@@ -196,15 +209,53 @@
 
           <div class="preview-list-frame">
             <div v-if="previewList.length" class="article-list article-list--preview">
+              <div class="preview-selection-row">
+                <NCheckbox
+                  :checked="allPreviewSelected"
+                  :indeterminate="somePreviewSelected && !allPreviewSelected"
+                  @update:checked="setAllPreviewArticlesSelected"
+                >
+                  {{ t('wechatNativeCollect.selectCurrentPage') }}
+                </NCheckbox>
+              </div>
               <div
                 v-for="article in previewList"
                 :key="article.link || article.aid"
                 class="article-item"
+                :class="{ 'article-item--selected': isPreviewArticleSelected(article) }"
               >
-                <div class="article-title">{{ article.title || t('wechatNativeCollect.untitled') }}</div>
-                <div class="muted">
-                  <span>{{ formatUnixTime(article.update_time) }}</span>
-                  <span>{{ article.author_name || '—' }}</span>
+                <div class="article-main">
+                  <NCheckbox
+                    :checked="isPreviewArticleSelected(article)"
+                    :disabled="!articleUrl(article)"
+                    @click.stop
+                    @update:checked="(checked) => setPreviewArticleSelected(article, checked)"
+                  />
+                  <div class="article-copy">
+                    <div class="article-title">{{ article.title || t('wechatNativeCollect.untitled') }}</div>
+                    <div class="muted">
+                      <span>{{ formatUnixTime(article.update_time) }}</span>
+                      <span>{{ article.author_name || '—' }}</span>
+                    </div>
+                    <div v-if="articleUrl(article)" class="article-link-row article-original-link">
+                      <span>{{ t('wechatNativeCollect.originalLink') }}</span>
+                      <a :href="articleUrl(article)" target="_blank" rel="noreferrer noopener" @click.stop>
+                        {{ articleUrl(article) }}
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div class="article-actions">
+                  <NButton
+                    size="small"
+                    tertiary
+                    type="primary"
+                    :loading="startingTask"
+                    :disabled="!articleUrl(article)"
+                    @click="downloadPreviewArticle(article)"
+                  >
+                    {{ t('wechatNativeCollect.downloadOne') }}
+                  </NButton>
                 </div>
               </div>
             </div>
@@ -297,7 +348,24 @@
                   <div class="result-body">
                     <div class="article-title">{{ item.title || item.url }}</div>
                     <div class="muted">{{ item.artifact_name || item.error || item.url }}</div>
+                    <div v-if="item.url" class="article-link-row task-result-original-link">
+                      <span>{{ t('wechatNativeCollect.originalLink') }}</span>
+                      <a :href="item.url" target="_blank" rel="noreferrer noopener" @click.stop>
+                        {{ item.url }}
+                      </a>
+                    </div>
                   </div>
+                  <NButton
+                    v-if="item.status === 'success'"
+                    text
+                    type="primary"
+                    size="small"
+                    :loading="startingTask"
+                    :disabled="!articleUrl(item)"
+                    @click="downloadArtifact(item)"
+                  >
+                    {{ t('wechatNativeCollect.downloadOne') }}
+                  </NButton>
                   <NButton
                     v-if="item.status === 'success'"
                     text
@@ -334,6 +402,7 @@ import {
   NAlert,
   NButton,
   NCard,
+  NCheckbox,
   NEmpty,
   NForm,
   NFormItem,
@@ -387,6 +456,7 @@ const previewPageSize = ref(8)
 const previewNextBegin = ref<number | null>(null)
 const previewHasMore = ref(false)
 const previewTotalCount = ref(0)
+const selectedPreviewUrls = ref<string[]>([])
 const selectedAccountMetadata = ref<Record<string, any> | null>(null)
 const previewQuery = ref<{ fakeid: string; keyword: string } | null>(null)
 const tasks = ref<WechatNativeTask[]>([])
@@ -452,6 +522,15 @@ const progressPercent = computed(() => {
 
 const previewRangeStart = computed(() => (previewList.value.length ? previewBegin.value + 1 : 0))
 const previewRangeEnd = computed(() => previewBegin.value + previewList.value.length)
+const selectedPreviewArticles = computed(() => previewList.value.filter((article) => isPreviewArticleSelected(article)))
+const canDownloadSelectedPreview = computed(() => Boolean(selectedSessionId.value && selectedPreviewArticles.value.length))
+const allPreviewSelected = computed(() => {
+  const urls = previewList.value.map(articleUrl).filter(Boolean)
+  return Boolean(urls.length && urls.every((url) => selectedPreviewUrls.value.includes(url)))
+})
+const somePreviewSelected = computed(() => (
+  previewList.value.map(articleUrl).filter(Boolean).some((url) => selectedPreviewUrls.value.includes(url))
+))
 
 function applyPreviewPayload(data: Record<string, any> | undefined, fallbackBegin: number, fallbackPageSize: number) {
   const payload = data || {}
@@ -462,6 +541,8 @@ function applyPreviewPayload(data: Record<string, any> | undefined, fallbackBegi
   previewNextBegin.value = payload.next_begin == null ? null : Number(payload.next_begin)
   previewHasMore.value = Boolean(payload.has_more)
   previewTotalCount.value = Number(payload.total_count ?? payload.total ?? previewList.value.length)
+  const visibleUrls = new Set(previewList.value.map(articleUrl).filter(Boolean))
+  selectedPreviewUrls.value = selectedPreviewUrls.value.filter((url) => visibleUrls.has(url))
 }
 
 function selectedAccountPayload() {
@@ -485,6 +566,50 @@ function basePayload() {
     output_dir: form.output_dir.trim() || undefined,
     max_articles: form.max_articles || undefined,
     delay_seconds: form.delay_seconds ?? undefined,
+  }
+}
+
+function articleUrl(article: Record<string, any>) {
+  return String(article?.link || article?.url || '').trim()
+}
+
+function articleDownloadPayload(article: Record<string, any>) {
+  const url = articleUrl(article)
+  return {
+    aid: String(article.aid || ''),
+    title: String(article.title || '').trim() || t('wechatNativeCollect.untitled'),
+    link: url,
+    url,
+    cover: String(article.cover || article.cover_img || ''),
+    digest: String(article.digest || ''),
+    author_name: String(article.author_name || ''),
+    update_time: Number(article.update_time || article.create_time || 0),
+    create_time: Number(article.create_time || 0),
+  }
+}
+
+function isPreviewArticleSelected(article: Record<string, any>) {
+  const url = articleUrl(article)
+  return Boolean(url && selectedPreviewUrls.value.includes(url))
+}
+
+function setPreviewArticleSelected(article: Record<string, any>, checked: boolean) {
+  const url = articleUrl(article)
+  if (!url) return
+  if (checked && !selectedPreviewUrls.value.includes(url)) {
+    selectedPreviewUrls.value = [...selectedPreviewUrls.value, url]
+  } else if (!checked) {
+    selectedPreviewUrls.value = selectedPreviewUrls.value.filter((item) => item !== url)
+  }
+}
+
+function setAllPreviewArticlesSelected(checked: boolean) {
+  const urls = previewList.value.map(articleUrl).filter(Boolean)
+  if (checked) {
+    selectedPreviewUrls.value = Array.from(new Set([...selectedPreviewUrls.value, ...urls]))
+  } else {
+    const current = new Set(urls)
+    selectedPreviewUrls.value = selectedPreviewUrls.value.filter((url) => !current.has(url))
   }
 }
 
@@ -753,6 +878,47 @@ async function startCollect() {
   }
 }
 
+async function startArticleDownload(articles: Array<Record<string, any>>, successMessage: string) {
+  if (!selectedSessionId.value) {
+    message.warning(t('wechatNativeCollect.selectSession'))
+    return
+  }
+  const selectedArticles = articles
+    .map(articleDownloadPayload)
+    .filter((article) => article.link)
+  if (!selectedArticles.length) {
+    message.warning(t('wechatNativeCollect.selectArticlesFirst'))
+    return
+  }
+  startingTask.value = true
+  try {
+    const res = await wechatNativeApi.start({
+      ...basePayload(),
+      urls: selectedArticles,
+      max_articles: selectedArticles.length,
+    })
+    const taskId = String(res.data?.task_id || '')
+    message.success(successMessage)
+    await loadTasks()
+    if (taskId) {
+      await selectTask(taskId)
+      ensureTaskPolling()
+    }
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || error?.message || t('wechatNativeCollect.downloadFailed'))
+  } finally {
+    startingTask.value = false
+  }
+}
+
+function downloadPreviewArticle(article: Record<string, any>) {
+  void startArticleDownload([article], t('wechatNativeCollect.downloadStarted'))
+}
+
+function downloadSelectedPreviewArticles() {
+  void startArticleDownload(selectedPreviewArticles.value, t('wechatNativeCollect.downloadStarted'))
+}
+
 async function selectTask(taskId: string) {
   selectedTaskId.value = taskId
   try {
@@ -804,6 +970,10 @@ async function cancelSelected() {
   } finally {
     cancelling.value = false
   }
+}
+
+function downloadArtifact(item: Record<string, any>) {
+  void startArticleDownload([item], t('wechatNativeCollect.downloadStarted'))
 }
 
 function openAiCreation(item: Record<string, any>) {
@@ -1062,11 +1232,16 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.preview-selection-row {
+  padding: 4px 2px;
+}
+
 .article-list--preview .article-item {
   min-height: 72px;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .article-list--preview .article-title {
@@ -1074,6 +1249,48 @@ onUnmounted(() => {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.article-item--selected {
+  border-color: rgba(201, 100, 66, 0.42);
+  background: rgba(201, 100, 66, 0.07);
+}
+
+.article-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.article-copy {
+  min-width: 0;
+}
+
+.article-link-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.article-link-row a {
+  min-width: 0;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.article-link-row a:hover {
+  text-decoration: underline;
+}
+
+.article-actions {
+  flex: 0 0 auto;
 }
 
 .preview-empty-state {
@@ -1256,6 +1473,15 @@ onUnmounted(() => {
   .preview-pager {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .article-list--preview .article-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .article-actions {
+    width: 100%;
   }
 }
 </style>

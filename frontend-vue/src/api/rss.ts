@@ -41,8 +41,77 @@ export interface RssFeedPayload {
   fetch_interval_minutes?: number
 }
 
+export interface RssCatalogSource {
+  source_key: string
+  name: string
+  homepage_url?: string
+  feeds_url?: string
+  status_url?: string
+  readme_url?: string
+  license?: string
+  last_synced_at?: string | null
+  last_sync_status?: string | null
+  last_sync_error?: string | null
+  feed_total?: number
+  valid_count?: number
+  invalid_count?: number
+  limited_count?: number
+  success_rate?: string
+}
+
+export interface RssCatalogEntry {
+  id: number
+  source_key: string
+  entry_key: string
+  entry_type: 'feed' | 'rsshub_route'
+  title: string
+  category?: string
+  feed_url?: string
+  site_url?: string
+  route_template?: string
+  description?: string
+  status?: string
+  status_valid?: boolean | null
+  status_limited?: boolean
+  status_code?: number | null
+  status_error?: string
+  status_checked_at?: string
+  imported?: boolean
+  feed_id?: number | null
+}
+
+export interface RssCatalogSummary {
+  total: number
+  feed_count: number
+  route_count: number
+  valid_count: number
+  limited_count: number
+  invalid_count: number
+  category_count: number
+  categories: string[]
+  source?: RssCatalogSource | null
+}
+
 export function listRssFeeds() {
   return request.get<{ feeds: RssFeed[] }>('/api/rss/feeds')
+}
+
+export function listRssCatalog(params: { q?: string; category?: string; entry_type?: string; available?: boolean } = {}) {
+  return request.get<{ entries: RssCatalogEntry[]; summary: RssCatalogSummary }>('/api/rss/catalog', { params })
+}
+
+export function syncRssCatalog() {
+  return request.post<{ ok: boolean; summary: RssCatalogSummary }>('/api/rss/catalog/sync', {})
+}
+
+export function importRssCatalogEntries(entryIds: number[], fetchIntervalMinutes = 60) {
+  return request.post<{ ok: boolean; imported: number; skipped: number; invalid_items: unknown[] }>(
+    '/api/rss/catalog/import',
+    {
+      entry_ids: entryIds,
+      fetch_interval_minutes: fetchIntervalMinutes,
+    },
+  )
 }
 
 export function saveRssFeed(payload: RssFeedPayload) {

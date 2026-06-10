@@ -41,6 +41,35 @@ if not _SSL_VERIFY:
 PROMPT_INPUT_PLACEHOLDER = "__INPUT_DATA__"
 
 
+class LLMAuthenticationError(RuntimeError):
+    """Raised when the configured LLM credentials are missing or rejected."""
+
+
+_AUTH_ERROR_KEYWORDS = (
+    "401",
+    "unauthorized",
+    "invalid_api_key",
+    "missing or invalid api key",
+    "incorrect api key",
+    "api key is invalid",
+    "api_key client option must be set",
+    "authenticationerror",
+)
+
+
+def _clean_error_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    text = _clean_error_text(exc).lower()
+    return any(keyword in text for keyword in _AUTH_ERROR_KEYWORDS)
+
+
+def _authentication_error(exc: Exception) -> LLMAuthenticationError:
+    return LLMAuthenticationError(f"LLM 认证失败: {_clean_error_text(exc)}")
+
+
 def _normalize_openai_base_url(base_url: str | None) -> str | None:
     """Normalize known OpenAI-compatible endpoint aliases."""
     if base_url is None:
@@ -478,6 +507,12 @@ class LLMClient:
                 return self.call(prompt, input_data, **kwargs)
             except Exception as e:
                 last_error = e
+                if _is_auth_error(e):
+                    auth_error = _authentication_error(e)
+                    logger.error("%s", auth_error)
+                    if raise_last_error:
+                        raise auth_error from e
+                    return None
                 wait = (attempt + 1) * 5  # 5s / 10s / 15s
                 logger.warning(f"LLM 调用失败 (attempt {attempt+1}/{max_retries}): {e}，{wait}s 后重试...")
                 if attempt < max_retries - 1:

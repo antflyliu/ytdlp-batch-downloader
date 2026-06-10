@@ -76,6 +76,40 @@ export interface AppConfig {
   tts_provider?: string
   local_tts_url?: string
   video_gen_output_dir?: string
+  voice_provider?: string
+  voice_fallback_order?: string
+  voice_flow_defaults_json?: string
+  voice_output_dir?: string
+  voice_require_disclosure?: boolean
+  voice_allow_reference_clone?: boolean
+  voice_allow_prompt_transcript_clone?: boolean
+  voice_max_text_chars?: number
+  transcription_provider?: string
+  openai_speech_base_url?: string
+  openai_speech_api_key?: string
+  openai_speech_model?: string
+  openai_speech_voice?: string
+  azure_speech_region?: string
+  azure_speech_endpoint?: string
+  azure_speech_api_key?: string
+  azure_speech_voice?: string
+  azure_speech_output_format?: string
+  minimax_speech_base_url?: string
+  minimax_speech_api_key?: string
+  minimax_speech_model?: string
+  minimax_speech_voice?: string
+  voxcpm_base_url?: string
+  voxcpm_api_key?: string
+  voxcpm_model?: string
+  voxcpm_default_voice?: string
+  voxcpm_default_control_instruction?: string
+  vibevoice_tts_base_url?: string
+  vibevoice_tts_api_key?: string
+  vibevoice_tts_model?: string
+  vibevoice_tts_voice?: string
+  vibevoice_asr_base_url?: string
+  vibevoice_asr_api_key?: string
+  vibevoice_asr_model?: string
   video_gen_default_template?: string
   video_gen_default_scene_count?: number
   default_template?: string

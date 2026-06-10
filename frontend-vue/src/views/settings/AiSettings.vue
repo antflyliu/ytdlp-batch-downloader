@@ -224,6 +224,71 @@
           <NInput v-model:value="form.video_gen_output_dir" />
         </NFormItem>
 
+        <NFormItem :label="t('config.voiceProvider')" path="voice_provider">
+          <NSelect v-model:value="form.voice_provider" :options="voiceProviderOptions" style="width: 280px" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceFallbackOrder')" path="voice_fallback_order">
+          <NInput v-model:value="form.voice_fallback_order" :placeholder="t('config.voiceFallbackOrderHint')" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceFlowDefaults')" path="voice_flow_defaults_json">
+          <NInput
+            v-model:value="form.voice_flow_defaults_json"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 5 }"
+            :placeholder="t('config.voiceFlowDefaultsHint')"
+          />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceOutputDir')" path="voice_output_dir">
+          <NInput v-model:value="form.voice_output_dir" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceMaxTextChars')" path="voice_max_text_chars">
+          <NInputNumber v-model:value="form.voice_max_text_chars" :min="100" :max="20000" :step="500" style="width: 140px" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceRequireDisclosure')" path="voice_require_disclosure">
+          <NSwitch v-model:value="form.voice_require_disclosure" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceAllowReferenceClone')" path="voice_allow_reference_clone">
+          <NSwitch v-model:value="form.voice_allow_reference_clone" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voiceAllowPromptTranscriptClone')" path="voice_allow_prompt_transcript_clone">
+          <NSwitch v-model:value="form.voice_allow_prompt_transcript_clone" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.transcriptionProvider')" path="transcription_provider">
+          <NSelect v-model:value="form.transcription_provider" :options="transcriptionProviderOptions" style="width: 280px" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.openaiSpeechApiKey')" path="openai_speech_api_key">
+          <NInput v-model:value="openaiSpeechApiKeyInput" type="password" show-password-on="click" :placeholder="openaiSpeechApiKeyPlaceholder" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.azureSpeechApiKey')" path="azure_speech_api_key">
+          <NInput v-model:value="azureSpeechApiKeyInput" type="password" show-password-on="click" :placeholder="azureSpeechApiKeyPlaceholder" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.minimaxSpeechApiKey')" path="minimax_speech_api_key">
+          <NInput v-model:value="minimaxSpeechApiKeyInput" type="password" show-password-on="click" :placeholder="minimaxSpeechApiKeyPlaceholder" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.voxcpmApiKey')" path="voxcpm_api_key">
+          <NInput v-model:value="voxcpmApiKeyInput" type="password" show-password-on="click" :placeholder="voxcpmApiKeyPlaceholder" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.vibevoiceTtsApiKey')" path="vibevoice_tts_api_key">
+          <NInput v-model:value="vibevoiceTtsApiKeyInput" type="password" show-password-on="click" :placeholder="vibevoiceTtsApiKeyPlaceholder" />
+        </NFormItem>
+
+        <NFormItem :label="t('config.vibevoiceAsrApiKey')" path="vibevoice_asr_api_key">
+          <NInput v-model:value="vibevoiceAsrApiKeyInput" type="password" show-password-on="click" :placeholder="vibevoiceAsrApiKeyPlaceholder" />
+        </NFormItem>
+
         <NFormItem :label="t('config.defaultTemplate')" path="video_gen_default_template">
           <NInput v-model:value="form.video_gen_default_template" />
         </NFormItem>
@@ -383,6 +448,12 @@ const minimaxApiKeyInput = ref('')
 const openaiApiKeyInput = ref('')
 const geminiApiKeyInput = ref('')
 const gmailOAuthClientSecretInput = ref('')
+const openaiSpeechApiKeyInput = ref('')
+const azureSpeechApiKeyInput = ref('')
+const minimaxSpeechApiKeyInput = ref('')
+const voxcpmApiKeyInput = ref('')
+const vibevoiceTtsApiKeyInput = ref('')
+const vibevoiceAsrApiKeyInput = ref('')
 const hasSavedLlmApiKey = ref(false)
 const hasSavedWhisperApiKey = ref(false)
 const hasSavedComfyuiApiKey = ref(false)
@@ -391,6 +462,12 @@ const hasSavedMinimaxApiKey = ref(false)
 const hasSavedOpenaiApiKey = ref(false)
 const hasSavedGeminiApiKey = ref(false)
 const hasSavedGmailOAuthClientSecret = ref(false)
+const hasSavedOpenaiSpeechApiKey = ref(false)
+const hasSavedAzureSpeechApiKey = ref(false)
+const hasSavedMinimaxSpeechApiKey = ref(false)
+const hasSavedVoxcpmApiKey = ref(false)
+const hasSavedVibevoiceTtsApiKey = ref(false)
+const hasSavedVibevoiceAsrApiKey = ref(false)
 
 const llmApiKeyPlaceholder = computed(() => (
   hasSavedLlmApiKey.value
@@ -428,6 +505,30 @@ const gmailOAuthClientSecretPlaceholder = computed(() => (
     : t('config.gmailOAuthClientSecret')
 ))
 
+const openaiSpeechApiKeyPlaceholder = computed(() => (
+  hasSavedOpenaiSpeechApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.openaiSpeechApiKey')
+))
+
+const azureSpeechApiKeyPlaceholder = computed(() => (
+  hasSavedAzureSpeechApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.azureSpeechApiKey')
+))
+
+const minimaxSpeechApiKeyPlaceholder = computed(() => (
+  hasSavedMinimaxSpeechApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.minimaxSpeechApiKey')
+))
+
+const voxcpmApiKeyPlaceholder = computed(() => (
+  hasSavedVoxcpmApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.voxcpmApiKey')
+))
+
+const vibevoiceTtsApiKeyPlaceholder = computed(() => (
+  hasSavedVibevoiceTtsApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.vibevoiceTtsApiKey')
+))
+
+const vibevoiceAsrApiKeyPlaceholder = computed(() => (
+  hasSavedVibevoiceAsrApiKey.value ? t('settings.secretSavedPlaceholder') : t('config.vibevoiceAsrApiKey')
+))
+
 const providerOptions = [
   { label: t('config.llmQwen'), value: 'qwen' },
   { label: t('config.llmOpenai'), value: 'openai' },
@@ -446,6 +547,24 @@ const categoryOptions = [
 const ttsProviderOptions = [
   { label: t('config.ttsLocal'), value: 'local' },
   { label: t('config.ttsEdge'), value: 'edge-tts' },
+]
+
+const voiceProviderOptions = [
+  { label: 'Edge TTS', value: 'edge_tts' },
+  { label: 'Local HTTP TTS', value: 'local_http_tts' },
+  { label: 'OpenAI Speech', value: 'openai_speech' },
+  { label: 'Azure Speech', value: 'azure_speech' },
+  { label: 'MiniMax Speech', value: 'minimax_speech' },
+  { label: 'VoxCPM HTTP', value: 'voxcpm_http' },
+  { label: 'VibeVoice TTS', value: 'vibevoice_tts' },
+  { label: 'Silent', value: 'silent' },
+]
+
+const transcriptionProviderOptions = [
+  { label: 'Whisper API', value: 'whisper_api' },
+  { label: t('config.whisperProviderLocal'), value: 'whisper_local' },
+  { label: 'VibeVoice ASR', value: 'vibevoice_asr' },
+  { label: 'VibeVoice vLLM ASR', value: 'vibevoice_vllm_asr' },
 ]
 
 const imageProviderOptions = [
@@ -538,6 +657,40 @@ const form = reactive<AppConfig>({
   tts_provider: 'local',
   local_tts_url: '',
   video_gen_output_dir: '',
+  voice_provider: 'edge_tts',
+  voice_fallback_order: 'edge_tts,local_http_tts,silent',
+  voice_flow_defaults_json: '{}',
+  voice_output_dir: '',
+  voice_require_disclosure: true,
+  voice_allow_reference_clone: false,
+  voice_allow_prompt_transcript_clone: false,
+  voice_max_text_chars: 5000,
+  transcription_provider: 'whisper_api',
+  openai_speech_base_url: 'https://api.openai.com/v1',
+  openai_speech_api_key: '',
+  openai_speech_model: 'gpt-4o-mini-tts',
+  openai_speech_voice: 'alloy',
+  azure_speech_region: '',
+  azure_speech_endpoint: '',
+  azure_speech_api_key: '',
+  azure_speech_voice: '',
+  azure_speech_output_format: 'riff-24khz-16bit-mono-pcm',
+  minimax_speech_base_url: 'https://api.minimax.io',
+  minimax_speech_api_key: '',
+  minimax_speech_model: 'speech-2.8-hd',
+  minimax_speech_voice: '',
+  voxcpm_base_url: '',
+  voxcpm_api_key: '',
+  voxcpm_model: 'openbmb/VoxCPM2',
+  voxcpm_default_voice: 'default',
+  voxcpm_default_control_instruction: '',
+  vibevoice_tts_base_url: '',
+  vibevoice_tts_api_key: '',
+  vibevoice_tts_model: 'microsoft/VibeVoice-Realtime-0.5B',
+  vibevoice_tts_voice: 'Carter',
+  vibevoice_asr_base_url: '',
+  vibevoice_asr_api_key: '',
+  vibevoice_asr_model: 'microsoft/VibeVoice-ASR',
   video_gen_default_template: '1080x1920/image_default.html',
   video_gen_default_scene_count: 5,
   image_generation_provider: 'minimax',
@@ -616,6 +769,40 @@ const loadConfig = async () => {
     form.tts_provider = data.tts_provider || 'local'
     form.local_tts_url = data.local_tts_url || ''
     form.video_gen_output_dir = data.video_gen_output_dir || ''
+    form.voice_provider = data.voice_provider || 'edge_tts'
+    form.voice_fallback_order = data.voice_fallback_order || 'edge_tts,local_http_tts,silent'
+    form.voice_flow_defaults_json = data.voice_flow_defaults_json || '{}'
+    form.voice_output_dir = data.voice_output_dir || ''
+    form.voice_require_disclosure = data.voice_require_disclosure ?? true
+    form.voice_allow_reference_clone = !!data.voice_allow_reference_clone
+    form.voice_allow_prompt_transcript_clone = !!data.voice_allow_prompt_transcript_clone
+    form.voice_max_text_chars = data.voice_max_text_chars || 5000
+    form.transcription_provider = data.transcription_provider || 'whisper_api'
+    form.openai_speech_base_url = data.openai_speech_base_url || 'https://api.openai.com/v1'
+    form.openai_speech_api_key = hydrateSecret(data.openai_speech_api_key || '', openaiSpeechApiKeyInput, hasSavedOpenaiSpeechApiKey)
+    form.openai_speech_model = data.openai_speech_model || 'gpt-4o-mini-tts'
+    form.openai_speech_voice = data.openai_speech_voice || 'alloy'
+    form.azure_speech_region = data.azure_speech_region || ''
+    form.azure_speech_endpoint = data.azure_speech_endpoint || ''
+    form.azure_speech_api_key = hydrateSecret(data.azure_speech_api_key || '', azureSpeechApiKeyInput, hasSavedAzureSpeechApiKey)
+    form.azure_speech_voice = data.azure_speech_voice || ''
+    form.azure_speech_output_format = data.azure_speech_output_format || 'riff-24khz-16bit-mono-pcm'
+    form.minimax_speech_base_url = data.minimax_speech_base_url || 'https://api.minimax.io'
+    form.minimax_speech_api_key = hydrateSecret(data.minimax_speech_api_key || '', minimaxSpeechApiKeyInput, hasSavedMinimaxSpeechApiKey)
+    form.minimax_speech_model = data.minimax_speech_model || 'speech-2.8-hd'
+    form.minimax_speech_voice = data.minimax_speech_voice || ''
+    form.voxcpm_base_url = data.voxcpm_base_url || ''
+    form.voxcpm_api_key = hydrateSecret(data.voxcpm_api_key || '', voxcpmApiKeyInput, hasSavedVoxcpmApiKey)
+    form.voxcpm_model = data.voxcpm_model || 'openbmb/VoxCPM2'
+    form.voxcpm_default_voice = data.voxcpm_default_voice || 'default'
+    form.voxcpm_default_control_instruction = data.voxcpm_default_control_instruction || ''
+    form.vibevoice_tts_base_url = data.vibevoice_tts_base_url || ''
+    form.vibevoice_tts_api_key = hydrateSecret(data.vibevoice_tts_api_key || '', vibevoiceTtsApiKeyInput, hasSavedVibevoiceTtsApiKey)
+    form.vibevoice_tts_model = data.vibevoice_tts_model || 'microsoft/VibeVoice-Realtime-0.5B'
+    form.vibevoice_tts_voice = data.vibevoice_tts_voice || 'Carter'
+    form.vibevoice_asr_base_url = data.vibevoice_asr_base_url || ''
+    form.vibevoice_asr_api_key = hydrateSecret(data.vibevoice_asr_api_key || '', vibevoiceAsrApiKeyInput, hasSavedVibevoiceAsrApiKey)
+    form.vibevoice_asr_model = data.vibevoice_asr_model || 'microsoft/VibeVoice-ASR'
     form.video_gen_default_template = data.video_gen_default_template || data.default_template || '1080x1920/image_default.html'
     form.video_gen_default_scene_count = data.video_gen_default_scene_count || data.default_scene_count || 5
     form.image_generation_provider = data.image_generation_provider || 'minimax'
@@ -665,6 +852,12 @@ const save = async () => {
       openai_api_key: openaiApiKeyInput.value,
       gemini_api_key: geminiApiKeyInput.value,
       gmail_oauth_client_secret: gmailOAuthClientSecretInput.value,
+      openai_speech_api_key: openaiSpeechApiKeyInput.value,
+      azure_speech_api_key: azureSpeechApiKeyInput.value,
+      minimax_speech_api_key: minimaxSpeechApiKeyInput.value,
+      voxcpm_api_key: voxcpmApiKeyInput.value,
+      vibevoice_tts_api_key: vibevoiceTtsApiKeyInput.value,
+      vibevoice_asr_api_key: vibevoiceAsrApiKeyInput.value,
       article_target_lang: form.article_default_target_lang,
       default_template: form.video_gen_default_template,
       default_scene_count: form.video_gen_default_scene_count,
@@ -693,6 +886,24 @@ const save = async () => {
     if (hasSavedGmailOAuthClientSecret.value && !gmailOAuthClientSecretInput.value) {
       payload.gmail_oauth_client_secret = MASKED_SECRET_VALUE
     }
+    if (hasSavedOpenaiSpeechApiKey.value && !openaiSpeechApiKeyInput.value) {
+      payload.openai_speech_api_key = MASKED_SECRET_VALUE
+    }
+    if (hasSavedAzureSpeechApiKey.value && !azureSpeechApiKeyInput.value) {
+      payload.azure_speech_api_key = MASKED_SECRET_VALUE
+    }
+    if (hasSavedMinimaxSpeechApiKey.value && !minimaxSpeechApiKeyInput.value) {
+      payload.minimax_speech_api_key = MASKED_SECRET_VALUE
+    }
+    if (hasSavedVoxcpmApiKey.value && !voxcpmApiKeyInput.value) {
+      payload.voxcpm_api_key = MASKED_SECRET_VALUE
+    }
+    if (hasSavedVibevoiceTtsApiKey.value && !vibevoiceTtsApiKeyInput.value) {
+      payload.vibevoice_tts_api_key = MASKED_SECRET_VALUE
+    }
+    if (hasSavedVibevoiceAsrApiKey.value && !vibevoiceAsrApiKeyInput.value) {
+      payload.vibevoice_asr_api_key = MASKED_SECRET_VALUE
+    }
     await configApi.save(payload)
     if (payload.llm_api_key) {
       hasSavedLlmApiKey.value = true
@@ -709,6 +920,12 @@ const save = async () => {
     hasSavedOpenaiApiKey.value = Boolean(payload.openai_api_key)
     hasSavedGeminiApiKey.value = Boolean(payload.gemini_api_key)
     hasSavedGmailOAuthClientSecret.value = Boolean(payload.gmail_oauth_client_secret)
+    hasSavedOpenaiSpeechApiKey.value = Boolean(payload.openai_speech_api_key)
+    hasSavedAzureSpeechApiKey.value = Boolean(payload.azure_speech_api_key)
+    hasSavedMinimaxSpeechApiKey.value = Boolean(payload.minimax_speech_api_key)
+    hasSavedVoxcpmApiKey.value = Boolean(payload.voxcpm_api_key)
+    hasSavedVibevoiceTtsApiKey.value = Boolean(payload.vibevoice_tts_api_key)
+    hasSavedVibevoiceAsrApiKey.value = Boolean(payload.vibevoice_asr_api_key)
     whisperApiKeyInput.value = ''
     comfyuiApiKeyInput.value = ''
     runninghubApiKeyInput.value = ''
@@ -716,6 +933,12 @@ const save = async () => {
     openaiApiKeyInput.value = ''
     geminiApiKeyInput.value = ''
     gmailOAuthClientSecretInput.value = ''
+    openaiSpeechApiKeyInput.value = ''
+    azureSpeechApiKeyInput.value = ''
+    minimaxSpeechApiKeyInput.value = ''
+    voxcpmApiKeyInput.value = ''
+    vibevoiceTtsApiKeyInput.value = ''
+    vibevoiceAsrApiKeyInput.value = ''
     form.whisper_api_key = hasSavedWhisperApiKey.value ? MASKED_SECRET_VALUE : ''
     form.comfyui_api_key = hasSavedComfyuiApiKey.value ? MASKED_SECRET_VALUE : ''
     form.runninghub_api_key = hasSavedRunninghubApiKey.value ? MASKED_SECRET_VALUE : ''
@@ -723,6 +946,12 @@ const save = async () => {
     form.openai_api_key = hasSavedOpenaiApiKey.value ? MASKED_SECRET_VALUE : ''
     form.gemini_api_key = hasSavedGeminiApiKey.value ? MASKED_SECRET_VALUE : ''
     form.gmail_oauth_client_secret = hasSavedGmailOAuthClientSecret.value ? MASKED_SECRET_VALUE : ''
+    form.openai_speech_api_key = hasSavedOpenaiSpeechApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.azure_speech_api_key = hasSavedAzureSpeechApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.minimax_speech_api_key = hasSavedMinimaxSpeechApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.voxcpm_api_key = hasSavedVoxcpmApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.vibevoice_tts_api_key = hasSavedVibevoiceTtsApiKey.value ? MASKED_SECRET_VALUE : ''
+    form.vibevoice_asr_api_key = hasSavedVibevoiceAsrApiKey.value ? MASKED_SECRET_VALUE : ''
     message.success(t('settings.saved'))
   } catch {
     message.error(t('settings.saveFailed'))

@@ -60,13 +60,25 @@ export interface WechatNativeTask {
   }>
 }
 
+export interface WechatNativeArticlePreview {
+  aid?: string
+  title?: string
+  link?: string
+  url?: string
+  cover?: string
+  digest?: string
+  author_name?: string
+  update_time?: number
+  create_time?: number
+}
+
 export interface WechatNativeStartPayload {
   session_id: string
   article_url?: string
   fakeid?: string
   account?: Record<string, any>
   account_name?: string
-  urls?: string[]
+  urls?: Array<string | WechatNativeArticlePreview>
   keyword?: string
   format?: WechatNativeFormat
   output_dir?: string

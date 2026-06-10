@@ -60,6 +60,12 @@ const routes = [
     component: () => import('@/views/AiCreation.vue'),
   },
   {
+    path: '/ai-voice',
+    name: 'aiVoice',
+    meta: { keepAlive: false },
+    component: () => import('@/views/AiVoice.vue'),
+  },
+  {
     path: '/email-pipeline',
     name: 'emailPipeline',
     meta: { keepAlive: false },

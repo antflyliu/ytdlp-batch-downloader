@@ -134,6 +134,7 @@ const proxyPoolIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const dynamicProxyIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>`
 const clipHistoryIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>`
 const aiCreationIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m5.64 5.64 2.83 2.83"/><path d="m15.53 15.53 2.83 2.83"/><path d="m18.36 5.64-2.83 2.83"/><path d="m8.47 15.53-2.83 2.83"/><circle cx="12" cy="12" r="3"/></svg>`
+const aiVoiceIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10v4"/><path d="M8 7v10"/><path d="M12 4v16"/><path d="M16 8v8"/><path d="M20 11v2"/></svg>`
 const emailPipelineIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="m22 7-10 7L2 7"/><path d="M8 11h8"/></svg>`
 const rssPipelineIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>`
 const wereadExporterIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/><path d="M8 6h8"/><path d="M8 10h6"/></svg>`
@@ -163,6 +164,7 @@ const navItems = [
   { key: 'dynamicProviders', path: '/dynamic-providers', icon: dynamicProxyIcon },
   { key: 'clipHistory', path: '/clip-history', icon: clipHistoryIcon },
   { key: 'aiCreation', path: '/ai-creation', icon: aiCreationIcon },
+  { key: 'aiVoice', path: '/ai-voice', icon: aiVoiceIcon },
   { key: 'emailPipeline', path: '/email-pipeline', icon: emailPipelineIcon },
   { key: 'rssPipeline', path: '/rss-pipeline', icon: rssPipelineIcon },
   { key: 'wereadExporter', path: '/weread-exporter', icon: wereadExporterIcon },
@@ -184,6 +186,7 @@ const settingsSubItems = [
 
 const explicitNavLabels: Record<string, string> = {
   aiCreation: 'nav.aiCreation',
+  aiVoice: 'nav.aiVoice',
   wechatCollect: 'nav.wechatCollect',
   wechatNativeCollect: 'nav.wechatNativeCollect',
 }

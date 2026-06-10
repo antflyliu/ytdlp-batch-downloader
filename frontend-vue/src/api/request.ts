@@ -6,7 +6,7 @@ import axios from 'axios'
  */
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
-/** 占位导出：Monitor HTTP API 已不做 Bearer / api_token 鉴权 */
+/** 占位导出：Monitor HTTP API 已不做 Bearer 或查询参数鉴权 */
 export function _getToken(): string {
   return ''
 }

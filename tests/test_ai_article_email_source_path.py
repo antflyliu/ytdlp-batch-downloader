@@ -71,21 +71,21 @@ def test_prepare_article_payload_uses_email_message_source_metadata(service_env)
 
     payload = service.prepare_article_payload(message_id, target_lang="zh-Hans")
 
-    assert payload == {
-        "monitor_video_id": None,
-        "video_id": None,
-        "video_url": None,
-        "video_title": "AI Weekly",
-        "source_type": "email_message",
-        "email_message_id": message_id,
-        "article_text": (
-            "Email body for article generation. It contains enough product details, "
-            "release context, and implementation notes to stay above the ignore threshold."
-        ),
-        "source_url": "https://mail.google.com/mail/u/0/#all/gmail-msg-17",
-        "source_title": "AI Weekly",
-        "target_lang": "zh-Hans",
-    }
+    assert payload["monitor_video_id"] is None
+    assert payload["video_id"] is None
+    assert payload["video_url"] is None
+    assert payload["video_title"] == "AI Weekly"
+    assert payload["source_type"] == "email_message"
+    assert payload["email_message_id"] == message_id
+    assert payload["source_url"] == "https://mail.google.com/mail/u/0/#all/gmail-msg-17"
+    assert payload["source_title"] == "AI Weekly"
+    assert payload["target_lang"] == "zh-Hans"
+    assert Path(payload["article_source_path"]).is_file()
+    assert "来源类型：email_message" in payload["article_text"]
+    assert "Email body for article generation" in payload["article_text"]
+
+    persisted = service.get_message(message_id)
+    assert persisted["body_markdown_path"] == payload["article_source_path"]
 
 
 def test_prepare_article_payload_uses_fallback_title_and_source_url_when_message_metadata_missing(service_env):
@@ -118,3 +118,32 @@ def test_prepare_article_payload_uses_fallback_title_and_source_url_when_message
     assert payload["video_title"] == f"Email {message_id}"
     assert payload["source_title"] == f"Email {message_id}"
     assert payload["source_url"] == f"/api/email/messages/{message_id}"
+    assert Path(payload["article_source_path"]).is_file()
+
+
+def test_prepare_article_payload_reuses_existing_email_markdown_archive(service_env, tmp_path):
+    service = service_env
+    account_id = _create_account(service)
+    archive = tmp_path / "source.md"
+    archive.write_text("# Existing Archive\n\nAlready local.", encoding="utf-8")
+    message_id = email_queries.upsert_email_message(
+        {
+            "account_id": account_id,
+            "provider": "imap",
+            "provider_message_id": "imap-msg-19",
+            "subject": "Archived Email",
+            "snippet": "Already local.",
+            "body_text": "Network body should not replace the archive.",
+            "body_markdown_path": str(archive),
+            "body_hash": "hash-19",
+            "classification": {"action": "generate_variants"},
+            "cleaning_report": {"removed_quoted_chain": False},
+            "processing_status": "classified",
+            "source_url": "",
+        }
+    )
+
+    payload = service.prepare_article_payload(message_id)
+
+    assert payload["article_source_path"] == str(archive)
+    assert payload["article_text"] == "# Existing Archive\n\nAlready local."

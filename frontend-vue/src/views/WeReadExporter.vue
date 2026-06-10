@@ -28,9 +28,20 @@
               <span>{{ t('wereadExporter.runtime') }}</span>
               <strong>{{ config?.playwright_installed ? t('wereadExporter.runtimeReady') : t('wereadExporter.runtimeMissing') }}</strong>
             </div>
-            <NTag :type="config?.playwright_installed ? 'success' : 'warning'" :bordered="false">
-              {{ config?.playwright_installed ? 'Playwright' : t('wereadExporter.optional') }}
-            </NTag>
+            <div class="runtime-actions">
+              <NTag :type="config?.chrome_cdp_available ? 'success' : 'warning'" :bordered="false">
+                {{ config?.chrome_cdp_available ? t('wereadExporter.chromeCdpReady') : t('wereadExporter.chromeCdpMissing') }}
+              </NTag>
+              <NButton
+                v-if="config && !config.chrome_cdp_available"
+                tertiary
+                size="small"
+                :loading="startingChrome"
+                @click="startChromeCdp"
+              >
+                {{ t('wereadExporter.startChromeCdp') }}
+              </NButton>
+            </div>
           </div>
 
           <NAlert v-if="config && !config.playwright_installed" type="warning" :bordered="false">
@@ -47,6 +58,12 @@
             </NFormItem>
             <NFormItem :label="t('wereadExporter.outputDir')">
               <NInput v-model:value="form.output_dir" clearable :placeholder="config?.output_root || ''" />
+            </NFormItem>
+            <NFormItem :label="t('wereadExporter.chromeCdpEndpoint')">
+              <NInput v-model:value="form.chrome_cdp_endpoint" clearable placeholder="http://127.0.0.1:9222" />
+            </NFormItem>
+            <NFormItem :label="t('wereadExporter.chromeCdpProfileDir')">
+              <NInput v-model:value="form.chrome_cdp_profile_dir" clearable :placeholder="config?.chrome_cdp_profile_dir || ''" />
             </NFormItem>
             <NFormItem>
               <NCheckbox v-model:checked="form.save_raw">
@@ -198,12 +215,15 @@ const selectedTask = ref<WeReadExportTask | null>(null)
 const loadingAll = ref(false)
 const loadingTasks = ref(false)
 const starting = ref(false)
+const startingChrome = ref(false)
 const cancelling = ref(false)
 let pollTimer: number | null = null
 
 const form = reactive({
   book: '',
   output_dir: '',
+  chrome_cdp_endpoint: '',
+  chrome_cdp_profile_dir: '',
   save_raw: true,
 })
 
@@ -221,6 +241,12 @@ const progressPercent = computed(() => {
 async function loadConfig() {
   const { data } = await wereadExporterApi.getConfig()
   config.value = data
+  if (!form.chrome_cdp_endpoint) {
+    form.chrome_cdp_endpoint = data.chrome_cdp_endpoint || 'http://127.0.0.1:9222'
+  }
+  if (!form.chrome_cdp_profile_dir) {
+    form.chrome_cdp_profile_dir = data.chrome_cdp_profile_dir || ''
+  }
 }
 
 async function loadTasks() {
@@ -257,6 +283,8 @@ async function startExport() {
     const { data } = await wereadExporterApi.start({
       book: form.book.trim(),
       output_dir: form.output_dir.trim() || undefined,
+      chrome_cdp_endpoint: form.chrome_cdp_endpoint.trim() || undefined,
+      chrome_cdp_profile_dir: form.chrome_cdp_profile_dir.trim() || undefined,
       save_raw: form.save_raw,
     })
     message.success(t('wereadExporter.started'))
@@ -269,6 +297,26 @@ async function startExport() {
     message.error(error?.response?.data?.error || error?.message || t('wereadExporter.startFailed'))
   } finally {
     starting.value = false
+  }
+}
+
+async function startChromeCdp() {
+  startingChrome.value = true
+  try {
+    const { data } = await wereadExporterApi.startChromeCdp({
+      chrome_cdp_endpoint: form.chrome_cdp_endpoint.trim() || undefined,
+      chrome_cdp_profile_dir: form.chrome_cdp_profile_dir.trim() || undefined,
+    })
+    await loadConfig()
+    if (data.chrome_cdp_available || data.available) {
+      message.success(t('wereadExporter.chromeCdpStarted'))
+    } else {
+      message.warning(data.error || t('wereadExporter.chromeCdpStartPending'))
+    }
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || error?.message || t('wereadExporter.chromeCdpStartFailed'))
+  } finally {
+    startingChrome.value = false
   }
 }
 
@@ -391,6 +439,7 @@ onUnmounted(stopPolling)
 }
 
 .runtime-strip,
+.runtime-actions,
 .task-row,
 .task-progress,
 .detail-head,
@@ -406,6 +455,11 @@ onUnmounted(stopPolling)
 .runtime-strip {
   padding: 4px 0 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.runtime-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .runtime-strip span,

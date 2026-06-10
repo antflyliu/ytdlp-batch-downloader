@@ -11,12 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import monitor.db as monitor_db
-import monitor.db.connection as db_connection
-from monitor.db.queries import rss_collect as rss_queries
-from monitor.rss_collect.parser import build_opml_document, parse_feed_xml, parse_opml_document
-from monitor.rss_collect.security import validate_external_http_url
-from monitor.rss_collect.service import MAX_OPML_CHARS, RssCollectService, _validate_response_peer
+import monitor.db as monitor_db  # noqa: E402
+import monitor.db.connection as db_connection  # noqa: E402
+from monitor.db.queries import rss_collect as rss_queries  # noqa: E402
+from monitor.rss_collect.parser import RssParseError, build_opml_document, parse_feed_xml, parse_opml_document  # noqa: E402
+from monitor.rss_collect.security import validate_external_http_url  # noqa: E402
+from monitor.rss_collect.catalog import FEED_STATUS_URL, FEEDS_OPML_URL, README_URL, RssCatalogService  # noqa: E402
+from monitor.rss_collect.service import MAX_OPML_CHARS, RssCollectService, _validate_response_peer  # noqa: E402
 
 
 @pytest.fixture()
@@ -55,6 +56,22 @@ RSS_XML = """<?xml version="1.0"?>
 """
 
 
+ATOM_XHTML_XML = """<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Updates</title>
+  <link href="https://example.com/" />
+  <entry>
+    <title>Nested Atom content</title>
+    <id>tag:example.com,2026:atom-1</id>
+    <author><name>Alice</name></author>
+    <content type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml"><p>Hello <strong>world</strong>.</p></div>
+    </content>
+  </entry>
+</feed>
+"""
+
+
 def test_parse_feed_xml_normalizes_rss_items_preview_and_media():
     parsed = parse_feed_xml(RSS_XML, feed_url="https://example.com/feed.xml")
 
@@ -69,6 +86,16 @@ def test_parse_feed_xml_normalizes_rss_items_preview_and_media():
     assert item.media_attachments == [
         {"url": "https://example.com/audio.mp3", "mime_type": "audio/mpeg", "size_bytes": 1234}
     ]
+
+
+def test_parse_feed_xml_preserves_nested_atom_author_and_xhtml_content():
+    parsed = parse_feed_xml(ATOM_XHTML_XML, feed_url="https://example.com/feed.atom")
+
+    item = parsed.items[0]
+    assert item.author == "Alice"
+    assert "Hello" in item.content_html
+    assert "world" in item.content_html
+    assert item.summary == "Hello world ."
 
 
 def test_parse_and_build_opml_preserves_categories_and_rejects_duplicates():
@@ -105,6 +132,10 @@ def test_xml_parser_rejects_entities():
 def test_rss_service_refreshes_items_and_prepares_article_task(db_env, monkeypatch):
     service = RssCollectService()
     monkeypatch.setattr(RssCollectService, "_fetch_feed_xml", staticmethod(lambda _url: RSS_XML))
+    monkeypatch.setattr(
+        "monitor.article_source_archive._default_downloader",
+        lambda url: (b"asset", "image/png" if url.endswith(".png") else "audio/mpeg"),
+    )
 
     feed = service.save_feed({"title": "Manual title", "feed_url": "https://example.com/feed.xml", "category": "AI"})
     result = service.refresh_feed(feed["id"])
@@ -121,6 +152,7 @@ def test_rss_service_refreshes_items_and_prepares_article_task(db_env, monkeypat
         video_url=None,
         video_title=payload["source_title"],
         source_type=payload["source_type"],
+        article_source_path=payload["article_source_path"],
         article_text=payload["article_text"],
         source_url=payload["source_url"],
         source_title=payload["source_title"],
@@ -133,7 +165,11 @@ def test_rss_service_refreshes_items_and_prepares_article_task(db_env, monkeypat
     linked = service.get_item(items[0]["id"])
     assert task["source_type"] == "rss_item"
     assert task["rss_item_id"] == items[0]["id"]
+    assert task["article_source_path"] == payload["article_source_path"]
+    assert Path(payload["article_source_path"]).is_file()
     assert "Benchmarks and rollout notes" in task["article_text"]
+    assert "assets/asset-001.png" in task["article_text"]
+    assert "assets/asset-002" in task["article_text"]
     assert linked["article_task_id"] == task_id
 
 
@@ -151,6 +187,37 @@ def test_rss_fetch_revalidates_redirect_locations(monkeypatch):
     monkeypatch.setattr(urllib.request, "build_opener", lambda *_args, **_kwargs: RedirectingOpener())
 
     with pytest.raises(ValueError):
+        RssCollectService._fetch_feed_xml("https://example.com/feed.xml")
+
+
+def test_rss_fetch_rejects_oversized_feed_instead_of_silently_truncating(monkeypatch):
+    class Headers:
+        @staticmethod
+        def get_content_charset():
+            return None
+
+    class OversizedResponse:
+        headers = Headers()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def read(size):
+            return b"x" * size
+
+    class OversizedOpener:
+        @staticmethod
+        def open(_request, timeout=20):
+            return OversizedResponse()
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *_args, **_kwargs: OversizedOpener())
+    monkeypatch.setattr("monitor.rss_collect.service._validate_response_peer", lambda _response: None)
+
+    with pytest.raises(RuntimeError, match="Feed 内容过大"):
         RssCollectService._fetch_feed_xml("https://example.com/feed.xml")
 
 
@@ -184,13 +251,128 @@ def test_opml_import_rejects_oversized_payload(db_env):
         service.import_opml("x" * (MAX_OPML_CHARS + 1))
 
 
+def test_opml_reimport_preserves_existing_feed_runtime_settings(db_env):
+    service = RssCollectService()
+    service.save_feed(
+        {
+            "title": "Existing",
+            "feed_url": "https://example.com/feed.xml",
+            "site_url": "https://example.com/",
+            "enabled": False,
+            "fetch_interval_minutes": 180,
+        }
+    )
+
+    result = service.import_opml(
+        """<opml version="2.0"><body>
+          <outline text="Imported title" type="rss" xmlUrl="https://example.com/feed.xml" />
+        </body></opml>"""
+    )
+
+    feed = service.list_feeds()[0]
+    assert result["imported"] == 1
+    assert feed["title"] == "Imported title"
+    assert feed["enabled"] is False
+    assert feed["fetch_interval_minutes"] == 180
+    assert feed["site_url"] == "https://example.com/"
+
+
+def test_rss_catalog_sync_stores_feeds_health_and_rsshub_routes(db_env, monkeypatch):
+    service = RssCatalogService()
+    opml = """<opml version="2.0"><body>
+      <outline text="AI" title="AI">
+        <outline text="Feed A" type="rss" xmlUrl="https://example.com/a.xml" htmlUrl="https://example.com/" />
+        <outline text="Feed B" type="rss" xmlUrl="https://example.com/b.xml" />
+      </outline>
+    </body></opml>"""
+    status = """{
+      "checkTime": "2026-06-08 11:12:47 (北京时间)",
+      "total": 2,
+      "valid": 1,
+      "invalid": 1,
+      "limited": 0,
+      "successRate": "50%",
+      "feeds": [
+        {"name": "Feed A", "url": "https://example.com/a.xml", "status": "valid", "valid": true, "limited": false, "statusCode": 200, "error": null},
+        {"name": "Feed B", "url": "https://example.com/b.xml", "status": "invalid", "valid": false, "limited": false, "statusCode": 500, "error": "HTTP 500"}
+      ]
+    }"""
+    readme = """# Awesome RSSHub Routes
+## RSSHub Routes
+### Social Media
+#### Weibo
+| Name | Route | Description |
+| --- | --- | --- |
+| Trending | `/weibo/search/hot` | Real-time trending |
+## RSS Tooling
+"""
+
+    def fake_fetch(url):
+        if url == FEEDS_OPML_URL:
+            return opml
+        if url == FEED_STATUS_URL:
+            return status
+        if url == README_URL:
+            return readme
+        raise AssertionError(url)
+
+    monkeypatch.setattr(RssCatalogService, "_fetch_text", staticmethod(fake_fetch))
+
+    result = service.sync_catalog()
+    catalog = service.list_catalog()
+
+    assert result["summary"]["feed_count"] == 2
+    assert result["summary"]["route_count"] == 1
+    assert result["summary"]["source"]["success_rate"] == "50%"
+    feed_a = next(entry for entry in catalog["entries"] if entry["feed_url"] == "https://example.com/a.xml")
+    route = next(entry for entry in catalog["entries"] if entry["entry_type"] == "rsshub_route")
+    assert feed_a["status_valid"] is True
+    assert feed_a["status_code"] == 200
+    assert route["title"] == "Trending"
+    assert route["route_template"] == "/weibo/search/hot"
+    assert route["category"] == "Social Media / Weibo"
+
+
+def test_rss_catalog_import_selected_feeds_persists_to_rss_feeds(db_env, monkeypatch):
+    service = RssCatalogService()
+    monkeypatch.setattr(
+        RssCatalogService,
+        "_fetch_text",
+        staticmethod(
+            lambda url: {
+                FEEDS_OPML_URL: """<opml version="2.0"><body>
+                  <outline text="AI">
+                    <outline text="Feed A" type="rss" xmlUrl="https://example.com/a.xml" htmlUrl="https://example.com/" />
+                  </outline>
+                </body></opml>""",
+                FEED_STATUS_URL: '{"feeds": []}',
+                README_URL: "## RSSHub Routes\n## RSS Tooling\n",
+            }[url]
+        ),
+    )
+
+    service.sync_catalog()
+    entry = service.list_catalog()["entries"][0]
+    result = service.import_catalog_entries([entry["id"]], fetch_interval_minutes=180)
+
+    feeds = RssCollectService().list_feeds()
+    refreshed_catalog = service.list_catalog()["entries"][0]
+    assert result["imported"] == 1
+    assert feeds[0]["title"] == "Feed A"
+    assert feeds[0]["feed_url"] == "https://example.com/a.xml"
+    assert feeds[0]["category"] == "AI"
+    assert feeds[0]["fetch_interval_minutes"] == 180
+    assert refreshed_catalog["imported"] is True
+    assert refreshed_catalog["feed_id"] == feeds[0]["id"]
+
+
 def test_init_db_bootstraps_rss_collect_schema(db_env):
     with monitor_db.get_connection() as conn:
         rss_queries.ensure_schema(conn)
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         article_cols = {row["name"] for row in conn.execute("PRAGMA table_info(article_tasks)").fetchall()}
 
-    assert {"rss_feeds", "rss_items"} <= tables
+    assert {"rss_feeds", "rss_items", "rss_catalog_sources", "rss_catalog_entries"} <= tables
     assert "rss_item_id" in article_cols
 
 
@@ -226,3 +408,25 @@ def test_rss_items_api_rejects_invalid_feed_id(monkeypatch):
 
     assert captured["status"] == 400
     assert "feed_id" in captured["payload"]["error"]
+
+
+def test_rss_refresh_api_reports_invalid_feed_content_as_bad_request(monkeypatch):
+    import server.__main__ as server_main
+
+    handler = object.__new__(server_main.MonitorHandler)
+    captured = {}
+
+    def fake_refresh(_feed_id, *, max_items):
+        raise RssParseError("RSS/Atom XML 解析失败")
+
+    def fake_send_json(payload, status=200):
+        captured["payload"] = payload
+        captured["status"] = status
+
+    monkeypatch.setattr(server_main._rss_collect_service, "refresh_feed", fake_refresh)
+    monkeypatch.setattr(handler, "_send_json", fake_send_json)
+
+    server_main.MonitorHandler._api_rss_feed_refresh(handler, "1", {})
+
+    assert captured["status"] == 400
+    assert captured["payload"]["error"] == "RSS/Atom XML 解析失败"

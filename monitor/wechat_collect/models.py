@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 
 ProviderName = Literal["exporter_api", "native"]
@@ -17,6 +19,7 @@ SUPPORTED_EXPORT_FORMATS = {
 }
 
 MP_ARTICLE_URL_RE = re.compile(r"^https://mp\.weixin\.qq\.com/s[/\?]", re.IGNORECASE)
+MP_HOST_RE = re.compile(r"^mp\.weixin\.qq\.com/", re.IGNORECASE)
 
 
 @dataclass
@@ -38,8 +41,25 @@ class ArticleDownload:
     metadata: dict = field(default_factory=dict)
 
 
+def normalize_mp_article_url(value: str) -> str:
+    text = html.unescape(str(value or "").strip())
+    if text.startswith("//"):
+        text = f"https:{text}"
+    elif MP_HOST_RE.match(text):
+        text = f"https://{text}"
+    parsed = urlsplit(text)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return ""
+    if parsed.netloc.lower() != "mp.weixin.qq.com":
+        return ""
+    path = parsed.path or ""
+    if path != "/s" and not path.startswith("/s/"):
+        return ""
+    return urlunsplit(("https", "mp.weixin.qq.com", path, parsed.query, parsed.fragment))
+
+
 def is_valid_mp_article_url(value: str) -> bool:
-    return MP_ARTICLE_URL_RE.match((value or "").strip()) is not None
+    return bool(normalize_mp_article_url(value))
 
 
 def normalize_account_preview(raw: dict) -> dict:
@@ -55,10 +75,11 @@ def normalize_account_preview(raw: dict) -> dict:
 
 
 def normalize_article_preview(raw: dict) -> dict:
+    link = normalize_mp_article_url(raw.get("link") or raw.get("url") or "")
     return {
         "aid": raw.get("aid") or "",
         "title": raw.get("title") or "",
-        "link": raw.get("link") or raw.get("url") or "",
+        "link": link,
         "cover": raw.get("cover") or raw.get("cover_img") or "",
         "digest": raw.get("digest") or "",
         "author_name": raw.get("author_name") or "",

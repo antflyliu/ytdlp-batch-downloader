@@ -5,7 +5,6 @@ to SQLite and writes large artifacts to a task output directory.
 """
 from __future__ import annotations
 
-import gc
 import inspect
 import json
 import os
@@ -23,8 +22,13 @@ import requests
 import logging_config
 import monitor.db as db
 import monitor.proxy.router as proxy_router
+from monitor.voice.capabilities import TRANSCRIPTION, VIBEVOICE_ASR, VIBEVOICE_VLLM_ASR, WHISPER_API, WHISPER_LOCAL
+from monitor.voice.providers import ProviderInfo, VoiceProviderRegistry
+from monitor.voice.schemas import TranscriptionRequest, TranscriptionResult
+from monitor.voice.selection import ProviderSelectionRequest, resolve_provider
+from monitor.voice.transcription import VibeVoiceAsrProvider, VibeVoiceVllmAsrProvider
 from monitor.video_paths import resolve_downloaded_video_path
-from scripts.llm_client import PROMPT_INPUT_PLACEHOLDER, create_llm_client
+from scripts.llm_client import LLMAuthenticationError, PROMPT_INPUT_PLACEHOLDER, create_llm_client
 
 _log = logging_config.get_logger("article_generator")
 
@@ -207,6 +211,13 @@ def _read_wechat_article_source(article_source_path: str, cfg: dict[str, Any]) -
         allowed_root = _normalize_fs_path(root)
         if not _is_path_within(resolved_path, allowed_root):
             raise RuntimeError("文章路径必须位于公众号采集输出目录下")
+    return source.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_article_source_file(article_source_path: str, *, missing_message: str = "文章源文件不存在") -> str:
+    source = Path(article_source_path).expanduser()
+    if not source.is_file():
+        raise RuntimeError(missing_message)
     return source.read_text(encoding="utf-8", errors="ignore")
 
 
@@ -466,6 +477,33 @@ def _write_text(path: Path, text: str) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return str(path)
+
+
+def _source_reference_label(source_type: str) -> str:
+    if source_type == "video":
+        return "原视频链接"
+    if source_type in {"wechat_article", "rss_item"}:
+        return "原文链接"
+    return "来源链接"
+
+
+def _normalize_source_reference_url(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"none", "null"}:
+        return ""
+    if not re.match(r"^https?://", text, flags=re.IGNORECASE):
+        return ""
+    return text
+
+
+def _append_source_reference(body: str, *, source_type: str, source_url: object) -> str:
+    url = _normalize_source_reference_url(source_url)
+    if not url:
+        return str(body or "").rstrip()
+    label = _source_reference_label(source_type)
+    safe_url = url.replace(">", "%3E")
+    reference_block = f"## 参考链接\n\n- {label}：<{safe_url}>"
+    return f"{str(body or '').rstrip()}\n\n{reference_block}\n"
 
 
 def _generated_file_url(path: str | Path) -> str:
@@ -1403,6 +1441,130 @@ def _remote_whisper(video_path: str | None, cfg: dict[str, Any]) -> str | None:
         raise
 
 
+class _ArticleWhisperLocalProvider:
+    provider_id = WHISPER_LOCAL
+
+    def __init__(self, progress: Callable[[str], None] | None = None):
+        self._progress = progress
+
+    def info(self) -> ProviderInfo:
+        return ProviderInfo(
+            id=self.provider_id,
+            label="Whisper Local",
+            capabilities=[TRANSCRIPTION],
+            modes=["transcription"],
+            sort_order=10,
+        )
+
+    def is_configured(self, cfg: dict[str, Any]) -> bool:
+        return True
+
+    def transcribe(self, request: TranscriptionRequest, cfg: dict[str, Any]) -> TranscriptionResult:
+        text = _local_whisper(
+            str(request.media_path),
+            cfg,
+            progress=self._progress,
+        )
+        return TranscriptionResult(provider=self.provider_id, text=text or "")
+
+
+class _ArticleWhisperApiProvider:
+    provider_id = WHISPER_API
+
+    def info(self) -> ProviderInfo:
+        return ProviderInfo(
+            id=self.provider_id,
+            label="Whisper API",
+            capabilities=[TRANSCRIPTION],
+            modes=["transcription"],
+            sort_order=20,
+        )
+
+    def is_configured(self, cfg: dict[str, Any]) -> bool:
+        return True
+
+    def transcribe(self, request: TranscriptionRequest, cfg: dict[str, Any]) -> TranscriptionResult:
+        text = _remote_whisper(str(request.media_path), cfg)
+        return TranscriptionResult(provider=self.provider_id, text=text or "")
+
+
+def _build_article_transcription_registry(
+    progress: Callable[[str], None] | None = None,
+) -> VoiceProviderRegistry:
+    registry = VoiceProviderRegistry()
+    registry.register(_ArticleWhisperLocalProvider(progress=progress))
+    registry.register(_ArticleWhisperApiProvider())
+    registry.register(VibeVoiceAsrProvider())
+    registry.register(VibeVoiceVllmAsrProvider())
+    return registry
+
+
+def _transcribe_article_audio(
+    video_path: str,
+    output_dir: Path,
+    cfg: dict[str, Any],
+    *,
+    task_id: str,
+    progress: Callable[[str], None] | None = None,
+) -> TranscriptionResult:
+    request = TranscriptionRequest(
+        media_path=video_path,
+        output_dir=output_dir,
+        flow="article_generation",
+        language_hint=str(cfg.get("whisper_language") or "auto"),
+        source="article_generation",
+        source_task_id=task_id,
+        metadata={"fallback_allowed": _coerce_article_asr_fallback_allowed(cfg.get("voice_asr_fallback_allowed", True))},
+    )
+    registry = _build_article_transcription_registry(progress=progress)
+    selection = resolve_provider(
+        ProviderSelectionRequest(
+            capability=TRANSCRIPTION,
+            flow=request.flow,
+            mode="transcription",
+            fallback_allowed=bool(request.metadata.get("fallback_allowed", True)),
+        ),
+        cfg,
+        registry,
+    )
+    provider = registry.require(selection.provider_id)
+    try:
+        return provider.transcribe(request, cfg)
+    except Exception:
+        if not request.metadata.get("fallback_allowed", True) or selection.provider_id not in {
+            VIBEVOICE_ASR,
+            VIBEVOICE_VLLM_ASR,
+        }:
+            raise
+        fallback_error = None
+        for provider_id in _article_asr_fallback_ids(cfg):
+            fallback_provider = registry.get(provider_id)
+            if fallback_provider is None or fallback_provider.provider_id == selection.provider_id:
+                continue
+            try:
+                return fallback_provider.transcribe(request, cfg)
+            except Exception as exc:
+                fallback_error = exc
+        if fallback_error is not None:
+            raise fallback_error
+        raise
+
+
+def _coerce_article_asr_fallback_allowed(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off", "disabled"}
+    return bool(value)
+
+
+def _article_asr_fallback_ids(cfg: dict[str, Any]) -> list[str]:
+    whisper_provider = str(cfg.get("whisper_provider") or "").strip().lower()
+    if whisper_provider == "local":
+        return [WHISPER_LOCAL, WHISPER_API]
+    return [WHISPER_API, WHISPER_LOCAL]
+
+
 def _llm_or_fallback(
     cfg: dict[str, Any],
     prompt: str,
@@ -1435,7 +1597,7 @@ def _llm_or_fallback(
                 if cleaned:
                     return cleaned
         except Exception as exc:
-            raise RuntimeError(f"LLM 处理失败: {exc}") from exc
+            raise RuntimeError(_format_llm_call_failure(cfg, model, exc)) from exc
         raise RuntimeError(
             "LLM 处理失败: 服务未返回内容或仅返回不可发布内容"
             f"（{_llm_backend_context(cfg, model)}）。"
@@ -1466,6 +1628,19 @@ def _llm_backend_context(cfg: dict[str, Any], model: Any) -> str:
     provider = str((cfg or {}).get("llm_provider") or "qwen").strip() or "qwen"
     model_name = str(model or (cfg or {}).get("llm_model") or "default").strip() or "default"
     return f"provider={provider}, model={model_name}, base_url={_safe_llm_base_url((cfg or {}).get('llm_base_url'))}"
+
+
+def _format_llm_call_failure(cfg: dict[str, Any], model: Any, exc: Exception) -> str:
+    context = _llm_backend_context(cfg, model)
+    detail = _clean_error_message(exc)
+    if isinstance(exc, LLMAuthenticationError):
+        return (
+            f"LLM 处理失败: 认证失败（{context}）。"
+            "请在 AI 设置中重新输入 LLM API Key，并确认 Provider、Base URL 与 API Key 属于同一服务商；"
+            "如果刚修改过 Provider 或 Base URL，不能继续使用旧的掩码密钥。"
+            f"上游错误: {detail}"
+        )
+    return f"LLM 处理失败: {detail}"
 
 
 @dataclass
@@ -1779,6 +1954,8 @@ class ArticleGenerationPipeline:
             subtitle_failure_message = ""
             transcript = None
             transcript_source = ""
+            source_reference_url = ""
+            source_material_path = ""
             video_path: str | None = None
 
             if source_type == "wechat_article":
@@ -1787,6 +1964,7 @@ class ArticleGenerationPipeline:
                 article_source_path = str(task.get("article_source_path") or "").strip()
                 if not article_text and article_source_path:
                     article_text = _read_wechat_article_source(article_source_path, self.cfg)
+                source_material_path = article_source_path
                 if not article_text.strip():
                     raise RuntimeError("公众号文章内容为空，无法生成 AI 文章")
                 transcript = article_text
@@ -1796,32 +1974,45 @@ class ArticleGenerationPipeline:
                     "source_url": task.get("source_url") or "",
                 }
                 video_url = task.get("source_url") or ""
+                source_reference_url = video_url
                 video_title = task.get("source_title") or task.get("video_title") or self.task_id
             elif source_type == "email_message":
                 self._stage("subtitles", "running", "正在读取邮件正文")
                 article_text = str(task.get("article_text") or "")
+                article_source_path = str(task.get("article_source_path") or "").strip()
+                if article_source_path:
+                    article_text = _read_article_source_file(article_source_path, missing_message="邮件归档源文件不存在")
+                source_material_path = article_source_path
                 if not article_text.strip():
                     raise RuntimeError("邮件正文为空，无法生成 AI 文章")
                 transcript = article_text
                 transcript_source = "email_message"
                 subtitle_details = {
                     "email_message_id": task.get("email_message_id"),
+                    "path": article_source_path,
                     "source_url": task.get("source_url") or "",
                 }
                 video_url = task.get("source_url") or ""
+                source_reference_url = video_url
                 video_title = task.get("source_title") or task.get("video_title") or self.task_id
             elif source_type == "rss_item":
                 self._stage("subtitles", "running", "正在读取 RSS 条目")
                 article_text = str(task.get("article_text") or "")
+                article_source_path = str(task.get("article_source_path") or "").strip()
+                if article_source_path:
+                    article_text = _read_article_source_file(article_source_path, missing_message="RSS 归档源文件不存在")
+                source_material_path = article_source_path
                 if not article_text.strip():
                     raise RuntimeError("RSS 条目正文为空，无法生成 AI 文章")
                 transcript = article_text
                 transcript_source = "rss_item"
                 subtitle_details = {
                     "rss_item_id": task.get("rss_item_id"),
+                    "path": article_source_path,
                     "source_url": task.get("source_url") or "",
                 }
                 video_url = task.get("source_url") or ""
+                source_reference_url = video_url
                 video_title = task.get("source_title") or task.get("video_title") or self.task_id
             else:
                 monitor_video = (
@@ -1851,6 +2042,7 @@ class ArticleGenerationPipeline:
                     or task.get("video_id")
                     or self.task_id
                 )
+                source_reference_url = video_url or ""
 
                 self._stage("subtitles", "running", "正在提取字幕")
                 subtitle_path = _find_local_subtitle(video_path)
@@ -1902,28 +2094,28 @@ class ArticleGenerationPipeline:
                                 f"{subtitle_failure_message}；当前任务没有本地视频或音频，无法切换 Whisper"
                             )
                         raise RuntimeError("未找到可用字幕，且当前任务没有本地视频或音频，无法切换 Whisper")
-                    whisper_provider = str(self.cfg.get("whisper_provider") or "api").strip().lower()
-                    if whisper_provider == "local":
-                        self._stage("whisper", "running", "正在使用本地 Whisper 模型转写")
-                        transcript = _local_whisper(
-                            video_path,
-                            self.cfg,
-                            progress=lambda msg: self._stage("whisper", "running", msg),
-                        )
-                        if transcript:
+                    self._stage("whisper", "running", "正在通过语音 Provider 转写")
+                    transcription_result = _transcribe_article_audio(
+                        video_path,
+                        output_dir,
+                        self.cfg,
+                        task_id=self.task_id,
+                        progress=lambda msg: self._stage("whisper", "running", msg),
+                    )
+                    transcript = transcription_result.text
+                    if transcript:
+                        if transcription_result.provider == WHISPER_LOCAL:
                             self._stage("whisper", "done", "本地 Whisper 转写完成")
                             transcript_source = "local_whisper"
-                        else:
-                            whisper_message = str(self.stages.get("whisper", {}).get("message") or "").strip()
-                            self._stage("whisper", "error", whisper_message or "本地 Whisper 转写失败")
-                    else:
-                        self._stage("whisper", "running", "正在使用远程 Whisper API 转写")
-                        transcript = _remote_whisper(video_path, self.cfg)
-                        if transcript:
+                        elif transcription_result.provider == WHISPER_API:
                             self._stage("whisper", "done", "远程 Whisper 转写完成")
                             transcript_source = "remote_whisper"
                         else:
-                            self._stage("whisper", "error", "远程 Whisper 转写失败")
+                            self._stage("whisper", "done", f"{transcription_result.provider} 转写完成")
+                            transcript_source = transcription_result.provider
+                    else:
+                        whisper_message = str(self.stages.get("whisper", {}).get("message") or "").strip()
+                        self._stage("whisper", "error", whisper_message or "语音 Provider 转写失败")
                     _log.info(
                         "[文章生成] task=%s Whisper transcription returned, length=%d, writing transcript...",
                         self.task_id,
@@ -2191,6 +2383,8 @@ class ArticleGenerationPipeline:
                     self._stage("illustration", "error", f"配图生成异常: {exc}")
 
             self._check_cancelled()
+            source_reference_url = _normalize_source_reference_url(source_reference_url)
+            body = _append_source_reference(body, source_type=source_type, source_url=source_reference_url)
             final_body_path = _write_text(output_dir / "final_body.md", body)
             selected_quality = quality_record.get(str(quality_record.get("selected") or "initial"))
             if not isinstance(selected_quality, dict):
@@ -2249,6 +2443,9 @@ class ArticleGenerationPipeline:
                     "article_quality_selection_status": quality_record.get("selection_status") or "",
                     "article_revision_applied": revision_applied,
                     "article_revision_path": revision_path,
+                    "article_source_path": source_material_path,
+                    "article_source_reference_url": source_reference_url,
+                    "article_source_reference_label": _source_reference_label(source_type) if source_reference_url else "",
                     "article_publish_markdown_path": publish_path,
                     "article_publish_title": publish_optimization.title,
                     "article_publish_summary": publish_optimization.summary,
@@ -2270,6 +2467,7 @@ class ArticleGenerationPipeline:
                 try:
                     from monitor.wechat_publisher import (
                         WechatPublisher,
+                        normalize_wechat_title,
                         render_md_to_html_for_wechat,
                         validate_wechat_article_payload,
                     )
@@ -2293,8 +2491,9 @@ class ArticleGenerationPipeline:
                         or str(self.cfg.get("wechat_default_author") or "").strip()
                         or None
                     )
+                    title_for_wx = normalize_wechat_title(render_result.title)
                     validation_errors = validate_wechat_article_payload(
-                        title=render_result.title,
+                        title=title_for_wx,
                         content=render_result.content,
                         author=author_for_wx,
                         digest=render_result.digest,
@@ -2308,7 +2507,7 @@ class ArticleGenerationPipeline:
                         or None
                     )
                     wx_result = publisher.save_to_draft(
-                        title=render_result.title,
+                        title=title_for_wx,
                         content=render_result.content,
                         author=author_for_wx,
                         cover_image=effective_cover,

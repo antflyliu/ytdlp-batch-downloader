@@ -3,10 +3,17 @@ from __future__ import annotations
 import json
 
 import pytest
+import requests
 
 from monitor.wechat_collect.errors import WechatUpstreamError
-from monitor.wechat_collect.html_export import export_article_html
-from monitor.wechat_collect.models import NativeSession, normalize_account_preview, normalize_article_preview
+from monitor.wechat_collect.html_export import download_article, export_article_html
+from monitor.wechat_collect.models import (
+    NativeSession,
+    is_valid_mp_article_url,
+    normalize_account_preview,
+    normalize_article_preview,
+    normalize_mp_article_url,
+)
 from monitor.wechat_collect.native_client import NativeMpClient
 from monitor.wechat_collect.providers import NativeMpProvider
 
@@ -52,6 +59,13 @@ def test_normalize_article_preview_accepts_wechat_article_shape():
     assert preview["title"] == "标题"
     assert preview["link"] == "https://mp.weixin.qq.com/s/test"
     assert preview["update_time"] == 1777210218
+
+
+def test_mp_article_url_normalization_accepts_backend_http_and_escaped_links():
+    raw = " http://mp.weixin.qq.com/s?__biz=x&amp;mid=1#rd "
+
+    assert normalize_mp_article_url(raw) == "https://mp.weixin.qq.com/s?__biz=x&mid=1#rd"
+    assert is_valid_mp_article_url(raw) is True
 
 
 class FakeMpResponse:
@@ -378,6 +392,8 @@ def test_export_article_html_outputs_html_text_markdown_and_json():
         <h1 id="activity-name">标题</h1>
         <div id="js_content" style="visibility:hidden">
           <p>第一段</p><p><img data-src="https://example.test/a.jpg"></p>
+          <p><a href="https://example.test/docs">阅读原文</a></p>
+          <p>下载链接：https://example.test/plain，继续阅读</p>
         </div>
       </div>
       <script>window.secret = 1;</script>
@@ -392,8 +408,59 @@ def test_export_article_html_outputs_html_text_markdown_and_json():
     assert b"js_content" in html_result.body
     assert b"script" not in html_result.body.lower()
     assert "第一段" in text_result.body.decode("utf-8")
-    assert "第一段" in markdown_result.body.decode("utf-8")
+    markdown_body = markdown_result.body.decode("utf-8")
+    assert markdown_body.startswith("# 标题")
+    assert "第一段" in markdown_body
+    assert "![image](https://example.test/a.jpg)" in markdown_body
+    assert "[阅读原文](https://example.test/docs)" in markdown_body
+    assert "[https://example.test/plain](https://example.test/plain)，继续阅读" in markdown_body
     assert json_result.metadata["title"] == "标题"
+
+
+class TimeoutThenArticleSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None, proxies=None):
+        self.calls.append({"url": url, "headers": headers, "timeout": timeout, "proxies": proxies})
+        if len(self.calls) == 1:
+            raise requests.exceptions.ReadTimeout("Read timed out")
+        return FakeMpResponse(
+            text="""
+            <html><body>
+              <div id="js_article">
+                <h1 id="activity-name">重试文章</h1>
+                <div id="js_content">
+                  <p>完整正文</p>
+                  <p><a href="https://example.test/original">阅读原文</a></p>
+                  <p><img data-src="https://mmbiz.qpic.cn/mmbiz_png/test/0?wx_fmt=png"></p>
+                </div>
+              </div>
+            </body></html>
+            """
+        )
+
+
+def test_download_article_retries_read_timeout_and_keeps_markdown_content():
+    session = TimeoutThenArticleSession()
+
+    result = download_article(
+        "https://mp.weixin.qq.com/s/retry",
+        "markdown",
+        http_session=session,
+        timeout=(1, 2),
+        retry_backoff_seconds=0,
+    )
+
+    body = result.body.decode("utf-8")
+    assert len(session.calls) == 2
+    assert [call["timeout"] for call in session.calls] == [(1, 2), (1, 2)]
+    assert session.calls[0]["headers"]["Referer"] == "https://mp.weixin.qq.com/"
+    assert result.metadata["source_url"] == "https://mp.weixin.qq.com/s/retry"
+    assert body.startswith("# 重试文章")
+    assert "完整正文" in body
+    assert "[阅读原文](https://example.test/original)" in body
+    assert "![image](https://mmbiz.qpic.cn/mmbiz_png/test/0?wx_fmt=png)" in body
 
 
 def test_export_article_html_extracts_author_from_markup_variants():

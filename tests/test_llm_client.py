@@ -222,6 +222,20 @@ class TestLLMClientRetry:
         with pytest.raises(RuntimeError, match="upstream 400 model not found"):
             client.call_with_retry("prompt", max_retries=1, raise_last_error=True)
 
+    @patch("scripts.llm_client.QwenProvider.chat")
+    def test_retry_does_not_repeat_authentication_errors(self, mock_chat):
+        mock_chat.side_effect = RuntimeError(
+            "Error code: 401 - {'error': {'code': 'invalid_api_key', "
+            "'message': 'missing or invalid API key'}}"
+        )
+        from scripts.llm_client import LLMAuthenticationError, LLMClient
+
+        client = LLMClient(provider="qwen", api_key="fake")
+
+        with pytest.raises(LLMAuthenticationError, match="LLM 认证失败"):
+            client.call_with_retry("prompt", max_retries=3, raise_last_error=True)
+        assert mock_chat.call_count == 1
+
 
 class TestParseJSONResponse:
     def test_parse_json_block(self):

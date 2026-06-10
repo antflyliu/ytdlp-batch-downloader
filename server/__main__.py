@@ -11,6 +11,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import sys
 import tempfile
 import threading
@@ -44,7 +45,7 @@ from monitor.wechat_collect.errors import (
     WechatUpstreamError,
     safe_error_message,
 )
-from monitor.wechat_collect.models import is_valid_mp_article_url
+from monitor.wechat_collect.models import is_valid_mp_article_url, normalize_mp_article_url
 from monitor.wechat_collect.native_login import NativeLoginManager
 from monitor.wechat_collect.providers import NativeMpProvider
 from monitor.wechat_collect.proxy_policy import resolve_native_proxy_plan
@@ -62,7 +63,7 @@ from monitor.email_collect.processor import (
     validate_email_analysis_rules,
 )
 from monitor.email_collect.service import GMAIL_OAUTH_FAILURE_PAGE, GMAIL_OAUTH_SUCCESS_PAGE
-from monitor.rss_collect import RssCollectService
+from monitor.rss_collect import RssCatalogService, RssCollectService
 from monitor.weread_exporter import WeReadExportTaskService, default_output_root
 from go_proxy_manager import get_proxy_manager
 import logging_config
@@ -73,9 +74,12 @@ from monitor.dynamic_provider_resolver import (
     resolve_for_manual_download,
     resolve_for_web_batch_download,
 )
+from monitor.voice import env as voice_env
+from monitor.voice.tasks import VoiceTaskManager
 from monitor.http_multipart import MultipartParseError, read_single_file_part
 
 _log = logging_config.get_logger("monitor_server")
+_voice_task_mgr = VoiceTaskManager()
 
 # ── 速率限制器（每 IP 每分钟 N 次请求；本机回环默认豁免）──
 from server.middleware.rate_limit import (
@@ -97,6 +101,12 @@ _CONFIG_RESPONSE_SECRET_KEYS = {
     "minimax_api_key",
     "openai_api_key",
     "gemini_api_key",
+    "openai_speech_api_key",
+    "azure_speech_api_key",
+    "minimax_speech_api_key",
+    "voxcpm_api_key",
+    "vibevoice_tts_api_key",
+    "vibevoice_asr_api_key",
     "gmail_oauth_client_secret",
     "wechat_app_secret",
     "wechat_exporter_auth_key",
@@ -127,6 +137,157 @@ def _preserve_masked_config_values(new_cfg: dict, old_cfg: dict) -> dict:
         if merged.get(key) == _MASKED_SECRET_VALUE:
             merged[key] = old.get(key, "")
     return merged
+
+
+_LLM_SECRET_REQUIRED_PROVIDERS = {"qwen", "openai", "anthropic", "groq"}
+
+
+def _llm_endpoint_identity(cfg: dict) -> str:
+    provider = str((cfg or {}).get("llm_provider") or "qwen").strip().lower() or "qwen"
+    base_url = str((cfg or {}).get("llm_base_url") or "").strip()
+    if not base_url:
+        return f"{provider}:default"
+    parsed = urlparse(base_url)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        host = (parsed.hostname or "").lower()
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = parsed.path.rstrip("/")
+        return f"{provider}:{parsed.scheme}://{host}:{port}{path}"
+    return f"{provider}:{base_url}"
+
+
+def _validate_llm_endpoint_secret_reentry(body: dict, new_cfg: dict, old_cfg: dict) -> tuple[bool, str | None]:
+    if not any(key in body for key in ("llm_provider", "llm_base_url")):
+        return True, None
+    provider = str((new_cfg or {}).get("llm_provider") or "qwen").strip().lower() or "qwen"
+    if provider not in _LLM_SECRET_REQUIRED_PROVIDERS:
+        return True, None
+    if not (old_cfg or {}).get("llm_api_key"):
+        return True, None
+    if _llm_endpoint_identity(new_cfg) == _llm_endpoint_identity(old_cfg):
+        return True, None
+    submitted_secret = body.get("llm_api_key", _db._UNSET)
+    if submitted_secret is _db._UNSET or submitted_secret == _MASKED_SECRET_VALUE:
+        return False, "llm_provider 或 llm_base_url 变更后必须重新输入 llm_api_key"
+    return True, None
+
+
+def _validate_voice_flow_defaults_config(value) -> tuple[bool, str | None]:
+    from monitor.voice.capabilities import (
+        AZURE_SPEECH,
+        EDGE_TTS,
+        LOCAL_HTTP_TTS,
+        MINIMAX_SPEECH,
+        OPENAI_SPEECH,
+        SILENT,
+        SPEECH_SYNTHESIS,
+        TRANSCRIPTION,
+        VIBEVOICE_ASR,
+        VIBEVOICE_REALTIME,
+        VIBEVOICE_TTS,
+        VIBEVOICE_VLLM_ASR,
+        VOXCPM_HTTP,
+        VOXCPM_OPENAI_SPEECH,
+        WHISPER_API,
+        WHISPER_LOCAL,
+        normalize_provider_id,
+    )
+
+    if value in (None, ""):
+        return True, None
+    if isinstance(value, dict):
+        parsed = value
+    elif not isinstance(value, str):
+        return False, "voice_flow_defaults_json 必须是 JSON 对象"
+    else:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return False, "voice_flow_defaults_json 必须是合法 JSON 对象"
+        if not isinstance(parsed, dict):
+            return False, "voice_flow_defaults_json 必须是 JSON 对象"
+
+    valid_capabilities = {SPEECH_SYNTHESIS, TRANSCRIPTION}
+    valid_providers = {
+        SILENT,
+        EDGE_TTS,
+        LOCAL_HTTP_TTS,
+        OPENAI_SPEECH,
+        AZURE_SPEECH,
+        MINIMAX_SPEECH,
+        VOXCPM_HTTP,
+        VOXCPM_OPENAI_SPEECH,
+        VIBEVOICE_TTS,
+        VIBEVOICE_REALTIME,
+        WHISPER_LOCAL,
+        WHISPER_API,
+        VIBEVOICE_ASR,
+        VIBEVOICE_VLLM_ASR,
+    }
+    for key, provider_value in parsed.items():
+        key_text = str(key or "").strip()
+        if "." not in key_text:
+            return False, f"voice_flow_defaults_json 包含无效 flow.capability: {key_text}"
+        flow, capability = key_text.rsplit(".", 1)
+        if not flow or capability not in valid_capabilities:
+            return False, f"voice_flow_defaults_json 包含不支持的 capability: {key_text}"
+        provider_id = normalize_provider_id(str(provider_value or ""))
+        if not provider_id or provider_id not in valid_providers:
+            return False, f"voice_flow_defaults_json 包含不支持的 provider: {provider_value}"
+    return True, None
+
+
+_VOICE_ENDPOINT_SECRET_PAIRS = (
+    (("openai_speech_base_url",), "openai_speech_api_key"),
+    (("azure_speech_endpoint", "azure_speech_region"), "azure_speech_api_key"),
+    (("minimax_speech_base_url",), "minimax_speech_api_key"),
+    (("voxcpm_base_url",), "voxcpm_api_key"),
+    (("vibevoice_tts_base_url",), "vibevoice_tts_api_key"),
+    (("vibevoice_asr_base_url",), "vibevoice_asr_api_key"),
+)
+
+
+def _validate_voice_endpoint_secret_reentry(body: dict, new_cfg: dict, old_cfg: dict) -> tuple[bool, str | None]:
+    for endpoint_keys, secret_key in _VOICE_ENDPOINT_SECRET_PAIRS:
+        if not any(key in body for key in endpoint_keys):
+            continue
+        old_identity = _voice_endpoint_identity(old_cfg, endpoint_keys)
+        new_identity = _voice_endpoint_identity(new_cfg, endpoint_keys)
+        if old_identity == new_identity or not new_identity or not old_cfg.get(secret_key):
+            continue
+        submitted_secret = body.get(secret_key, _db._UNSET)
+        if submitted_secret is _db._UNSET or submitted_secret == _MASKED_SECRET_VALUE:
+            return False, f"{endpoint_keys[0]} 变更后必须重新输入 {secret_key}"
+    return True, None
+
+
+def _validate_voice_endpoint_urls_config(body: dict, cfg: dict) -> tuple[bool, str | None]:
+    for endpoint_keys, _secret_key in _VOICE_ENDPOINT_SECRET_PAIRS:
+        if not any(key in body for key in endpoint_keys):
+            continue
+        identity = _voice_endpoint_identity(cfg, endpoint_keys)
+        raw_values = [str(cfg.get(key) or "").strip() for key in endpoint_keys if cfg.get(key)]
+        if raw_values and identity == "invalid":
+            return False, f"{endpoint_keys[0]} 必须是 http/https URL"
+    return True, None
+
+
+def _voice_endpoint_identity(cfg: dict, endpoint_keys: tuple[str, ...]) -> str:
+    if endpoint_keys == ("azure_speech_endpoint", "azure_speech_region"):
+        raw = str(cfg.get("azure_speech_endpoint") or "").strip()
+        if not raw:
+            region = str(cfg.get("azure_speech_region") or "").strip()
+            raw = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1" if region else ""
+    else:
+        raw = str(cfg.get(endpoint_keys[0]) or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return "invalid"
+    host = (parsed.hostname or "").lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return f"{parsed.scheme}://{host}:{port}"
 
 
 def _mask_account_for_response(account: dict) -> dict:
@@ -398,6 +559,7 @@ _wechat_native_login_mgr = NativeLoginManager(
 _wechat_native_task_service = NativeCollectionTaskService()
 _email_collect_service = EmailCollectService()
 _rss_collect_service = RssCollectService()
+_rss_catalog_service = RssCatalogService()
 _weread_export_service = WeReadExportTaskService()
 
 class _BatchUploadStore:
@@ -624,6 +786,29 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if self._LOCALHOST_ORIGIN_RE.match(origin):
             return origin
         return None
+
+    def _reject_disallowed_write_origin(self) -> bool:
+        """Reject browser cross-site writes; non-browser/same-origin requests have no Origin."""
+        origin = self.headers.get("Origin", "")
+        if not origin or self._allowed_origin() == origin:
+            return False
+        self._send_json({"error": "不允许的请求来源"}, 403)
+        return True
+
+    def _reject_invalid_json_content_type(self, path: str) -> bool:
+        if path not in {"/api/config", "/api/voice/env/check", "/api/voice/smoke-test"}:
+            return False
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            content_length = 0
+        if content_length <= 0:
+            return False
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type == "application/json" or content_type.endswith("+json"):
+            return False
+        self._send_json({"error": "Content-Type 必须是 application/json"}, 415)
+        return True
 
     def _rate_limit_client_ip(self) -> str:
         """客户端 IP（优先 X-Forwarded-For 首段）。"""
@@ -883,6 +1068,16 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                         return
                     except (FileNotFoundError, IOError):
                         pass  # fallback to super() below
+                elif not Path(path).suffix:
+                    query = urlparse(self.path).query
+                    location = f"/#{quote(path, safe='/%')}"
+                    if query:
+                        location = f"{location}?{query}"
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", location)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
             try:
                 super().do_GET()
             except (ConnectionAbortedError, BrokenPipeError):
@@ -910,6 +1105,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_stats()
         elif path == "/api/config":
             self._api_config()
+        elif path == "/api/voice/providers":
+            self._api_voice_providers()
+        elif path == "/api/voice/env":
+            self._api_voice_env()
+        elif path == "/api/voice/tasks":
+            self._api_voice_tasks_list()
+        elif path == "/api/voice/file":
+            self._api_voice_file()
+        elif path.startswith("/api/voice/tasks/") and self.command == "GET":
+            task_id = path.rsplit("/", 1)[-1]
+            self._api_voice_task_get(task_id)
         elif path == "/api/wechat/config":
             self._api_wechat_config()
             return
@@ -986,6 +1192,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_content_variant_get(variant_id)
         elif path == "/api/rss/feeds":
             self._api_rss_feeds()
+        elif path == "/api/rss/catalog":
+            self._api_rss_catalog()
         elif path == "/api/rss/items":
             self._api_rss_items()
         elif path == "/api/rss/opml/export":
@@ -1101,11 +1309,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         if not self._check_rate_limit():
             return
         path = self._path_only()
+        if self._reject_disallowed_write_origin():
+            return
         if self.headers.get("Content-Type", "").startswith("multipart/form-data"):
             if path == "/api/batch/upload":
                 self._handle_multipart_upload()
                 return
             self._send_json({"error": "未知 multipart API"}, 404)
+            return
+        if self._reject_invalid_json_content_type(path):
             return
         if path == "/api/rss/opml/import":
             try:
@@ -1145,6 +1357,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_account_videos_batch_download(acc_id, body)
         elif path == "/api/config":
             self._api_config_save(body)
+        elif path == "/api/voice/env/check":
+            self._api_voice_env_check(body)
+        elif path == "/api/voice/smoke-test":
+            self._api_voice_smoke_test(body)
+        elif path == "/api/voice/synthesis/tasks":
+            self._api_voice_synthesis_task_create(body)
+        elif path.startswith("/api/voice/tasks/") and path.endswith("/cancel"):
+            task_id = path.split("/")[-2]
+            self._api_voice_task_cancel(task_id)
         elif path == "/api/wechat/draft":
             self._api_wechat_draft(body)
         elif path == "/api/wechat/publish":
@@ -1184,6 +1405,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_wechat_native_cancel(task_id)
         elif path == "/api/weread-exporter/tasks/start":
             self._api_weread_exporter_start(body)
+        elif path == "/api/weread-exporter/chrome/start":
+            self._api_weread_exporter_chrome_start(body)
         elif path.startswith("/api/weread-exporter/tasks/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_weread_exporter_cancel(task_id)
@@ -1258,11 +1481,18 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_rss_feed_refresh(feed_id, body)
         elif path == "/api/rss/opml/import":
             self._api_rss_opml_import(body)
+        elif path == "/api/rss/catalog/sync":
+            self._api_rss_catalog_sync()
+        elif path == "/api/rss/catalog/import":
+            self._api_rss_catalog_import(body)
         elif path.startswith("/api/rss/items/") and path.endswith("/generate"):
             item_id = path.split("/")[-2]
             self._api_rss_item_generate(item_id, body)
         elif path == "/api/article/generate":
             self._api_article_generate(body)
+        elif path.startswith("/api/article/") and path.endswith("/rerun"):
+            task_id = path.split("/")[-2]
+            self._api_article_rerun(task_id)
         elif path.startswith("/api/article/") and path.endswith("/cancel"):
             task_id = path.split("/")[-2]
             self._api_article_cancel(task_id)
@@ -1399,6 +1629,9 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "未知 API"}, 404)
 
     def do_OPTIONS(self):
+        if self.headers.get("Origin") and not self._allowed_origin():
+            self._send_json({"error": "不允许的请求来源"}, 403)
+            return
         self.send_response(200)
         origin = self._allowed_origin()
         if origin:
@@ -1579,6 +1812,106 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_config(self):
         self._send_json(_mask_config_for_response(_db.load_config()))
+
+    def _api_voice_providers(self):
+        params = parse_qs(urlparse(self.path).query)
+        capability = (params.get("capability") or [""])[0] or None
+        flow = (params.get("flow") or [""])[0] or None
+        self._send_json(
+            voice_env.voice_provider_payload(
+                _db.load_config(),
+                capability=capability,
+                flow=flow,
+            )
+        )
+
+    def _api_voice_env(self):
+        self._send_json(voice_env.check_voice_environment(_db.load_config(), include_remote=False))
+
+    def _api_voice_env_check(self, body: dict):
+        body = body or {}
+        self._send_json(
+            voice_env.check_voice_environment(
+                _db.load_config(),
+                include_remote=voice_env.coerce_bool(body.get("include_remote")),
+                timeout_seconds=body.get("timeout_seconds", 3),
+            )
+        )
+
+    def _api_voice_smoke_test(self, body: dict):
+        cfg = _db.load_config()
+        try:
+            result = voice_env.run_voice_smoke_test(body or {}, cfg)
+        except Exception as exc:
+            result = {"ok": False, "error": voice_env.sanitize_error_text(str(exc), cfg)}
+        if not result.get("ok") and result.get("error"):
+            result = dict(result)
+            result["error"] = voice_env.sanitize_error_text(str(result.get("error") or ""), cfg)
+        self._send_json(result, 200 if result.get("ok") else 400)
+
+    def _api_voice_synthesis_task_create(self, body: dict):
+        cfg = _db.load_config()
+        try:
+            task_id = _voice_task_mgr.create_synthesis_task(body or {}, cfg)
+        except Exception as exc:
+            self._send_json({"error": voice_env.sanitize_error_text(str(exc), cfg)}, 400)
+            return
+        _voice_task_mgr.start_background(task_id, cfg)
+        self._send_json({"ok": True, "task_id": task_id}, 202)
+
+    def _api_voice_tasks_list(self):
+        status, limit, offset = self._ai_task_query_params()
+        params = parse_qs(urlparse(self.path).query)
+        kind = (params.get("kind") or [""])[0] or None
+        tasks, total = _db.list_voice_tasks(kind=kind, status=status, limit=limit, offset=offset)
+        self._send_json({"tasks": tasks, "total": total, "limit": limit, "offset": offset})
+
+    def _api_voice_task_get(self, task_id: str):
+        task = _db.get_voice_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json(task)
+
+    def _api_voice_task_cancel(self, task_id: str):
+        task = _db.request_cancel_voice_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        self._send_json({"ok": True, "task": task})
+
+    def _api_voice_file(self):
+        params = parse_qs(urlparse(self.path).query)
+        raw_path = (params.get("path") or [""])[0]
+        if not raw_path:
+            self._send_json({"error": "path 必填"}, 400)
+            return
+        cfg = _db.load_config()
+        root = Path(cfg.get("voice_output_dir") or "data/voice").expanduser().resolve()
+        requested = Path(raw_path).expanduser()
+        if not requested.is_absolute():
+            requested = (Path(_PROJECT_ROOT) / requested).resolve()
+        else:
+            requested = requested.resolve()
+        try:
+            requested.relative_to(root)
+        except ValueError:
+            self._send_json({"error": "无效的输出路径"}, 400)
+            return
+        if not requested.is_file():
+            self._send_json({"error": "文件不存在"}, 404)
+            return
+        mime, _ = mimetypes.guess_type(str(requested))
+        self.send_response(200)
+        self.send_header("Content-Type", mime or "application/octet-stream")
+        self.send_header("Content-Length", str(requested.stat().st_size))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.end_headers()
+        with requested.open("rb") as file_obj:
+            shutil.copyfileobj(file_obj, self.wfile)
 
     def _api_wechat_config(self):
         """GET /api/wechat/config — return WeChat publish config without secret."""
@@ -1785,6 +2118,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             task_id = _weread_export_service.create_task(body, data_dir=self._weread_data_dir())
             _weread_export_service.start_background(task_id)
             self._send_json({"ok": True, "task_id": task_id, "status": "pending"}, 202)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, 400)
+
+    def _api_weread_exporter_chrome_start(self, body: dict):
+        body = body or {}
+        try:
+            result = _weread_export_service.start_chrome_cdp(
+                data_dir=self._weread_data_dir(),
+                endpoint=str(body.get("chrome_cdp_endpoint") or "").strip() or None,
+                profile_dir=str(body.get("chrome_cdp_profile_dir") or "").strip() or None,
+                initial_url=str(body.get("initial_url") or "https://weread.qq.com/web/shelf"),
+            )
+            self._send_json(result, 200 if result.get("available") else 202)
         except Exception as exc:
             self._send_json({"error": str(exc)}, 400)
 
@@ -2077,17 +2423,40 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if not isinstance(raw_urls, list):
                 self._send_json({"error": "urls 必须是文章链接数组"}, 400)
                 return
-            urls = [str(url).strip() for url in raw_urls if str(url).strip()]
-            invalid_url = next((url for url in urls if not is_valid_mp_article_url(url)), "")
+            urls = []
+            invalid_url = ""
+            for item in raw_urls:
+                if isinstance(item, dict):
+                    raw_url = str(item.get("link") or item.get("url") or "").strip()
+                    if not raw_url:
+                        continue
+                    url = normalize_mp_article_url(raw_url)
+                    if not url:
+                        invalid_url = raw_url
+                        break
+                    urls.append(public_article_preview({**item, "link": url, "url": url}))
+                else:
+                    raw_url = str(item).strip()
+                    if not raw_url:
+                        continue
+                    url = normalize_mp_article_url(raw_url)
+                    if not url:
+                        invalid_url = raw_url
+                        break
+                    urls.append(url)
             if invalid_url:
                 self._send_json({"error": "文章链接不合法"}, 400)
                 return
             body = dict(body)
             body["urls"] = urls
         article_url = str(body.get("article_url") or "").strip()
-        if article_url and not is_valid_mp_article_url(article_url):
-            self._send_json({"error": "文章链接不合法"}, 400)
-            return
+        if article_url:
+            normalized_article_url = normalize_mp_article_url(article_url)
+            if not normalized_article_url:
+                self._send_json({"error": "文章链接不合法"}, 400)
+                return
+            body = dict(body)
+            body["article_url"] = normalized_article_url
         if not body.get("urls") and not body.get("fakeid") and not body.get("article_url"):
             self._send_json({"error": "article_url、fakeid 或 urls 至少提供一个"}, 400)
             return
@@ -2214,6 +2583,21 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             "article_optimize_model", "article_summary_model", "article_translate_model",
             "comfyui_url", "comfyui_api_key", "runninghub_url", "runninghub_api_key",
             "tts_provider", "local_tts_url", "video_gen_output_dir",
+            "voice_provider", "voice_fallback_order", "voice_flow_defaults_json",
+            "voice_output_dir", "voice_require_disclosure",
+            "voice_allow_reference_clone", "voice_allow_prompt_transcript_clone",
+            "voice_max_text_chars", "transcription_provider",
+            "openai_speech_base_url", "openai_speech_api_key",
+            "openai_speech_model", "openai_speech_voice",
+            "azure_speech_region", "azure_speech_endpoint", "azure_speech_api_key",
+            "azure_speech_voice", "azure_speech_output_format",
+            "minimax_speech_base_url", "minimax_speech_api_key",
+            "minimax_speech_model", "minimax_speech_voice",
+            "voxcpm_base_url", "voxcpm_api_key", "voxcpm_model",
+            "voxcpm_default_voice", "voxcpm_default_control_instruction",
+            "vibevoice_tts_base_url", "vibevoice_tts_api_key",
+            "vibevoice_tts_model", "vibevoice_tts_voice",
+            "vibevoice_asr_base_url", "vibevoice_asr_api_key", "vibevoice_asr_model",
             "video_gen_default_template", "video_gen_default_scene_count",
             "default_template", "default_scene_count", "video_gen_prompt_prefix",
             "image_generation_provider", "image_generation_fallback_order",
@@ -2240,6 +2624,18 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             if key in body:
                 cfg[key] = body[key]
         cfg = _preserve_masked_config_values(cfg, old_cfg)
+        ok_llm_secret, llm_secret_error = _validate_llm_endpoint_secret_reentry(body, cfg, old_cfg)
+        if not ok_llm_secret:
+            self._send_json({"error": llm_secret_error}, 400)
+            return
+        ok_voice_endpoint_url, voice_endpoint_url_error = _validate_voice_endpoint_urls_config(body, cfg)
+        if not ok_voice_endpoint_url:
+            self._send_json({"error": voice_endpoint_url_error}, 400)
+            return
+        ok_voice_secret, voice_secret_error = _validate_voice_endpoint_secret_reentry(body, cfg, old_cfg)
+        if not ok_voice_secret:
+            self._send_json({"error": voice_secret_error}, 400)
+            return
         saved_email_analysis_version = None
         if "email_analysis_rules" in body:
             rule_validation = validate_email_analysis_rules(cfg.get("email_analysis_rules"))
@@ -2298,6 +2694,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             )
             if not ok_tz:
                 self._send_json({"error": err_tz}, 400)
+                return
+        if "voice_flow_defaults_json" in body:
+            ok_voice_defaults, voice_defaults_error = _validate_voice_flow_defaults_config(
+                cfg.get("voice_flow_defaults_json")
+            )
+            if not ok_voice_defaults:
+                self._send_json({"error": voice_defaults_error}, 400)
                 return
         if any(
             key in body
@@ -2792,6 +3195,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             video_url=None,
             video_title=payload.get("video_title"),
             source_type="email_message",
+            article_source_path=payload.get("article_source_path"),
             article_text=payload.get("article_text"),
             source_url=payload.get("source_url"),
             source_title=payload.get("source_title"),
@@ -2975,6 +3379,41 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._api_rss_error(exc)
 
+    def _api_rss_catalog(self):
+        qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+        params = parse_qs(qs)
+        raw_limit = params.get("limit", [None])[0]
+        limit = self._positive_int(raw_limit, default=500) if raw_limit not in (None, "") else 500
+        if raw_limit not in (None, "") and self._positive_int(raw_limit) is None:
+            self._send_json({"error": "limit 必须是正整数"}, 400)
+            return
+        raw_offset = params.get("offset", [None])[0]
+        if raw_offset in (None, ""):
+            offset = 0
+        else:
+            try:
+                offset = int(raw_offset)
+            except (TypeError, ValueError):
+                self._send_json({"error": "offset 必须是非负整数"}, 400)
+                return
+            if offset < 0:
+                self._send_json({"error": "offset 必须是非负整数"}, 400)
+                return
+        try:
+            self._send_json(
+                _rss_catalog_service.list_catalog(
+                    source_key=(params.get("source_key", [""])[0] or "").strip() or None,
+                    entry_type=(params.get("entry_type", [""])[0] or "").strip() or None,
+                    category=(params.get("category", [""])[0] or "").strip() or None,
+                    query=(params.get("q", [""])[0] or "").strip(),
+                    available_only=(params.get("available", [""])[0] or "").lower() in {"1", "true", "yes"},
+                    limit=limit,
+                    offset=offset,
+                )
+            )
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
     def _api_rss_feed_delete(self, feed_id: str):
         parsed_id = self._positive_int(feed_id)
         if parsed_id is None:
@@ -3024,7 +3463,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         max_items = self._positive_int((body or {}).get("max_items"), default=50) or 50
         try:
             self._send_json(_rss_collect_service.refresh_feed(parsed_id, max_items=max_items))
-        except ValueError as exc:
+        except LookupError as exc:
             self._api_rss_error(exc, 404)
         except Exception as exc:
             self._api_rss_error(exc)
@@ -3044,6 +3483,33 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"opml": _rss_collect_service.export_opml()})
         except Exception as exc:
             self._api_rss_error(exc, 500)
+
+    def _api_rss_catalog_sync(self):
+        try:
+            self._send_json(_rss_catalog_service.sync_catalog())
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_catalog_import(self, body: dict):
+        raw_ids = (body or {}).get("entry_ids") or (body or {}).get("ids") or []
+        if not isinstance(raw_ids, list):
+            self._send_json({"error": "entry_ids 必须是数组"}, 400)
+            return
+        entry_ids: list[int] = []
+        for raw_id in raw_ids:
+            parsed_id = self._positive_int(raw_id)
+            if parsed_id is None:
+                self._send_json({"error": "entry_ids 必须都是正整数"}, 400)
+                return
+            entry_ids.append(parsed_id)
+        if not entry_ids:
+            self._send_json({"error": "请选择要导入的订阅源"}, 400)
+            return
+        interval = self._positive_int((body or {}).get("fetch_interval_minutes"), default=60) or 60
+        try:
+            self._send_json(_rss_catalog_service.import_catalog_entries(entry_ids, fetch_interval_minutes=interval))
+        except Exception as exc:
+            self._api_rss_error(exc)
 
     def _api_rss_item_generate(self, item_id: str, body: dict):
         parsed_id = self._positive_int(item_id)
@@ -3065,6 +3531,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 video_url=None,
                 video_title=payload["source_title"],
                 source_type="rss_item",
+                article_source_path=payload.get("article_source_path"),
                 article_text=payload["article_text"],
                 source_url=payload["source_url"],
                 source_title=payload["source_title"],
@@ -3073,7 +3540,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 auto_translate=bool((body or {}).get("auto_translate", True)),
             )
             _rss_collect_service.mark_item_article_task(parsed_id, task_id)
-        except ValueError as exc:
+        except LookupError as exc:
             self._api_rss_error(exc, 404)
             return
         except Exception as exc:
@@ -3138,6 +3605,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                     video_url=None,
                     video_title=payload["source_title"],
                     source_type="rss_item",
+                    article_source_path=payload.get("article_source_path"),
                     article_text=payload["article_text"],
                     source_url=payload["source_url"],
                     source_title=payload["source_title"],
@@ -3436,6 +3904,43 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         task = _db.request_cancel_article_task(task_id)
         self._send_json({"ok": True, "task": task})
 
+    def _api_article_rerun(self, task_id: str):
+        """POST /api/article/{task_id}/rerun — clone an article task and run it again."""
+        task = _db.get_article_task(task_id)
+        if not task:
+            self._send_json({"error": "任务不存在"}, 404)
+            return
+        if str(task.get("status") or "") not in {"done", "error", "cancelled", "interrupted"}:
+            self._send_json({"error": "任务仍在运行，不能重新执行", "task": task}, 409)
+            return
+        cfg = _db.load_config()
+        try:
+            new_task_id = _db.create_article_task(
+                monitor_video_id=task.get("monitor_video_id"),
+                video_id=task.get("video_id"),
+                video_url=task.get("video_url"),
+                video_title=task.get("video_title"),
+                source_type=task.get("source_type") or "video",
+                article_source_path=task.get("article_source_path"),
+                article_text=task.get("article_text"),
+                source_url=task.get("source_url"),
+                source_title=task.get("source_title"),
+                email_message_id=task.get("email_message_id"),
+                rss_item_id=task.get("rss_item_id"),
+                target_lang=task.get("target_lang") or cfg.get("article_default_target_lang") or "zh-Hans",
+                auto_translate=bool(task.get("auto_translate", True)),
+            )
+        except Exception as exc:
+            self._send_json({"error": f"重新执行任务创建失败: {exc}"}, 400)
+            return
+        threading.Thread(
+            target=_run_article_task_safely,
+            args=(new_task_id, cfg),
+            name=f"article-task-{new_task_id}",
+            daemon=True,
+        ).start()
+        self._send_json({"ok": True, "task_id": new_task_id, "source_task_id": task_id}, 202)
+
     def _api_video_gen_create(self, body: dict):
         """POST /api/video-generate — create a Pixelle-style generation task."""
         body = body or {}
@@ -3604,9 +4109,22 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "关联的文章任务不存在"}, 404)
             return
 
-        draft_path = (body.get("draft_path") or (article_task or {}).get("draft_path") or "").strip()
+        body_draft_path = str(body.get("draft_path") or "").strip()
+        task_draft_path = str((article_task or {}).get("draft_path") or "").strip()
+        article_result = (article_task or {}).get("result") if isinstance(article_task, dict) else {}
+        if not isinstance(article_result, dict):
+            article_result = {}
+        publish_markdown_path = str(article_result.get("article_publish_markdown_path") or "").strip()
+        draft_path = body_draft_path or task_draft_path
+        if publish_markdown_path and (
+            not body_draft_path
+            or self._paths_refer_to_same_file(body_draft_path, task_draft_path)
+        ):
+            draft_path = publish_markdown_path
         content = str(body.get("content") or "").strip()
-        title = str(body.get("title") or (article_task or {}).get("video_title") or "").strip()
+        body_title = str(body.get("title") or "").strip()
+        task_title = str((article_task or {}).get("video_title") or "").strip()
+        title = body_title or task_title
         author = str(body.get("author") or "").strip()
         digest = str(body.get("digest") or "").strip()
         theme = str(body.get("theme") or cfg.get("wechat_default_theme") or "default").strip()
@@ -3640,7 +4158,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"error": f"微信文章排版失败: {exc}"}, 400)
                 return
-            title = title or render_result.title
+            title = body_title or render_result.title or title
             author = author or render_result.author or ""
             digest = digest or render_result.digest or ""
             content = render_result.content
@@ -3648,6 +4166,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "content 或 draft_path 至少需要一个"}, 400)
             return
 
+        title = wp.normalize_wechat_title(title)
         author = author or str(cfg.get("wechat_default_author") or "").strip()
         digest = digest or wp._digest_from_html(content)
         article_errors = wp.validate_wechat_article_payload(
@@ -3736,6 +4255,17 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             response["html_path"] = render_result.html_path
             response["warnings"] = render_result.warnings
         self._send_json(response, 202)
+
+    @staticmethod
+    def _paths_refer_to_same_file(left: str, right: str) -> bool:
+        if not left or not right:
+            return False
+        try:
+            return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
+        except Exception:
+            left_norm = left.replace("\\", "/").rstrip("/").lower()
+            right_norm = right.replace("\\", "/").rstrip("/").lower()
+            return left_norm == right_norm
 
     @staticmethod
     def _resolve_article_output_path(raw_path: str, cfg: dict) -> Path:

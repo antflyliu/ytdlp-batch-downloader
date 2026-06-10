@@ -24,6 +24,8 @@ from urllib.parse import quote
 import requests
 
 import monitor.db as db
+from monitor.voice.schemas import SpeechSynthesisRequest
+from monitor.voice.synthesis import synthesize_speech
 from scripts.llm_client import PROMPT_INPUT_PLACEHOLDER, create_llm_client
 
 
@@ -604,29 +606,25 @@ class VideoGenerationPipeline:
         text = "\n".join(scene.get("narration") or scene.get("image_prompt") or "" for scene in storyboard).strip()
         if not text:
             text = task.get("topic") or "AI generated video"
-        provider = (task.get("tts_workflow") or self.cfg.get("tts_provider") or "local").strip().lower()
+        requested_provider = str(task.get("tts_workflow") or "").strip() or None
         estimated_duration = max(4.0, min(180.0, len(text) / 4.5))
-
-        if provider in {"silent", "none", "offline", "mock"}:
-            audio_path = _write_silence_wav(output_dir / "narration.wav", estimated_duration)
-            return audio_path, "offline-silence", estimated_duration
-
-        if provider.startswith("edge"):
-            try:
-                audio_path = self._synthesize_edge_tts(text, output_dir)
-                return audio_path, "edge-tts", _probe_audio_duration(audio_path, estimated_duration)
-            except Exception:
-                if self.cfg.get("local_tts_url"):
-                    audio_path = self._synthesize_local_tts(text, output_dir)
-                    return audio_path, "local-tts", _probe_audio_duration(audio_path, estimated_duration)
-                raise
-
-        if self.cfg.get("local_tts_url"):
-            audio_path = self._synthesize_local_tts(text, output_dir)
-            return audio_path, "local-tts", _probe_audio_duration(audio_path, estimated_duration)
-
-        audio_path = _write_silence_wav(output_dir / "narration.wav", estimated_duration)
-        return audio_path, "offline-silence", estimated_duration
+        result = synthesize_speech(
+            SpeechSynthesisRequest(
+                text=text,
+                output_dir=output_dir,
+                output_name="narration",
+                provider=requested_provider,
+                flow="video_generation",
+                voice=str(self.cfg.get("tts_voice") or "") or None,
+                source="video_generation",
+                source_task_id=str(task.get("task_id") or self.task_id),
+                metadata={"estimated_duration_sec": estimated_duration},
+            ),
+            self.cfg,
+        )
+        audio_path = str(result.path)
+        duration = _probe_audio_duration(audio_path, result.duration_sec or estimated_duration)
+        return audio_path, result.provider, duration
 
     def _synthesize_edge_tts(self, text: str, output_dir: Path) -> str:
         command_path = shutil.which("edge-tts") or shutil.which("edge-tts.exe")

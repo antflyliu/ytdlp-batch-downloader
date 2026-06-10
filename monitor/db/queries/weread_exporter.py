@@ -74,7 +74,7 @@ def create_task(payload: dict, *, task_id: str, output_dir: str, cache_dir: str)
             """INSERT INTO weread_export_tasks
                (task_id, book_id, book_input, title, author, output_dir, cache_dir,
                 save_raw, status, current, result_json, meta_json, created_at, updated_at)
-               VALUES (?, ?, ?, '', '', ?, ?, ?, 'pending', ?, '[]', '{}', ?, ?)""",
+               VALUES (?, ?, ?, '', '', ?, ?, ?, 'pending', ?, '[]', ?, ?, ?)""",
             (
                 task_id,
                 payload.get("book_id") or "",
@@ -83,6 +83,7 @@ def create_task(payload: dict, *, task_id: str, output_dir: str, cache_dir: str)
                 cache_dir,
                 1 if payload.get("save_raw", True) else 0,
                 "等待启动",
+                _json_dumps(payload.get("meta"), {}),
                 now,
                 now,
             ),

@@ -160,7 +160,14 @@
                 </NFormItem>
 
                 <NFormItem :label="t('aiCreation.video.ttsWorkflow')">
-                  <NInput v-model:value="videoForm.tts_workflow" :placeholder="t('aiCreation.video.ttsWorkflowPlaceholder')" />
+                  <NSelect
+                    v-model:value="videoForm.tts_workflow"
+                    :options="videoVoiceProviderOptions"
+                    :loading="videoVoiceProvidersLoading"
+                    :placeholder="t('aiCreation.video.ttsWorkflowPlaceholder')"
+                    filterable
+                    clearable
+                  />
                 </NFormItem>
 
                 <NFormItem :label="t('aiCreation.video.imageWorkflow')">
@@ -242,15 +249,27 @@
               </div>
               <div class="task-item__bottom">
                 <span class="task-item__stage">{{ taskStageLabel(task) }}</span>
-                <NButton
-                  v-if="canCancelTask(task)"
-                  text
-                  type="warning"
-                  size="small"
-                  @click.stop="cancelTask(taskKey(task))"
-                >
-                  {{ t('aiCreation.cancel') }}
-                </NButton>
+                <div class="task-item__actions">
+                  <NButton
+                    v-if="canRerunArticleTask(task)"
+                    text
+                    type="primary"
+                    size="small"
+                    :loading="rerunningTaskId === taskKey(task)"
+                    @click.stop="rerunArticleTask(taskKey(task))"
+                  >
+                    {{ t('aiCreation.rerun') }}
+                  </NButton>
+                  <NButton
+                    v-if="canCancelTask(task)"
+                    text
+                    type="warning"
+                    size="small"
+                    @click.stop="cancelTask(taskKey(task))"
+                  >
+                    {{ t('aiCreation.cancel') }}
+                  </NButton>
+                </div>
               </div>
             </button>
           </div>
@@ -263,6 +282,16 @@
         <div v-if="selectedTaskId" class="detail-actions">
           <NButton tertiary size="small" :loading="detailLoading" @click="() => refreshSelectedTask()">
             {{ t('aiCreation.refresh') }}
+          </NButton>
+          <NButton
+            v-if="selectedTask && canRerunArticleTask(selectedTask)"
+            tertiary
+            type="primary"
+            size="small"
+            :loading="rerunningTaskId === selectedTaskId"
+            @click="rerunArticleTask(selectedTaskId)"
+          >
+            {{ t('aiCreation.rerun') }}
           </NButton>
           <NButton
             v-if="selectedTask && canCancelTask(selectedTask)"
@@ -476,6 +505,7 @@ import {
 } from 'naive-ui'
 import aiContentApi, { type AiTemplateOption, type ArticleTaskCreatePayload, type VideoTaskCreatePayload } from '@/api/aiContent'
 import request from '@/api/request'
+import voiceApi, { type VoiceProviderOption } from '@/api/voice'
 import wechatPublishApi from '@/api/wechatPublish'
 
 type AiTab = 'article' | 'video'
@@ -490,7 +520,7 @@ interface StageItem {
 }
 
 const POLL_INTERVAL_MS = 3000
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000'
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 const AI_TASK_TERMINAL_STATUSES = new Set(['done', 'error', 'cancelled', 'interrupted'])
 const WECHAT_PUBLISH_TERMINAL_STATUSES = new Set(['done', 'error', 'cancelled', 'interrupted'])
 
@@ -520,8 +550,11 @@ const detailLoading = ref(false)
 const submittingArticle = ref(false)
 const submittingVideo = ref(false)
 const templatesLoading = ref(false)
+const videoVoiceProvidersLoading = ref(false)
 const cancellingTaskId = ref('')
+const rerunningTaskId = ref('')
 const templateOptions = ref<Array<{ label: string; value: string }>>([])
+const videoVoiceProviderOptions = ref<Array<{ label: string; value: string }>>([])
 const publishingWechat = ref(false)
 const wechatPublishTaskId = ref('')
 const wechatPublishStatus = ref('')
@@ -672,15 +705,20 @@ const canSubmitVideo = computed(() => {
 
 const selectedTaskCollection = computed(() => currentTab.value === 'article' ? articleTasks : videoTasks)
 
-const articleDraftPath = (task: AiTaskRecord | null | undefined) => {
+const articleWechatPublishPath = (task: AiTaskRecord | null | undefined) => {
   const result = parseJsonMaybe(task?.result || task?.outputs || task?.metadata) as Record<string, string> | null
-  return firstTruthy(task?.draft_path, result?.draft_path)
+  return firstTruthy(
+    result?.article_publish_markdown_path,
+    task?.article_publish_markdown_path,
+    task?.draft_path,
+    result?.draft_path,
+  )
 }
 
 const canPublishSelectedArticle = computed(() => (
   currentTab.value === 'article'
   && taskStatus(selectedTask.value) === 'done'
-  && Boolean(articleDraftPath(selectedTask.value))
+  && Boolean(articleWechatPublishPath(selectedTask.value))
 ))
 
 const wechatPublishStatusLabel = computed(() => (
@@ -873,6 +911,12 @@ const canCancelTask = (task: AiTaskRecord | null | undefined) => {
   return ['pending', 'running', 'processing', 'queued', 'cancelling'].includes(status)
 }
 
+const canRerunArticleTask = (task: AiTaskRecord | null | undefined) => (
+  currentTab.value === 'article'
+  && Boolean(taskKey(task || {}))
+  && AI_TASK_TERMINAL_STATUSES.has(taskStatus(task))
+)
+
 const formatDateTime = (value?: string) => {
   if (!value) return '—'
   const date = new Date(value)
@@ -882,14 +926,15 @@ const formatDateTime = (value?: string) => {
 
 const resolveApiHref = (value: string) => {
   if (/^https?:\/\//i.test(value)) return value
-  if (value.startsWith('/')) return new URL(value, API_BASE).toString()
+  if (value.startsWith('/')) return API_BASE ? new URL(value, API_BASE).toString() : value
   return value
 }
 
 const isInternalApiHref = (href: string) => {
+  if (href.startsWith('/api/')) return true
   try {
-    const url = new URL(href, API_BASE)
-    const base = new URL(API_BASE)
+    const base = new URL(API_BASE || window.location.origin)
+    const url = new URL(href, base)
     return url.origin === base.origin && url.pathname.startsWith('/api/')
   } catch {
     return false
@@ -1193,6 +1238,26 @@ const cancelTask = async (taskId: string) => {
   }
 }
 
+const rerunArticleTask = async (taskId: string) => {
+  if (!taskId || rerunningTaskId.value) return
+  rerunningTaskId.value = taskId
+  try {
+    const res = await aiContentApi.rerunArticleTask(taskId)
+    const nextTaskId = String((res.data || {}).task_id || (res.data || {}).id || '')
+    message.success(t('aiCreation.rerunCreated'))
+    await refreshCurrentTab()
+    if (nextTaskId) {
+      await selectTask(nextTaskId)
+    } else {
+      await pickNewestTask()
+    }
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || error?.message || t('aiCreation.rerunFailed'))
+  } finally {
+    rerunningTaskId.value = ''
+  }
+}
+
 const pollWechatStatus = async (taskId: string) => {
   stopWechatPolling()
   try {
@@ -1229,7 +1294,7 @@ const pollWechatStatus = async (taskId: string) => {
 const submitWechatPublish = async (mode: 'draft' | 'publish') => {
   if (!selectedTask.value) return
   if (isWechatPublishBusy.value) return
-  const draftPath = articleDraftPath(selectedTask.value)
+  const draftPath = articleWechatPublishPath(selectedTask.value)
   if (!draftPath) {
     message.error(t('aiCreation.wechatDraftMissing'))
     return
@@ -1339,6 +1404,33 @@ const loadTemplates = async () => {
   }
 }
 
+const loadVideoVoiceProviders = async () => {
+  videoVoiceProvidersLoading.value = true
+  try {
+    const res = await voiceApi.listProviders({ capability: 'speech_synthesis', flow: 'video_generation' })
+    const providers = normalizeArray(res.data?.providers) as VoiceProviderOption[]
+    videoVoiceProviderOptions.value = providers.map((provider) => ({
+      label: `${provider.label || provider.id}${provider.configured ? '' : ` (${t('aiCreation.video.providerUnconfigured')})`}`,
+      value: provider.id,
+    })).filter((item) => item.label && item.value)
+    if (
+      videoForm.tts_workflow
+      && !videoVoiceProviderOptions.value.some((item) => item.value === videoForm.tts_workflow)
+    ) {
+      videoVoiceProviderOptions.value.unshift({
+        label: videoForm.tts_workflow,
+        value: videoForm.tts_workflow,
+      })
+    }
+  } catch {
+    videoVoiceProviderOptions.value = videoForm.tts_workflow
+      ? [{ label: videoForm.tts_workflow, value: videoForm.tts_workflow }]
+      : []
+  } finally {
+    videoVoiceProvidersLoading.value = false
+  }
+}
+
 const clearArticlePrefill = async () => {
   articleForm.source_type = 'video'
   articleForm.monitor_video_id = undefined
@@ -1440,7 +1532,7 @@ onMounted(async () => {
   applyRouteState()
   await nextTick()
   initHistoryHeightSync()
-  await loadTemplates()
+  await Promise.all([loadTemplates(), loadVideoVoiceProviders()])
   await refreshCurrentTab()
   const autoSubmitted = await maybeAutoSubmitPendingWechatPublish()
   if (!autoSubmitted) {
@@ -1619,6 +1711,13 @@ onUnmounted(() => {
   margin-top: 6px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.task-item__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .task-detail {

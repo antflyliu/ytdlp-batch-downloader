@@ -66,6 +66,13 @@ export default {
     })
   },
 
+  rerunArticleTask(taskId: string) {
+    return request<Record<string, unknown>>({
+      url: `/api/article/${taskId}/rerun`,
+      method: 'post',
+    })
+  },
+
   createVideoTask(data: VideoTaskCreatePayload) {
     return request<Record<string, unknown>>({
       url: '/api/video-generate',

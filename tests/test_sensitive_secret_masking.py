@@ -69,6 +69,38 @@ def test_masked_config_values_preserve_existing_secrets():
     assert merged["gemini_api_key"] == "gemini-new"
 
 
+def test_llm_endpoint_change_requires_api_key_reentry(monkeypatch):
+    import server.__main__ as server_main
+
+    sent = []
+    saved = []
+    handler = object.__new__(server_main.MonitorHandler)
+    handler._send_json = lambda data, status=200: sent.append((data, status))
+    monkeypatch.setattr(
+        server_main._db,
+        "load_config",
+        lambda: {
+            "llm_provider": "openai",
+            "llm_base_url": "https://old-llm.example/v1",
+            "llm_api_key": "sk-old",
+        },
+    )
+    monkeypatch.setattr(server_main._db, "save_config", lambda cfg: saved.append(dict(cfg)))
+
+    server_main.MonitorHandler._api_config_save(
+        handler,
+        {
+            "llm_provider": "openai",
+            "llm_base_url": "http://localhost:19081/v1",
+            "llm_api_key": "***",
+        },
+    )
+
+    assert sent[-1][1] == 400
+    assert "llm_api_key" in sent[-1][0]["error"]
+    assert saved == []
+
+
 def test_image_provider_keys_are_encrypted_at_rest(monkeypatch, tmp_path):
     from cryptography.fernet import Fernet
 
