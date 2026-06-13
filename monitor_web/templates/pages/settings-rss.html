@@ -1,0 +1,50 @@
+<div class="page-header">
+  <div>
+    <div class="page-title" data-i18n="rssCatalog.title">RSS ????</div>
+    <div class="page-desc" data-i18n="rssCatalog.desc">?? RSS ??????? OPML URL ???????</div>
+  </div>
+</div>
+
+<!-- Add Source Section -->
+<div class="section-card">
+  <div class="section-card__header" data-i18n="rssCatalog.addSource">????</div>
+  <div class="section-card__body">
+    <div class="tabs-mini">
+      <button type="button" class="tabs-mini__btn tabs-mini__btn--active" data-tab="url" onclick="switchRssTab('url')" data-i18n="rssCatalog.tabUrl">OPML URL</button>
+      <button type="button" class="tabs-mini__btn" data-tab="file" onclick="switchRssTab('file')" data-i18n="rssCatalog.tabFile">????</button>
+    </div>
+
+    <div id="rss-add-url" class="rss-tab-content rss-tab-content--active">
+      <div class="form-row">
+        <input type="text" id="rss-source-name-url" class="input" placeholder="????????????" data-i18n-placeholder="rssCatalog.namePlaceholder">
+        <input type="text" id="rss-source-feeds-url" class="input" placeholder="OPML URL" data-i18n-placeholder="rssCatalog.urlPlaceholder">
+      </div>
+      <button type="button" class="btn btn--primary" onclick="addRssSourceFromUrl()" data-i18n="rssCatalog.addBtn">??</button>
+    </div>
+
+    <div id="rss-add-file" class="rss-tab-content">
+      <div class="form-row">
+        <input type="text" id="rss-source-name-file" class="input" placeholder="????" data-i18n-placeholder="rssCatalog.namePlaceholder">
+      </div>
+      <div class="form-row">
+        <label class="file-upload-label">
+          <input type="file" id="rss-file-input" accept=".opml,.xml" class="file-upload-input" onchange="onRssFileSelected(event)">
+          <span class="file-upload-btn btn btn--outline" data-i18n="rssCatalog.selectFile">?? OPML ??</span>
+        </label>
+        <span id="rss-file-name" class="file-name-display"></span>
+      </div>
+      <button type="button" class="btn btn--primary" onclick="addRssSourceFromFile()" data-i18n="rssCatalog.uploadBtn">?????</button>
+    </div>
+  </div>
+</div>
+
+<!-- Source List Section -->
+<div class="section-card">
+  <div class="section-card__header">
+    <span data-i18n="rssCatalog.sourceList">????</span>
+    <button type="button" class="btn btn--sm btn--outline" onclick="refreshRssSources()" data-i18n="rssCatalog.refreshList">????</button>
+  </div>
+  <div class="section-card__body" id="rss-source-list">
+    <div class="loading-spinner" data-i18n="common.loading">???...</div>
+  </div>
+</div>

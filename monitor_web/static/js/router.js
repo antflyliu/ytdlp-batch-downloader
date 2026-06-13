@@ -17,6 +17,7 @@ const PAGE_TO_NAV_I18N = {
   'settings-ai': 'nav.settingsAi',
   'settings-dynamic': 'nav.settingsDynamic',
   'settings-proxy': 'nav.settingsProxy',
+  'settings-rss': 'nav.settingsRss',
 };
 
 /**
@@ -79,6 +80,7 @@ export function initRouter() {
     'settings-ai': () => showPage('settings-ai'),
     'settings-dynamic': () => showPage('settings-dynamic'),
     'settings-proxy': () => showPage('settings-proxy'),
+    'settings-rss': () => showPage('settings-rss'),
   });
 }
 

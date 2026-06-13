@@ -33,6 +33,7 @@ const PARTIAL_SPECS = [
   { mountId: 'tpl-page-settings-ai', url: '/templates/pages/settings-ai.html' },
   { mountId: 'tpl-page-settings-dynamic', url: '/templates/pages/settings-dynamic.html' },
   { mountId: 'tpl-page-settings-proxy', url: '/templates/pages/settings-proxy.html' },
+  { mountId: 'tpl-page-settings-rss', url: '/templates/pages/settings-rss.html' },
 ];
 
 /**

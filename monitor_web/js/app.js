@@ -17,7 +17,8 @@ import { openProxyDemo, closeProxyDemo, openProxyPools, loadProxyPoolTable, open
 import { openCache, loadCacheList, refreshCacheItem, refreshCacheItemByHandle, deleteCacheItem, clearAllCache } from './modules/cache.js';
 import { openDynamicProviders, refreshDynamicProvidersUi, updateProviderSchedulerHint, loadProviderSchedulerLogs, syncDynLogFilters, toggleDynCollapse, loadDynamicProviderTable, dynProviderGoPage, onDynAdapterTypeChange, onDynListApiAuthToggle, onDynListApiAdvToggle, onDynBillingTierChange, openAddDynamicProvider, openEditDynamicProvider, _buildDynConfigJson, saveDynamicProvider, toggleDynamicProvider, deleteDynamicProvider, healthCheckDynamicProvider, clearCooldownDynamicProvider, refreshDynamicProvider, previewCandidatesDynamicProvider, openDynamicProviderDetail, refreshDynamicProviderDetail, healthCheckDynamicProviderDetail, clearCooldownDynamicProviderDetail, toggleProviderFailureList, closeDynamicProviderDetail, healthCheckAllProviders } from './modules/dynamicProvider.js';
 import { openClipHistory } from './modules/clipHistory.js';
-import { initSettingsProxyPage } from './modules/proxySniffer.js'; // registers window.init_settings_proxy_page
+import { initSettingsProxyPage } from './modules/proxySniffer.js';
+import './modules/rssCatalog.js'; // registers window.init_rss_settings_page, window.destroy_rss_settings_page + rss onclick handlers // registers window.init_settings_proxy_page
 import { initResourcesPage, destroyResourcesPage } from './modules/resources.js'; // registers window.init_resources_page, window.destroy_resources_page + res* onclick handlers
 
 // ── Component modules ───────────────────────────────────────────────
