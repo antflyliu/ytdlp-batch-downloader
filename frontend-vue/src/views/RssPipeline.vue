@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="rss-page">
     <div class="page-header">
       <div>
@@ -57,23 +57,43 @@
                   </span>
                   <NTag class="rss-feed__tag" :bordered="false">{{ feeds.length }}</NTag>
                 </button>
-                <button
+                <div
                   v-for="feed in feeds"
                   :key="feed.id"
-                  type="button"
-                  class="rss-feed"
-                  :class="{ 'rss-feed--active': selectedFeedId === feed.id }"
-                  :aria-pressed="selectedFeedId === feed.id"
-                  @click="selectFeed(feed.id)"
+                  class="rss-feed-row"
                 >
-                  <span class="rss-feed__body">
-                    <strong>{{ feed.title }}</strong>
-                    <small>{{ feed.category || t('rssPipeline.uncategorized') }}</small>
-                  </span>
-                  <NTag class="rss-feed__tag" :type="feed.last_fetch_status === 'error' ? 'error' : feed.last_fetch_status === 'ok' ? 'success' : 'default'" :bordered="false">
-                    {{ statusLabel(feed.last_fetch_status) }}
-                  </NTag>
-                </button>
+                  <button
+                    type="button"
+                    class="rss-feed"
+                    :class="{ 'rss-feed--active': selectedFeedId === feed.id }"
+                    :aria-pressed="selectedFeedId === feed.id"
+                    @click="selectFeed(feed.id)"
+                  >
+                    <span class="rss-feed__body">
+                      <strong>{{ feed.title }}</strong>
+                      <small>{{ feed.category || t('rssPipeline.uncategorized') }}</small>
+                    </span>
+                    <div class="rss-feed__actions">
+                      <NTag class="rss-feed__tag" :type="feed.last_fetch_status === 'error' ? 'error' : feed.last_fetch_status === 'ok' ? 'success' : 'default'" :bordered="false">
+                        {{ statusLabel(feed.last_fetch_status) }}
+                      </NTag>
+                      <NPopconfirm
+                        :positive-text="t('common.delete')"
+                        :negative-text="t('common.cancel')"
+                        @positive-click="deleteFeed(feed.id)"
+                      >
+                        <template #trigger>
+                          <NButton quaternary circle size="tiny" class="rss-feed__delete-btn" @click.stop>
+                            <template #icon>
+                              <NIcon><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg></NIcon>
+                            </template>
+                          </NButton>
+                        </template>
+                        {{ t('rssPipeline.deleteConfirm') }}
+                      </NPopconfirm>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -83,6 +103,9 @@
           <template #header-extra>
             <NButton text size="small" :loading="catalogSyncing" @click="syncCatalog">
               {{ t('rssPipeline.catalogSync') }}
+            </NButton>
+            <NButton text size="small" @click="loadCatalogSources">
+              {{ t('rssPipeline.catalogSources') }}
             </NButton>
           </template>
 
@@ -95,6 +118,49 @@
               <NTag size="small" :bordered="false">{{ t('rssPipeline.catalogFeeds', { count: catalogSummary?.feed_count || 0 }) }}</NTag>
               <NTag size="small" :bordered="false" type="success">{{ t('rssPipeline.catalogValid', { count: catalogSummary?.valid_count || 0 }) }}</NTag>
               <NTag size="small" :bordered="false">{{ t('rssPipeline.catalogRoutes', { count: catalogSummary?.route_count || 0 }) }}</NTag>
+            </div>
+
+            <div class="rss-catalog-sources">
+              <div class="rss-catalog-sources__header">
+                <span class="rss-catalog-sources__title">{{ t('rssPipeline.catalogSources') }}</span>
+                <NButton text size="small" @click="showAddSourceModal = true">
+                  {{ t('rssPipeline.catalogAddSource') }}
+                </NButton>
+              </div>
+              <div v-if="catalogSourceLoading" class="rss-catalog-sources__loading">
+                {{ t('common.loading') }}
+              </div>
+              <div v-else-if="catalogSources.length === 0" class="rss-catalog-sources__empty">
+                {{ t('rssPipeline.catalogSourceEmpty') }}
+              </div>
+              <div v-else class="rss-catalog-sources__list">
+                <div v-for="source in catalogSources" :key="source.source_key" class="rss-catalog-source-item">
+                  <div class="rss-catalog-source-item__info">
+                    <strong>{{ source.name }}</strong>
+                    <small v-if="source.last_synced_at">{{ t('rssPipeline.catalogSyncedAt', { time: formatDate(source.last_synced_at) }) }}</small>
+                    <small v-else>{{ t('rssPipeline.catalogNotSynced') }}</small>
+                  </div>
+                  <div class="rss-catalog-source-item__actions">
+                    <NButton size="tiny" tertiary :loading="catalogSourceSyncing" @click="syncCatalogSource(source.source_key)">
+                      {{ t('rssPipeline.catalogSync') }}
+                    </NButton>
+                    <NPopconfirm
+                      :positive-text="t('common.delete')"
+                      :negative-text="t('common.cancel')"
+                      @positive-click="deleteCatalogSource(source.source_key)"
+                    >
+                      <template #trigger>
+                        <NButton size="tiny" quaternary>
+                          <template #icon>
+                            <NIcon><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg></NIcon>
+                          </template>
+                        </NButton>
+                      </template>
+                      {{ t('rssPipeline.catalogSourceDeleteConfirm') }}
+                    </NPopconfirm>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="rss-catalog-controls">
@@ -162,11 +228,42 @@
           <div class="rss-opml-stack">
             <NInput v-model:value="opmlText" type="textarea" :rows="5" placeholder="<opml version=&quot;2.0&quot;>..." />
             <div class="rss-form-actions rss-form-actions--end">
-              <NButton type="primary" :loading="importing" @click="importOpml">{{ t('rssPipeline.importOpml') }}</NButton>
-            </div>
+            <input
+              ref="opmlFileInputRef"
+              type="file"
+              accept=".opml,.xml"
+              class="rss-file-input"
+              @change="handleOpmlFileChange"
+            />
+            <span v-if="opmlFileName" class="rss-file-name">{{ opmlFileName }}</span>
+            <NButton @click="triggerOpmlFileInput">{{ t('rssPipeline.selectOpmlFile') }}</NButton>
+            <NButton type="primary" :loading="importing" @click="importOpml">{{ t('rssPipeline.importOpml') }}</NButton>
+          </div>
             <NInput v-if="exportedOpml" v-model:value="exportedOpml" type="textarea" :rows="5" readonly />
           </div>
         </NCard>
+      <NModal v-model:show="showAddSourceModal" :title="t('rssPipeline.catalogAddSource')" preset="card" style="width: 500px">
+        <NForm :model="addSourceDraft" label-placement="top">
+          <NFormItem :label="t('rssPipeline.catalogSourceName')">
+            <NInput v-model:value="addSourceDraft.name" placeholder="My Feed Library" clearable />
+          </NFormItem>
+          <NFormItem :label="t('rssPipeline.catalogSourceFeedsUrl')">
+            <NInput v-model:value="addSourceDraft.feeds_url" placeholder="https://example.com/feeds.opml" clearable />
+          </NFormItem>
+          <NFormItem :label="t('rssPipeline.catalogSourceHomepageUrl')">
+            <NInput v-model:value="addSourceDraft.homepage_url" placeholder="https://github.com/..." clearable />
+          </NFormItem>
+          <NFormItem :label="t('rssPipeline.catalogSourceStatusUrl')">
+            <NInput v-model:value="addSourceDraft.status_url" placeholder="https://example.com/status.json" clearable />
+          </NFormItem>
+          <div class="rss-form-actions rss-form-actions--end">
+            <NButton @click="showAddSourceModal = false">{{ t('common.cancel') }}</NButton>
+            <NButton type="primary" :loading="catalogSourceSyncing" @click="addCatalogSource">
+              {{ t('rssPipeline.catalogAddSource') }}
+            </NButton>
+          </div>
+        </NForm>
+      </NModal>
       </aside>
 
       <NCard class="rss-card rss-items-card" :title="t('rssPipeline.items')">
@@ -247,26 +344,33 @@ import {
   NEmpty,
   NForm,
   NFormItem,
+  NIcon,
   NInput,
   NInputNumber,
+  NModal,
   NPopconfirm,
   NSelect,
   NTag,
   useMessage,
 } from 'naive-ui'
 import {
+  addRssCatalogSource,
   deleteRssFeed,
+  deleteRssCatalogSource,
   exportRssOpml,
   generateRssArticle,
   importRssCatalogEntries,
   importRssOpml,
   listRssCatalog,
+  listRssCatalogSources,
   listRssFeeds,
   listRssItems,
   refreshRssFeed,
   saveRssFeed,
   syncRssCatalog,
+  syncRssCatalogSource,
   type RssCatalogEntry,
+  type RssCatalogSource,
   type RssCatalogSummary,
   type RssFeed,
   type RssItem,
@@ -288,6 +392,16 @@ const importing = ref(false)
 const catalogLoading = ref(false)
 const catalogSyncing = ref(false)
 const catalogImporting = ref(false)
+const catalogSources = ref<RssCatalogSource[]>([])
+const catalogSourceLoading = ref(false)
+const catalogSourceSyncing = ref(false)
+const showAddSourceModal = ref(false)
+const addSourceDraft = reactive({
+  name: '',
+  feeds_url: '',
+  homepage_url: '',
+  status_url: '',
+})
 const deletingFeed = ref(false)
 const loadingMore = ref(false)
 const generatingId = ref<number | null>(null)
@@ -299,6 +413,8 @@ const pageSize = 40
 const itemOffset = ref(0)
 const hasMoreItems = ref(false)
 const opmlText = ref('')
+const opmlFileInputRef = ref<HTMLInputElement | null>(null)
+const opmlFileName = ref('')
 const exportedOpml = ref('')
 const catalogSearch = ref('')
 const catalogCategory = ref('__all__')
@@ -384,8 +500,82 @@ const loadAll = async () => {
     await loadFeeds()
     await loadItems()
     await loadCatalog()
+    await loadCatalogSources()
   } finally {
     loading.value = false
+  }
+}
+
+const loadCatalogSources = async () => {
+  catalogSourceLoading.value = true
+  try {
+    const { data } = await listRssCatalogSources()
+    catalogSources.value = data.sources || []
+  } catch {
+    // silently fail, catalog sources are auxiliary
+  } finally {
+    catalogSourceLoading.value = false
+  }
+}
+
+const addCatalogSource = async () => {
+  if (!addSourceDraft.name.trim() || !addSourceDraft.feeds_url.trim()) {
+    message.error(t('rssPipeline.catalogSourceAddError'))
+    return
+  }
+  catalogSourceSyncing.value = true
+  try {
+    await addRssCatalogSource({ ...addSourceDraft })
+    showAddSourceModal.value = false
+    addSourceDraft.name = ''
+    addSourceDraft.feeds_url = ''
+    addSourceDraft.homepage_url = ''
+    addSourceDraft.status_url = ''
+    await loadCatalogSources()
+    message.success(t('rssPipeline.catalogSourceAdded'))
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || t('rssPipeline.catalogSourceAddFailed'))
+  } finally {
+    catalogSourceSyncing.value = false
+  }
+}
+
+const deleteCatalogSource = async (sourceKey: string) => {
+  try {
+    await deleteRssCatalogSource(sourceKey)
+    await loadCatalogSources()
+    await loadCatalog()
+    message.success(t('rssPipeline.catalogSourceDeleted'))
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || t('rssPipeline.catalogSourceDeleteFailed'))
+  }
+}
+
+const syncCatalogSource = async (sourceKey: string) => {
+  catalogSourceSyncing.value = true
+  try {
+    await syncRssCatalogSource(sourceKey)
+    await loadCatalogSources()
+    await loadCatalog()
+    message.success(t('rssPipeline.catalogSyncDone', { count: 0 }))
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || t('rssPipeline.catalogSyncFailed'))
+  } finally {
+    catalogSourceSyncing.value = false
+  }
+}
+
+const deleteFeed = async (feedId: number) => {
+  try {
+    await deleteRssFeed(feedId)
+    if (selectedFeedId.value === feedId) {
+      selectedFeedId.value = undefined
+      expandedItemId.value = null
+    }
+    await loadAll()
+    message.success(t('rssPipeline.feedDeleted'))
+  } catch (error: any) {
+    message.error(error?.response?.data?.error || t('rssPipeline.feedDeleteFailed'))
   }
 }
 
@@ -528,6 +718,23 @@ const generateArticle = async (item: RssItem) => {
   } finally {
     generatingId.value = null
   }
+}
+
+
+const triggerOpmlFileInput = () => {
+  opmlFileInputRef.value?.click()
+}
+
+const handleOpmlFileChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  opmlFileName.value = t("rssPipeline.opmlFileSelected", { name: file.name })
+  const reader = new FileReader()
+  reader.onload = (event) => {
+    opmlText.value = (event.target?.result as string) || ''
+  }
+  reader.readAsText(file)
 }
 
 const importOpml = async () => {
@@ -1020,6 +1227,124 @@ onMounted(loadAll)
   text-align: center;
 }
 
+
+.rss-feed-row {
+  display: flex;
+  width: 100%;
+  gap: 4px;
+}
+
+.rss-feed-row > .rss-feed {
+  flex: 1;
+  min-width: 0;
+}
+
+.rss-feed__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.rss-feed__delete-btn {
+  opacity: 0.4;
+  transition: opacity 160ms ease;
+}
+
+.rss-feed__delete-btn:hover {
+  opacity: 1;
+}
+
+.rss-catalog-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.rss-catalog-sources__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rss-catalog-sources__title {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rss-catalog-sources__loading,
+.rss-catalog-sources__empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.rss-catalog-sources__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.rss-catalog-source-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(250, 249, 245, 0.98) 100%);
+  padding: 8px 12px;
+  min-width: 0;
+}
+
+.rss-catalog-source-item__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rss-catalog-source-item__info strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rss-catalog-source-item__info small {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rss-catalog-source-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rss-file-input {
+  display: none;
+}
+
+.rss-file-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
 @media (max-width: 1180px) {
   .rss-item {
     grid-template-columns: 1fr;

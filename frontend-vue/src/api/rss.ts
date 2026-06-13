@@ -80,6 +80,13 @@ export interface RssCatalogEntry {
   feed_id?: number | null
 }
 
+export interface RssCatalogSourcePayload {
+  name: string
+  feeds_url: string
+  homepage_url?: string
+  status_url?: string
+}
+
 export interface RssCatalogSummary {
   total: number
   feed_count: number
@@ -140,6 +147,25 @@ export function importRssOpml(opml: string) {
   return request.post<{ ok: boolean; imported: number; invalid_items: unknown[]; duplicate_items: unknown[] }>(
     '/api/rss/opml/import',
     { opml },
+  )
+}
+
+export function listRssCatalogSources() {
+  return request.get<{ sources: RssCatalogSource[] }>('/api/rss/catalog/sources')
+}
+
+export function addRssCatalogSource(payload: RssCatalogSourcePayload) {
+  return request.post<{ ok: boolean; source: RssCatalogSource }>('/api/rss/catalog/sources', payload)
+}
+
+export function deleteRssCatalogSource(sourceKey: string) {
+  return request.delete<{ ok: boolean }>(`/api/rss/catalog/sources/${encodeURIComponent(sourceKey)}`)
+}
+
+export function syncRssCatalogSource(sourceKey: string) {
+  return request.post<{ ok: boolean; summary: RssCatalogSummary }>(
+    `/api/rss/catalog/sources/${encodeURIComponent(sourceKey)}/sync`,
+    {},
   )
 }
 

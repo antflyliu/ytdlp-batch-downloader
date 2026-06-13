@@ -103,6 +103,11 @@ def ensure_catalog_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_catalog_category ON rss_catalog_entries(category COLLATE NOCASE, title COLLATE NOCASE)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rss_catalog_feed_url ON rss_catalog_entries(feed_url)")
 
+    try:
+        conn.execute("ALTER TABLE rss_catalog_sources ADD COLUMN opml_content TEXT")
+    except Exception:
+        pass
+
 
 def _feed_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
     if row is None:
@@ -173,6 +178,7 @@ def upsert_catalog_source(
     invalid_count: int = 0,
     limited_count: int = 0,
     success_rate: str = "",
+    opml_content: str = "",
 ) -> None:
     now = now_iso()
     existing = conn.execute("SELECT source_key FROM rss_catalog_sources WHERE source_key=?", (source_key,)).fetchone()
@@ -181,7 +187,7 @@ def upsert_catalog_source(
             """UPDATE rss_catalog_sources
                SET name=?, homepage_url=?, feeds_url=?, status_url=?, readme_url=?, license=?,
                    last_synced_at=?, last_sync_status=?, last_sync_error=?, feed_total=?,
-                   valid_count=?, invalid_count=?, limited_count=?, success_rate=?, updated_at=?
+                   valid_count=?, invalid_count=?, limited_count=?, success_rate=?, opml_content=?, updated_at=?
                WHERE source_key=?""",
             (
                 name,
@@ -198,6 +204,7 @@ def upsert_catalog_source(
                 int(invalid_count or 0),
                 int(limited_count or 0),
                 success_rate,
+                opml_content,
                 now,
                 source_key,
             ),
@@ -207,8 +214,8 @@ def upsert_catalog_source(
         """INSERT INTO rss_catalog_sources
            (source_key, name, homepage_url, feeds_url, status_url, readme_url, license,
             last_synced_at, last_sync_status, last_sync_error, feed_total, valid_count,
-            invalid_count, limited_count, success_rate, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            invalid_count, limited_count, success_rate, opml_content, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             source_key,
             name,
@@ -225,6 +232,7 @@ def upsert_catalog_source(
             int(invalid_count or 0),
             int(limited_count or 0),
             success_rate,
+            opml_content,
             now,
             now,
         ),
@@ -236,6 +244,22 @@ def list_catalog_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         "SELECT * FROM rss_catalog_sources ORDER BY updated_at DESC, name COLLATE NOCASE"
     ).fetchall()
     return [_catalog_source_from_row(row) for row in rows if row is not None]
+
+
+
+def get_catalog_source(conn, source_key):
+    """????????????"""
+    row = conn.execute(
+        "SELECT * FROM rss_catalog_sources WHERE source_key=?", (source_key,)
+    ).fetchone()
+    return _catalog_source_from_row(row)
+
+
+def delete_catalog_source(conn, source_key):
+    """???????????????ON DELETE CASCADE ???????"""
+    cur = conn.execute("DELETE FROM rss_catalog_sources WHERE source_key=?", (source_key,))
+    return cur.rowcount > 0
+
 
 
 def upsert_catalog_entry(
@@ -302,11 +326,29 @@ def delete_catalog_entries_not_in(conn: sqlite3.Connection, source_key: str, ent
     if not entry_keys:
         conn.execute("DELETE FROM rss_catalog_entries WHERE source_key=?", (source_key,))
         return
-    placeholders = ",".join("?" for _ in entry_keys)
-    conn.execute(
-        f"DELETE FROM rss_catalog_entries WHERE source_key=? AND entry_key NOT IN ({placeholders})",
-        (source_key, *entry_keys),
-    )
+    # Delete entries NOT in the seen set by batching (avoid SQLite variable limit of 999)
+    seen_set = set(entry_keys)
+    batch_size = 500
+    page = 0
+    while True:
+        rows = conn.execute(
+            "SELECT id, entry_key FROM rss_catalog_entries WHERE source_key=? LIMIT ? OFFSET ?",
+            (source_key, batch_size, page * batch_size),
+        ).fetchall()
+        if not rows:
+            break
+        delete_ids = [str(r[0]) for r in rows if r[1] not in seen_set]
+        if delete_ids:
+            # Batch delete with safe chunk size
+            chunk_size = 100
+            for i in range(0, len(delete_ids), chunk_size):
+                chunk = delete_ids[i:i + chunk_size]
+                ph = ",".join("?" for _ in chunk)
+                conn.execute(
+                    f"DELETE FROM rss_catalog_entries WHERE id IN ({ph})",
+                    [int(x) for x in chunk],
+                )
+        page += 1
 
 
 def list_catalog_entries(

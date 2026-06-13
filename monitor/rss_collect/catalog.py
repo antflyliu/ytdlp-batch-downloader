@@ -48,6 +48,8 @@ class RssCatalogService:
                 offset=offset,
             )
             summary = rss_queries.catalog_summary(conn)
+            if summary.get("source"):
+                summary["source"].pop("opml_content", None)
         return {"entries": entries, "summary": summary}
 
     def sync_catalog(self) -> dict[str, Any]:
@@ -111,6 +113,143 @@ class RssCatalogService:
                 imported += 1
         return {"ok": True, "imported": imported, "skipped": skipped, "invalid_items": invalid_items}
 
+
+    def list_sources(self) -> list[dict[str, Any]]:
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            sources = rss_queries.list_catalog_sources(conn)
+            for s in sources:
+                s.pop("opml_content", None)
+            return sources
+
+    def get_source(self, source_key: str) -> dict[str, Any] | None:
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            source = rss_queries.get_catalog_source(conn, source_key)
+            if source:
+                source.pop("opml_content", None)
+            return source
+
+    def add_source(
+        self,
+        name: str,
+        feeds_url: str = "",
+        *,
+        homepage_url: str = "",
+        status_url: str = "",
+        opml_content: str = "",
+    ) -> dict[str, Any]:
+        source_key = "custom:" + re.sub(r"[^a-zA-Z0-9?-?_-]", "_", name.strip())
+        if feeds_url:
+            validate_external_http_url(feeds_url)
+        elif not opml_content:
+            raise ValueError("feeds_url ? opml_content ???????")
+        if status_url:
+            validate_external_http_url(status_url)
+        if homepage_url:
+            validate_external_http_url(homepage_url)
+
+        # When opml_content is provided, parse and store entries immediately
+        if opml_content:
+            parsed_opml = parse_opml_document(opml_content)
+        else:
+            parsed_opml = None
+
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            existing = rss_queries.get_catalog_source(conn, source_key)
+            if existing:
+                if rss_queries.delete_catalog_source(conn, source_key):
+                    conn.commit()
+            rss_queries.upsert_catalog_source(
+                conn,
+                source_key=source_key,
+                name=name,
+                homepage_url=homepage_url,
+                feeds_url=feeds_url,
+                status_url=status_url,
+                opml_content=opml_content,
+                feed_total=len(parsed_opml.entries) if parsed_opml else 0,
+            )
+
+            # If opml_content was provided, parse and store entries now
+            if parsed_opml:
+                seen_keys: list[str] = []
+                for entry in parsed_opml.entries:
+                    entry_key = _entry_key("feed", entry.xml_url, source_key=source_key)
+                    seen_keys.append(entry_key)
+                    rss_queries.upsert_catalog_entry(
+                        conn,
+                        source_key=source_key,
+                        entry_key=entry_key,
+                        entry_type="feed",
+                        title=entry.title,
+                        category=_clean_category(entry.category),
+                        feed_url=entry.xml_url,
+                        site_url=entry.site_url,
+                    )
+                # Skip cleanup for fresh imports; batch-deletion logic handles existing sources
+                rss_queries.delete_catalog_entries_not_in(conn, source_key, seen_keys)
+
+            return rss_queries.get_catalog_source(conn, source_key) or {}
+
+    def delete_source(self, source_key: str) -> bool:
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            return rss_queries.delete_catalog_source(conn, source_key)
+
+    def sync_source(self, source_key: str) -> dict[str, Any]:
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            source = rss_queries.get_catalog_source(conn, source_key)
+        if not source:
+            raise LookupError(f"?????? {source_key} ???")
+        feeds_url = str(source.get("feeds_url") or "")
+        opml_content = str(source.get("opml_content") or "")
+        if not feeds_url and not opml_content:
+            raise LookupError(f"???? {source_key} ??? feed ?? URL ? OPML ??")
+
+        if source_key == SOURCE_KEY:
+            status_text = self._fetch_text(str(source.get("status_url") or "")) if source.get("status_url") else "{}"
+            readme_text = self._fetch_text(str(source.get("readme_url") or "")) if source.get("readme_url") else ""
+            opml_text = self._fetch_text(feeds_url)
+            return self._store_catalog(opml_text, status_text, readme_text)
+
+        if opml_content:
+            opml_text = opml_content
+        else:
+            opml_text = self._fetch_text(feeds_url)
+        parsed_opml = parse_opml_document(opml_text)
+        with db.get_connection() as conn:
+            rss_queries.ensure_schema(conn)
+            rss_queries.upsert_catalog_source(
+                conn,
+                source_key=source_key,
+                name=str(source.get("name") or ""),
+                feeds_url=feeds_url,
+                last_synced_at=rss_queries.now_iso(),
+                last_sync_status="ok",
+                last_sync_error="",
+                feed_total=len(parsed_opml.entries),
+                opml_content=str(source.get("opml_content") or ""),
+            )
+            seen_keys: list[str] = []
+            for entry in parsed_opml.entries:
+                entry_key = _entry_key("feed", entry.xml_url, source_key=source_key)
+                seen_keys.append(entry_key)
+                rss_queries.upsert_catalog_entry(
+                    conn,
+                    source_key=source_key,
+                    entry_key=entry_key,
+                    entry_type="feed",
+                    title=entry.title,
+                    category=_clean_category(entry.category),
+                    feed_url=entry.xml_url,
+                    site_url=entry.site_url,
+                )
+            rss_queries.delete_catalog_entries_not_in(conn, source_key, seen_keys)
+            summary = rss_queries.catalog_summary(conn)
+        return {"ok": True, "summary": summary}
     def _store_catalog(self, opml_text: str, status_text: str, readme_text: str) -> dict[str, Any]:
         parsed_opml = parse_opml_document(opml_text)
         status_payload = _parse_status_payload(status_text)
@@ -254,9 +393,9 @@ def _parse_rsshub_routes(readme_text: str) -> list[dict[str, str]]:
     return routes
 
 
-def _entry_key(entry_type: str, value: str) -> str:
+def _entry_key(entry_type: str, value: str, *, source_key: str = SOURCE_KEY) -> str:
     digest = hashlib.sha1(value.encode("utf-8")).hexdigest()
-    return f"{SOURCE_KEY}:{entry_type}:{digest}"
+    return f"{source_key}:{entry_type}:{digest}"
 
 
 def _clean_category(value: str) -> str:

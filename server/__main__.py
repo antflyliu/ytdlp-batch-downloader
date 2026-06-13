@@ -1,4 +1,4 @@
-"""
+﻿"""
 server/__main__.py — YouTube 视频监控 Web 服务入口
 可通过 `python -m server` 或 `python server/__main__.py` 启动
 """
@@ -111,7 +111,7 @@ _CONFIG_RESPONSE_SECRET_KEYS = {
     "wechat_app_secret",
     "wechat_exporter_auth_key",
 }
-_MAX_RSS_OPML_BODY_BYTES = 1_100_000
+_MAX_RSS_OPML_BODY_BYTES = 10_000_000
 _ACCOUNT_RESPONSE_SECRET_KEYS = {
     "dingtalk_sign_secret",
     "telegram_bot_token",
@@ -1194,6 +1194,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_rss_feeds()
         elif path == "/api/rss/catalog":
             self._api_rss_catalog()
+        elif path == "/api/rss/catalog/sources":
+            self._api_rss_catalog_sources()
         elif path == "/api/rss/items":
             self._api_rss_items()
         elif path == "/api/rss/opml/export":
@@ -1319,7 +1321,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             return
         if self._reject_invalid_json_content_type(path):
             return
-        if path == "/api/rss/opml/import":
+        if path in ("/api/rss/opml/import", "/api/rss/catalog/sources", "/api/rss/catalog/sources/file"):
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
             except (TypeError, ValueError):
@@ -1485,6 +1487,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_rss_catalog_sync()
         elif path == "/api/rss/catalog/import":
             self._api_rss_catalog_import(body)
+        elif path == "/api/rss/catalog/sources":
+            self._api_rss_catalog_source_add(body)
+        elif path == "/api/rss/catalog/sources/file":
+            self._api_rss_catalog_source_add_file()
+        elif path.startswith("/api/rss/catalog/sources/") and path.endswith("/sync"):
+            raw = path.split("/")[-2]
+            source_key = unquote(raw)
+            self._api_rss_catalog_source_sync(source_key)
         elif path.startswith("/api/rss/items/") and path.endswith("/generate"):
             item_id = path.split("/")[-2]
             self._api_rss_item_generate(item_id, body)
@@ -1610,6 +1620,10 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         elif path.startswith("/api/rss/feeds/"):
             feed_id = path.split("/")[-1]
             self._api_rss_feed_delete(feed_id)
+        elif path.startswith("/api/rss/catalog/sources/"):
+            raw = path.split("/")[-1]
+            source_key = unquote(raw)
+            self._api_rss_catalog_source_delete(source_key)
         elif path.startswith("/api/api-keys/"):
             key_id = path.split("/")[-1]
             if key_id.isdigit():
@@ -3508,6 +3522,100 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         interval = self._positive_int((body or {}).get("fetch_interval_minutes"), default=60) or 60
         try:
             self._send_json(_rss_catalog_service.import_catalog_entries(entry_ids, fetch_interval_minutes=interval))
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_catalog_sources(self):
+        try:
+            self._send_json({"sources": _rss_catalog_service.list_sources()})
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
+    def _api_rss_catalog_source_add(self, body: dict):
+        name = str((body or {}).get("name") or "").strip()
+        feeds_url = str((body or {}).get("feeds_url") or "").strip()
+        opml_content = str((body or {}).get("opml_content") or "").strip()
+        if not name or (not feeds_url and not opml_content):
+            self._send_json({"error": "name ?? feeds_url ? opml_content ??"}, 400)
+            return
+        homepage_url = str((body or {}).get("homepage_url") or "").strip()
+        status_url = str((body or {}).get("status_url") or "").strip()
+        try:
+            source = _rss_catalog_service.add_source(
+                name=name, feeds_url=feeds_url,
+                homepage_url=homepage_url, status_url=status_url,
+                opml_content=opml_content,
+            )
+            self._send_json({"ok": True, "source": source})
+        except Exception as exc:
+            self._api_rss_error(exc)
+
+    def _api_rss_catalog_source_add_file(self) -> None:
+        content_len = int(self.headers.get("Content-Length", "0"))
+        if content_len > _MAX_RSS_OPML_BODY_BYTES:
+            self._send_json({"error": "OPML ??????"}, 413)
+            return
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" in content_type:
+            raw = self.rfile.read(content_len)
+            boundary = content_type.split("boundary=", 1)[-1].strip()
+            if not boundary:
+                self._send_json({"error": "?? multipart boundary"}, 400)
+                return
+            name_val = ""
+            opml_text = ""
+            for part in raw.split(b"--" + boundary.encode()):
+                if not part.strip() or part.strip() == b"--":
+                    continue
+                if b"Content-Disposition" not in part:
+                    continue
+                header_end = part.find(b"\r\n\r\n")
+                if header_end == -1:
+                    continue
+                headers_part = part[:header_end].decode("utf-8", errors="replace")
+                body_part = part[header_end + 4:].rstrip(b"\r\n- ")
+                if 'name="name"' in headers_part:
+                    name_val = body_part.decode("utf-8", errors="replace").strip()
+                elif 'name="opml_file"' in headers_part or 'name="file"' in headers_part:
+                    opml_text = body_part.decode("utf-8", errors="replace").strip()
+            if not name_val or not opml_text:
+                self._send_json({"error": "name ? opml_file ??"}, 400)
+                return
+            self._send_json(
+                _rss_catalog_service.add_source(name=name_val, opml_content=opml_text)
+            )
+        elif "application/json" in content_type or "text/plain" in content_type:
+            raw = self.rfile.read(content_len).decode("utf-8", errors="replace")
+            import json as _json
+            try:
+                data = _json.loads(raw)
+            except Exception:
+                data = {}
+            name_val = str(data.get("name") or "").strip()
+            opml_text = str(data.get("opml_content") or data.get("opml") or "").strip()
+            if not name_val or not opml_text:
+                self._send_json({"error": "name ? opml_content ??"}, 400)
+                return
+            self._send_json(
+                _rss_catalog_service.add_source(name=name_val, opml_content=opml_text)
+            )
+        else:
+            self._send_json({"error": "???? Content-Type"}, 400)
+
+    def _api_rss_catalog_source_delete(self, source_key: str):
+        try:
+            if not _rss_catalog_service.delete_source(source_key):
+                self._send_json({"error": "?????????"}, 404)
+                return
+            self._send_json({"ok": True})
+        except Exception as exc:
+            self._api_rss_error(exc, 500)
+
+    def _api_rss_catalog_source_sync(self, source_key: str):
+        try:
+            self._send_json(_rss_catalog_service.sync_source(source_key))
+        except LookupError as exc:
+            self._api_rss_error(exc, 404)
         except Exception as exc:
             self._api_rss_error(exc)
 
@@ -6245,4 +6353,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

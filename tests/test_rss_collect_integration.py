@@ -430,3 +430,52 @@ def test_rss_refresh_api_reports_invalid_feed_content_as_bad_request(monkeypatch
 
     assert captured["status"] == 400
     assert captured["payload"]["error"] == "RSS/Atom XML 解析失败"
+
+
+
+def test_rss_catalog_source_delete_decodes_url_encoded_key(db_env, monkeypatch):
+    """Regression test: DELETE /api/rss/catalog/sources/custom%3Ainfobubble-support
+    should decode %3A to ':' before looking up the source in the database.
+
+    The frontend uses encodeURIComponent() which encodes ':' as '%3A'.
+    The server must unquote the path segment in do_DELETE before passing
+    it to the service layer. This test exercises the full do_DELETE flow.
+    """
+    import server.__main__ as server_main
+
+    # 1. Add a source with key "custom:infobubble-support" (contains colon)
+    source = server_main._rss_catalog_service.add_source(
+        name="infobubble-support",
+        feeds_url="https://example.com/feed.xml",
+    )
+    source_key = source["source_key"]
+    assert ":" in source_key, "source_key should contain a colon for this test to be meaningful"
+
+    # 2. Create a handler with the same URL-encoded path the frontend would send
+    handler = object.__new__(server_main.MonitorHandler)
+    handler.command = "DELETE"
+    handler.path = f"/api/rss/catalog/sources/{source_key.replace(':', '%3A')}"
+
+    captured = {}
+
+    def fake_send_json(payload, status=200):
+        captured["payload"] = payload
+        captured["status"] = status
+
+    monkeypatch.setattr(handler, "_check_rate_limit", lambda: True)
+    monkeypatch.setattr(handler, "_send_json", fake_send_json)
+
+    # 3. Call do_DELETE ? this will trigger the path extraction + unquote + delete
+    handler.do_DELETE()
+
+    # 4. Verify OK response (means the source was found and deleted)
+    assert captured.get("status") == 200, (
+        f"Expected 200 OK, got {captured.get('status')}: {captured.get('payload')}"
+    )
+    assert captured["payload"].get("ok") is True, (
+        f"Expected ok=True, got {captured['payload']}"
+    )
+
+    # 5. Confirm source is actually deleted from DB
+    gone = server_main._rss_catalog_service.get_source(source_key)
+    assert gone is None, f"Source '{source_key}' should have been deleted"
