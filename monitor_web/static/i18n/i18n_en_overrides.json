@@ -1,6 +1,7 @@
 {
   "nav": {
-    "appName": "YouTube Monitoring"
+    "appName": "YouTube Monitoring",
+    "settingsRss": "RSS Sources"
   },
   "meta": {
     "pageTitle": "YouTube Monitor"
@@ -279,5 +280,46 @@
     "lastRun": "Last refresh: ",
     "rawCount": "raw ",
     "validCount": "valid "
+  },
+  "rssCatalog": {
+    "title": "RSS Catalog",
+    "desc": "Manage RSS source catalogs, supports OPML URL and local file import",
+    "addSource": "Add Source",
+    "tabUrl": "OPML URL",
+    "tabFile": "Local File",
+    "namePlaceholder": "Source name",
+    "urlPlaceholder": "OPML file URL",
+    "addBtn": "Add",
+    "selectFile": "Select OPML File",
+    "uploadBtn": "Upload & Add",
+    "sourceList": "Source List",
+    "refreshList": "Refresh",
+    "noSources": "No sources yet",
+    "nameRequired": "Name is required",
+    "urlRequired": "Name and URL are required",
+    "opmlFileRequired": "Please select an OPML file",
+    "addFailed": "Add failed",
+    "deleteConfirm": "Delete this source?",
+    "deleteFailed": "Delete failed",
+    "syncFailed": "Sync failed",
+    "loadFailed": "Load failed",
+    "loading": "Loading...",
+    "colName": "Name",
+    "colType": "Type",
+    "colFeeds": "Feeds",
+    "colSyncTime": "Sync Time",
+    "colStatus": "Status",
+    "colActions": "Actions",
+    "statusOk": "OK",
+    "statusError": "Error",
+    "statusPending": "Not synced",
+    "typeUrl": "URL",
+    "typeFile": "File",
+    "btnSync": "Sync",
+    "btnDelete": "Delete"
+  },
+  "settings": {
+    "hubRssTitle": "RSS Sources",
+    "hubRssDesc": "Import OPML catalogs, manage feeds"
   }
 }

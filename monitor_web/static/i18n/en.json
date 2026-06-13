@@ -14,6 +14,7 @@
     "settingsDownload": "Download",
     "settingsAi": "AI Settings",
     "settingsDynamic": "System Dynamic Proxy",
+    "settingsRss": "RSS Sources",
     "settingsProxy": "Proxy Sniffer",
     "appName": "YouTube Monitoring"
   },
@@ -998,7 +999,9 @@
     "dingtalkSecretHint": "If the global DingTalk bot uses signing, fill SEC here",
     "wecomWebhook": "WeCom Webhook",
     "telegramBotToken": "Telegram Bot Token",
-    "telegramChatId": "Telegram Chat ID"
+    "telegramChatId": "Telegram Chat ID",
+    "hubRssTitle": "RSS Sources",
+    "hubRssDesc": "Import OPML catalogs, manage feeds"
   },
   "config": {
     "title": "Global settings",
@@ -1218,5 +1221,42 @@
     "certInstallSuccess": "Certificate installed. Please restart your browser for changes to take effect.",
     "systemProxyOnSuccess": "System HTTP proxy enabled.",
     "systemProxyOffSuccess": "System HTTP proxy disabled."
+  },
+  "rssCatalog": {
+    "title": "RSS Catalog",
+    "desc": "Manage RSS source catalogs, supports OPML URL and local file import",
+    "addSource": "Add Source",
+    "tabUrl": "OPML URL",
+    "tabFile": "Local File",
+    "namePlaceholder": "Source name",
+    "urlPlaceholder": "OPML file URL",
+    "addBtn": "Add",
+    "selectFile": "Select OPML File",
+    "uploadBtn": "Upload & Add",
+    "sourceList": "Source List",
+    "refreshList": "Refresh",
+    "noSources": "No sources yet",
+    "nameRequired": "Name is required",
+    "urlRequired": "Name and URL are required",
+    "opmlFileRequired": "Please select an OPML file",
+    "addFailed": "Add failed",
+    "deleteConfirm": "Delete this source?",
+    "deleteFailed": "Delete failed",
+    "syncFailed": "Sync failed",
+    "loadFailed": "Load failed",
+    "loading": "Loading...",
+    "colName": "Name",
+    "colType": "Type",
+    "colFeeds": "Feeds",
+    "colSyncTime": "Sync Time",
+    "colStatus": "Status",
+    "colActions": "Actions",
+    "statusOk": "OK",
+    "statusError": "Error",
+    "statusPending": "Not synced",
+    "typeUrl": "URL",
+    "typeFile": "File",
+    "btnSync": "Sync",
+    "btnDelete": "Delete"
   }
 }
