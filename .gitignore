@@ -67,6 +67,7 @@ post-to-wechat/
 cookies.json
 channel_videos.csv
 proxy_config.json
+config.json
 
 # SQLite database with API keys
 data/
