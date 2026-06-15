@@ -41,6 +41,7 @@ _SECRET_CONFIG_KEYS = (
     "wechat_app_secret",
     "wechat_api_proxy_token",
     "wechat_exporter_auth_key",
+    "sph_cookie",  # 微信视频号 SPH 解析 cookie
 )
 
 
