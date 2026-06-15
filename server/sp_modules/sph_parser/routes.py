@@ -148,6 +148,8 @@ async def api_cookie_post(body: dict):
     cookie = body.get("cookie", "").strip()
     if not cookie:
         return err(400, "cookie field is required")
+    if len(cookie) > 4096:
+        return err(400, "cookie too long, max 4096 chars")
     parts = {p.split("=", 1)[0].strip(): p.split("=", 1)[1].strip() for p in cookie.split(";") if "=" in p}
     if "hy_source" not in parts or "web" not in parts["hy_source"]:
         return err(400, "invalid format: hy_source must contain 'web'")
@@ -190,14 +192,42 @@ async def api_cookie_refresh():
         proc = subprocess.Popen(
             [sys.executable, str(script_path)],
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,  # 修复: 避免 pipe buffer 满后子进程阻塞
+            stderr=subprocess.DEVNULL,
         )
     except Exception as e:
         return err(500, f"failed to start refresher: {e}")
 
-    _sph_refresh_state.update({"state": "running", "pid": proc.pid, "started_at": _now_iso()})
+    _sph_refresh_state.update({
+        "state": "running",
+        "pid": proc.pid,
+        "started_at": _now_iso(),
+        "finished_at": None,
+        "last_error": None,
+        "cookie_updated": False,
+    })
+    # 修复: 后台 watcher 轮询子进程退出，自动 transition 状态
+    asyncio.create_task(_watch_refresh_subprocess(proc))
     return ok({"state": "running", "pid": proc.pid, "started_at": _sph_refresh_state["started_at"]})
+
+
+async def _watch_refresh_subprocess(proc: subprocess.Popen) -> None:
+    """后台 task：轮询子进程退出并更新 _sph_refresh_state。
+
+    子进程通过 HTTP POST {SPH_CALLBACK_URL} 写回 cookie，所以这里只需要
+    关心退出码（0 = success, 非 0 = failed）。
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        returncode = await loop.run_in_executor(None, proc.wait)
+        _sph_refresh_state["state"] = "success" if returncode == 0 else "failed"
+        _sph_refresh_state["finished_at"] = _now_iso()
+        if returncode != 0:
+            _sph_refresh_state["last_error"] = f"refresher exited with code {returncode}"
+    except Exception as e:
+        _sph_refresh_state["state"] = "failed"
+        _sph_refresh_state["finished_at"] = _now_iso()
+        _sph_refresh_state["last_error"] = f"watcher error: {e}"
 
 
 # ── #6 GET /cookie/refresh-status ───────────────────
@@ -237,6 +267,11 @@ async def api_history(limit: int = 20, offset: int = 0, keyword: str | None = No
 # ── #9 POST /download ───────────────────────────────
 @router.post("/download")
 async def api_download(body: dict):
+    """触发下载（仅解析 + 落 history；实际 yt-dlp 由 server/__main__.py 集成，本路由暂未提供）。
+
+    当前实现：解析 + 落 history 后返回 202 + task_id。
+    调用方应轮询 /api/download-tasks/{id} 获取进度（待 Task 3.4 集成）。
+    """
     history_id = body.get("history_id")
     sph_url = body.get("sph_url")
     quality = body.get("quality", "best")
@@ -262,11 +297,28 @@ async def api_download(body: dict):
         if not video_url:
             return err(502, "no originVideoUrl in parse result")
 
-    # 触发后台下载（具体走 yt-dlp 由 server/__main__.py 集成，本路由仅记录 history）
     task_id = str(uuid.uuid4())
+    # 记录到 history（download 触发时间）
+    try:
+        sph_db.insert_history({
+            "id": task_id,
+            "sph_url": history_id and sph_db.get_history(history_id)["sph_url"] or sph_url,
+            "video_title": "",
+            "author_nickname": "",
+            "cover_url": "",
+            "video_url": video_url,
+            "description": "",
+            "downloaded": False,
+            "downloaded_path": None,
+            "parse_status": "queued",
+            "parse_error": None,
+        })
+    except Exception as e:
+        logger.warning("[download] history insert failed: %s", e)
+
     return ok({
         "task_id": task_id,
         "state": "queued",
         "video_url": video_url,
-        "output_path": "",  # 由调用方填充
+        "output_path": "",  # 由 server/__main__.py 集成后填充
     })

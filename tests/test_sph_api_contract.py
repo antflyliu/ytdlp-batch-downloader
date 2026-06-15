@@ -18,6 +18,21 @@ def bypass_auth(monkeypatch):
     monkeypatch.setenv("MONITOR_API_TOKEN", "test-token")
 
 
+@pytest.fixture(autouse=True)
+def reset_refresh_state():
+    """每个测试前重置 _sph_refresh_state 到 idle，避免跨测试污染。"""
+    from server.sp_modules.sph_parser import routes
+    routes._sph_refresh_state.update({
+        "state": "idle",
+        "pid": None,
+        "started_at": None,
+        "finished_at": None,
+        "last_error": None,
+        "cookie_updated": False,
+    })
+    yield
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     db_file = tmp_path / "monitor.db"
