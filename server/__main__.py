@@ -1251,6 +1251,19 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "无效的提供方 ID"}, 400)
         elif path == "/api/routing-preview":
             self._api_routing_preview()
+        # ── 微信视频号 SPH 解析（路由内嵌） ─────────────────────────
+        elif path == "/api/channels/parse_sph":
+            self._api_channels_parse_sph(path)
+        elif path == "/api/channels/cookie":
+            self._api_channels_cookie_get()
+        elif path == "/api/channels/cookie/refresh":
+            self._api_channels_cookie_refresh()
+        elif path == "/api/channels/cookie/refresh-status":
+            self._api_channels_cookie_refresh_status()
+        elif path == "/api/channels/cookie/refresh-cancel":
+            self._api_channels_cookie_refresh_cancel()
+        elif path == "/api/channels/history":
+            self._api_channels_history()
         elif path == "/api/clips":
             self._api_clip_list()
         elif path.startswith("/api/clips/") and self.command == "GET":
@@ -1604,6 +1617,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_res_export(body)
         elif path == "/api/res/open-folder":
             self._api_res_open_folder(body)
+        # ── 微信视频号 SPH 解析（POST） ─────────────────────────
+        elif path == "/api/channels/cookie" and self.command == "POST":
+            self._api_channels_cookie_post(body)
+        elif path == "/api/channels/batch_parse":
+            self._api_channels_batch_parse(body)
+        elif path == "/api/channels/download":
+            self._api_channels_download(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -6183,6 +6203,314 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json(mgr.open_folder(file_path))
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
+
+    def _api_channels_parse_sph(self, path: str):
+        """GET /api/channels/parse_sph?url=... — 同步跑 FastAPI async 路由。"""
+        from urllib.parse import parse_qs, urlparse
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        url = parse_qs(urlparse(path).query).get("url", [""])[0]
+        if not url:
+            self._send_json({"error": "url parameter is required"}, 400)
+            return
+        from server.sp_modules.sph_parser import core as _sph_core
+        from server.sp_modules.sph_parser import config as _sph_cfg
+
+        def _runner():
+            import asyncio
+            return asyncio.run(
+                asyncio.wait_for(
+                    _sph_core.fetch_video_profile(url, _sph_cfg.get_cookie()),
+                    timeout=30,
+                )
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_runner)
+            try:
+                profile = fut.result(timeout=35)
+            except _FutTimeout:
+                self._send_json({"error": "timeout", "code": "TIMEOUT"}, 504)
+                return
+            except Exception as e:
+                msg = str(e)
+                if "parseShareUrl" in msg:
+                    self._send_json({"error": f"yuanbao parse failed: {msg}", "code": "PARSE_FAILED"}, 502)
+                elif "getFeedInfo" in msg:
+                    self._send_json({"error": f"feed info fetch failed: {msg}", "code": "FEED_FAILED"}, 502)
+                else:
+                    self._send_json({"error": f"parse failed: {msg}"}, 502)
+                return
+
+        feed_info = profile.get("data", {}).get("feedInfo", {})
+        author_info = profile.get("data", {}).get("authorInfo", {})
+        # 落 history
+        try:
+            from server.sp_modules.sph_parser import db as _sph_db
+            import uuid as _uuid
+            _sph_db.insert_history({
+                "id": str(_uuid.uuid4()),
+                "sph_url": url,
+                "video_title": feed_info.get("description", ""),
+                "author_nickname": author_info.get("nickname", ""),
+                "cover_url": feed_info.get("coverUrl", ""),
+                "video_url": feed_info.get("originVideoUrl", ""),
+                "description": feed_info.get("description", ""),
+                "downloaded": False,
+                "downloaded_path": None,
+                "parse_status": "success",
+                "parse_error": None,
+            })
+        except Exception as _db_e:
+            _log.warning("[sph/parse_sph] history insert failed: %s", _db_e)
+        self._send_json({"ok": True, "data": {"authorInfo": author_info, "feedInfo": feed_info}})
+
+    def _api_channels_batch_parse(self, body: dict):
+        """POST /api/channels/batch_parse — 批量解析（≤50 条）。"""
+        from server.sp_modules.sph_parser import config as _sph_cfg
+        urls = body.get("urls")
+        if not isinstance(urls, list) or not urls:
+            self._send_json({"error": "urls must be a non-empty array"}, 400)
+            return
+        if len(urls) > 50:
+            self._send_json({"error": "urls length exceeds 50"}, 400)
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        from server.sp_modules.sph_parser import core as _sph_core
+
+        def _one(u: str) -> dict:
+            import asyncio
+            try:
+                r = asyncio.run(
+                    asyncio.wait_for(
+                        _sph_core.fetch_video_profile(u, _sph_cfg.get_cookie()),
+                        timeout=30,
+                    )
+                )
+                return {"url": u, "ok": True, "data": r}
+            except Exception as e:
+                return {"url": u, "ok": False, "error": str(e)}
+
+        with ThreadPoolExecutor(max_workers=min(3, len(urls))) as ex:
+            results = list(ex.map(_one, urls))
+        summary = {"total": len(results), "success": sum(1 for r in results if r["ok"]), "failed": sum(1 for r in results if not r["ok"])}
+        self._send_json({"ok": True, "data": {"results": results, "summary": summary}})
+
+    def _api_channels_cookie_get(self):
+        """GET /api/channels/cookie — 查询 cookie 状态。"""
+        from server.sp_modules.sph_parser import config as _sph_cfg
+        plain = _sph_cfg.get_cookie()
+        if not plain:
+            self._send_json({"ok": True, "data": {"exists": False, "source": None, "preview": None}})
+            return
+        # preview mask
+        parts = [p.strip() for p in plain.split(";") if p.strip()]
+        prev = []
+        for p in parts:
+            k, _, v = p.partition("=")
+            if k == "hy_source":
+                prev.append(f"{k}={v}")
+            elif v:
+                prev.append(f"{k}={v[:4]}***")
+        self._send_json({"ok": True, "data": {"exists": True, "source": "manual", "preview": "; ".join(prev)}})
+
+    def _api_channels_cookie_post(self, body: dict):
+        """POST /api/channels/cookie — 更新 cookie。"""
+        from server.sp_modules.sph_parser import config as _sph_cfg
+        cookie = (body.get("cookie") or "").strip()
+        if not cookie:
+            self._send_json({"error": "cookie field is required"}, 400)
+            return
+        if len(cookie) > 4096:
+            self._send_json({"error": "cookie too long, max 4096 chars"}, 400)
+            return
+        parts = {}
+        for p in cookie.split(";"):
+            if "=" in p:
+                k, _, v = p.partition("=")
+                parts[k.strip()] = v.strip()
+        if "hy_source" not in parts or "web" not in parts["hy_source"]:
+            self._send_json({"error": "invalid format: hy_source must contain 'web'"}, 400)
+            return
+        if not parts.get("hy_user") or not parts.get("hy_token"):
+            self._send_json({"error": "invalid format: hy_user and hy_token required"}, 400)
+            return
+        _sph_cfg.update_cookie(cookie)
+        # preview
+        prev = []
+        for p in cookie.split(";"):
+            p = p.strip()
+            if not p or "=" not in p:
+                continue
+            k, _, v = p.partition("=")
+            if k == "hy_source":
+                prev.append(f"{k}={v}")
+            elif v:
+                prev.append(f"{k}={v[:4]}***")
+        from datetime import datetime, timezone, timedelta
+        now_iso = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+        self._send_json({"ok": True, "data": {"updated_at": now_iso, "preview": "; ".join(prev)}})
+
+    def _api_channels_cookie_refresh(self):
+        """POST /api/channels/cookie/refresh — 启动 playwright 子进程。"""
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+        # 状态机：复用 routes._sph_refresh_state（in-memory）
+        from server.sp_modules.sph_parser import routes as _sph_routes
+        state = _sph_routes._sph_refresh_state
+        if state.get("state") == "running":
+            self._send_json({"ok": False, "error": "refresh already running", "data": {"state": "running", "pid": state.get("pid")}}, 409)
+            return
+        project_root = Path(__file__).resolve().parents[2]
+        script_path = project_root / "scripts" / "sph_cookie_refresher.py"
+        if not script_path.exists():
+            self._send_json({"error": f"refresher script not found: {script_path}"}, 500)
+            return
+        env = {**os.environ,
+               "SPH_CALLBACK_URL": os.environ.get("SPH_REFRESH_CALLBACK_URL", "http://127.0.0.1:8765/api/channels/cookie"),
+               "SPH_API_TOKEN": os.environ.get("MONITOR_API_TOKEN", "")}
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, str(script_path)],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            self._send_json({"error": f"failed to start refresher: {e}"}, 500)
+            return
+        from datetime import datetime, timezone, timedelta
+        state["state"] = "running"
+        state["pid"] = proc.pid
+        state["started_at"] = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+        state["finished_at"] = None
+        state["last_error"] = None
+        state["cookie_updated"] = False
+        # 后台 watcher
+        import threading
+        def _watcher():
+            returncode = proc.wait()
+            state["state"] = "success" if returncode == 0 else "failed"
+            state["finished_at"] = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+            if returncode != 0:
+                state["last_error"] = f"refresher exited with code {returncode}"
+        threading.Thread(target=_watcher, daemon=True).start()
+        self._send_json({"ok": True, "data": {"state": "running", "pid": proc.pid, "started_at": state["started_at"]}}, 202)
+
+    def _api_channels_cookie_refresh_status(self):
+        """GET /api/channels/cookie/refresh-status — 轮询。"""
+        from server.sp_modules.sph_parser import routes as _sph_routes
+        self._send_json({"ok": True, "data": dict(_sph_routes._sph_refresh_state)})
+
+    def _api_channels_cookie_refresh_cancel(self):
+        """POST /api/channels/cookie/refresh-cancel — 取消。"""
+        from server.sp_modules.sph_parser import routes as _sph_routes
+        state = _sph_routes._sph_refresh_state
+        if state.get("state") != "running":
+            self._send_json({"ok": False, "error": "no refresh running"}, 409)
+            return
+        pid = state.get("pid")
+        try:
+            import os
+            import subprocess
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            else:
+                import signal
+                os.kill(pid, signal.SIGTERM)
+        except Exception as e:
+            _log.warning("[sph/cancel] kill failed: %s", e)
+        from datetime import datetime, timezone, timedelta
+        state["state"] = "idle"
+        state["pid"] = None
+        state["finished_at"] = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+        self._send_json({"ok": True, "data": {"cancelled": True, "pid": pid}})
+
+    def _api_channels_history(self):
+        """GET /api/channels/history?limit=20&offset=0&keyword=... — 解析历史。"""
+        from urllib.parse import parse_qs, urlparse
+        from server.sp_modules.sph_parser import db as _sph_db
+        params = parse_qs(urlparse(self.path).query)
+        try:
+            limit = min(max(1, int(params.get("limit", ["20"])[0])), 100)
+            offset = max(0, int(params.get("offset", ["0"])[0]))
+        except (TypeError, ValueError):
+            limit, offset = 20, 0
+        keyword = params.get("keyword", [None])[0] or None
+        items = _sph_db.list_history(limit=limit, offset=offset, keyword=keyword)
+        total = _sph_db.count_history(keyword=keyword)
+        self._send_json({"ok": True, "data": {"items": items, "total": total, "limit": limit, "offset": offset}})
+
+    def _api_channels_download(self, body: dict):
+        """POST /api/channels/download — 触发下载（仅返回 task_id + video_url）。"""
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        from server.sp_modules.sph_parser import core as _sph_core
+        from server.sp_modules.sph_parser import config as _sph_cfg
+        from server.sp_modules.sph_parser import db as _sph_db
+        import uuid as _uuid
+        history_id = body.get("history_id")
+        sph_url = body.get("sph_url")
+        if not history_id and not sph_url:
+            self._send_json({"error": "history_id or sph_url required"}, 400)
+            return
+        if history_id:
+            item = _sph_db.get_history(history_id)
+            if not item:
+                self._send_json({"error": f"history_id not found: {history_id}"}, 404)
+                return
+            video_url = item["video_url"]
+            used_sph_url = item["sph_url"]
+        else:
+            def _runner():
+                import asyncio
+                return asyncio.run(
+                    asyncio.wait_for(
+                        _sph_core.fetch_video_profile(sph_url, _sph_cfg.get_cookie()),
+                        timeout=30,
+                    )
+                )
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(_runner)
+                try:
+                    profile = fut.result(timeout=35)
+                except _FutTimeout:
+                    self._send_json({"error": "parse timeout"}, 504)
+                    return
+                except Exception as e:
+                    self._send_json({"error": f"parse failed: {e}"}, 502)
+                    return
+            video_url = profile.get("data", {}).get("feedInfo", {}).get("originVideoUrl", "")
+            if not video_url:
+                self._send_json({"error": "no originVideoUrl in parse result"}, 502)
+                return
+            used_sph_url = sph_url
+            try:
+                _sph_db.insert_history({
+                    "id": str(_uuid.uuid4()),
+                    "sph_url": sph_url,
+                    "video_title": profile.get("data", {}).get("feedInfo", {}).get("description", ""),
+                    "author_nickname": profile.get("data", {}).get("authorInfo", {}).get("nickname", ""),
+                    "cover_url": profile.get("data", {}).get("feedInfo", {}).get("coverUrl", ""),
+                    "video_url": video_url,
+                    "description": "",
+                    "downloaded": False,
+                    "downloaded_path": None,
+                    "parse_status": "queued",
+                    "parse_error": None,
+                })
+            except Exception as _db_e:
+                _log.warning("[sph/download] history insert failed: %s", _db_e)
+        task_id = str(_uuid.uuid4())
+        self._send_json({
+            "ok": True,
+            "data": {
+                "task_id": task_id,
+                "state": "queued",
+                "video_url": video_url,
+                "output_path": "",
+            }
+        }, 202)
 
     def _api_res_events_stream(self):
         """GET /api/res-events — SSE 流式推送资源事件。"""
