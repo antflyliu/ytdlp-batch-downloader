@@ -155,10 +155,14 @@ const lockIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 
 const themeIcon = moonIcon
 
+// 视频号 SPH 解析 — play 圆形 + chat 气泡组合
+const wxChannelsIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>`
+
 const navItems = [
   { key: 'dashboard', path: '/', icon: dashboardIcon },
   { key: 'channels', path: '/accounts', icon: accountsIcon },
   { key: 'downloads', path: '/batch-download', icon: batchDownloadIcon },
+  { key: 'wxChannels', path: '/channels', icon: wxChannelsIcon },
   { key: 'apiKeys', path: '/api-keys', icon: apiKeysIcon },
   { key: 'proxyPools', path: '/proxy-pools', icon: proxyPoolIcon },
   { key: 'dynamicProviders', path: '/dynamic-providers', icon: dynamicProxyIcon },
