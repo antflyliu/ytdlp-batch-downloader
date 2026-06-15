@@ -308,6 +308,24 @@ def save_config(cfg: dict) -> None:
         pass
 
 
+# ── SPH cookie helpers ───────────────────────────────────────────
+
+def get_sph_cookie() -> str:
+    """返回当前解密后的 sph_cookie 值（运行时解密，不读盘）。"""
+    return load_config().get("sph_cookie") or ""
+
+
+def set_sph_cookie(value: str, *, source: str = "manual") -> None:
+    """持久化 sph_cookie 到 config.json（加密存储）。"""
+    import datetime
+
+    cfg = {**load_config()}
+    cfg["sph_cookie"] = value or ""
+    cfg["sph_cookie_updated_at"] = datetime.datetime.now().isoformat()
+    cfg["sph_cookie_source"] = source
+    save_config(cfg)
+
+
 # ── Internal helpers (used by save_config / load_config) ────────
 
 def _encrypt_config_webhooks(cfg: dict) -> dict:
