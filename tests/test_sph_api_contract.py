@@ -146,3 +146,20 @@ def test_history_empty(client):
 def test_download_404_when_history_not_found(client):
     r = client.post("/api/channels/download", json={"history_id": "nonexistent"})
     assert r.status_code == 404
+
+
+# ── #2 batch_parse ───────────────────────────────────
+def test_batch_parse_validates_url_list(client):
+    """POST /batch_parse 必须传入非空 urls 数组，否则 400。"""
+    # 空数组
+    r = client.post("/api/channels/batch_parse", json={"urls": []})
+    assert r.status_code == 400
+    # 完全缺失
+    r = client.post("/api/channels/batch_parse", json={})
+    assert r.status_code == 400
+    # 类型错（字符串而非数组）
+    r = client.post("/api/channels/batch_parse", json={"urls": "https://weixin.qq.com/sph/xxx"})
+    assert r.status_code == 400
+    # 超过 50 条
+    r = client.post("/api/channels/batch_parse", json={"urls": [f"https://weixin.qq.com/sph/u{i}" for i in range(51)]})
+    assert r.status_code == 400
