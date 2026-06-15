@@ -178,5 +178,9 @@
   "wechat_collection_max_articles": 50,
   "proxy_sniffer_enabled": false,
   "proxy_sniffer_port": 8899,
+  "sph_cookie": "",
+  "sph_cookie_updated_at": "",
+  "sph_cookie_source": "manual",
+  "sph_cookie_auto_refresh": false,
   "enable_aria2": true
 }

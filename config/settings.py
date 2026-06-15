@@ -245,6 +245,11 @@ def _config_default() -> dict:
         # ── 资源嗅探 ──────────────────────────────────────────
         "proxy_sniffer_enabled": False,      # 默认关闭，手动在配置中心开启
         "proxy_sniffer_port": 8899,          # Go 子进程监听端口
+        # ── 微信视频号 SPH 解析 ─────────────────────────────
+        "sph_cookie": "",                          # 加密存储，hy_source/web; hy_user/...; hy_token/...
+        "sph_cookie_updated_at": "",                # ISO8601，前端展示用
+        "sph_cookie_source": "manual",              # "manual" / "playwright"
+        "sph_cookie_auto_refresh": False,           # 是否启用 Playwright 自动刷新
     }
 
 

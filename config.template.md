@@ -22,6 +22,7 @@
 | 微信公众号发布 | 17 | `wechat_app_id` / `wechat_app_secret` / `wechat_default_*` / `wechat_baoyu_*` / `wechat_publish_*` / `wechat_need_open_comment` | **是**（app_secret） |
 | 微信公众号采集 | 6 | `wechat_exporter_*` / `wechat_collection_*` | 部分加密（auth_key） |
 | 资源嗅探 | 2 | `proxy_sniffer_enabled` / `proxy_sniffer_port` | 否 |
+| 视频号 SPH 解析 | 4 | `sph_cookie` / `sph_cookie_updated_at` / `sph_cookie_source` / `sph_cookie_auto_refresh` | **是**（sph_cookie） |
 | 加速 | 1 | `enable_aria2` | 否 |
 
 > 「加密」字段：保存时由 `config/settings.py::_encrypt_config_*` 自动包成 `enc:gAAAAA...` Fernet token；模板里留空字符串即可，运行时由用户在前端填入。
