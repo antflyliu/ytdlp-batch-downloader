@@ -30,13 +30,10 @@ def get_cookie() -> str:
 
 def update_cookie(new_cookie: str) -> str:
     """热更新 cookie：写回 config.json（加密）+ 更新内存变量。"""
+    new_value = new_cookie or ""
+    from config.settings import set_sph_cookie
+    set_sph_cookie(new_value, source="manual")  # raises on failure → memory unchanged
     global SPH_COOKIE
-    SPH_COOKIE = new_cookie or ""
-    try:
-        from config.settings import set_sph_cookie
-        set_sph_cookie(SPH_COOKIE, source="manual")
-    except Exception as e:
-        logger.error("[update_cookie] persist failed: %s", e)
-        raise
-    logger.info("[update_cookie] updated, preview=%s...", SPH_COOKIE[:30])
+    SPH_COOKIE = new_value
+    logger.info("[update_cookie] updated, length=%d", len(SPH_COOKIE))
     return SPH_COOKIE
