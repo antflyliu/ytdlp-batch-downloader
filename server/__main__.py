@@ -6060,11 +6060,26 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 from server.sp_modules.sph_parser import core as _sph_core
                 from server.sp_modules.sph_parser import config as _sph_cfg
                 from server.sp_modules.sph_parser import db as _sph_db
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
                 import uuid as _uuid
 
-                profile = _sph_core.fetch_video_profile(video_url, _sph_cfg.get_cookie())
-                if asyncio.iscoroutine(profile):
-                    profile = asyncio.run(profile)
+                def _do_sph_parse():
+                    # 独立 event loop（SimpleHTTPRequestHandler 线程不能 asyncio.run 在已有 loop）
+                    import asyncio
+                    return asyncio.run(
+                        asyncio.wait_for(
+                            _sph_core.fetch_video_profile(video_url, _sph_cfg.get_cookie()),
+                            timeout=30,
+                        )
+                    )
+
+                with ThreadPoolExecutor(max_workers=1) as _sph_executor:
+                    _sph_future = _sph_executor.submit(_do_sph_parse)
+                    try:
+                        profile = _sph_future.result(timeout=35)  # 略大于 asyncio 的 30s
+                    except _FutTimeout:
+                        raise RuntimeError("SPH parse timeout (>35s)")
+
                 origin_url = profile.get("data", {}).get("feedInfo", {}).get("originVideoUrl", "")
                 if not origin_url:
                     raise RuntimeError("no originVideoUrl in SPH parse result")
