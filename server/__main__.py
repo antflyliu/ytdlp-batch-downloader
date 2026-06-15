@@ -86,6 +86,9 @@ _voice_task_mgr = VoiceTaskManager()
 try:
     from server.sp_modules.sph_parser import config as _sph_config
     from server.sp_modules.sph_parser import routes as _sph_routes
+    # 启动时同步 cookie 到模块变量
+    _sph_config._init_from_settings()
+    _log.info("[sph] cookie loaded: %s", bool(_sph_config.get_cookie()))
     _SPH_ROUTER_AVAILABLE = True
 except Exception as _sph_import_err:
     import logging as _sph_log
@@ -1253,7 +1256,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_routing_preview()
         # ── 微信视频号 SPH 解析（路由内嵌） ─────────────────────────
         elif path == "/api/channels/parse_sph":
-            self._api_channels_parse_sph(path)
+            self._api_channels_parse_sph(self.path)
         elif path == "/api/channels/cookie":
             self._api_channels_cookie_get()
         elif path == "/api/channels/cookie/refresh":
@@ -6204,11 +6207,15 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
 
-    def _api_channels_parse_sph(self, path: str):
-        """GET /api/channels/parse_sph?url=... — 同步跑 FastAPI async 路由。"""
+    def _api_channels_parse_sph(self, full_path: str):
+        """GET /api/channels/parse_sph?url=... — 同步跑 FastAPI async 路由。
+
+        full_path 必须包含 ?query（不能传 _path_only 后的纯路径，
+        否则 url 参数丢失）。
+        """
         from urllib.parse import parse_qs, urlparse
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
-        url = parse_qs(urlparse(path).query).get("url", [""])[0]
+        url = parse_qs(urlparse(full_path).query).get("url", [""])[0]
         if not url:
             self._send_json({"error": "url parameter is required"}, 400)
             return
