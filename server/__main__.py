@@ -77,9 +77,20 @@ from monitor.dynamic_provider_resolver import (
 from monitor.voice import env as voice_env
 from monitor.voice.tasks import VoiceTaskManager
 from monitor.http_multipart import MultipartParseError, read_single_file_part
+import asyncio
 
 _log = logging_config.get_logger("monitor_server")
 _voice_task_mgr = VoiceTaskManager()
+
+# 微信视频号 SPH 解析（v0.0.0：路由内嵌）
+try:
+    from server.sp_modules.sph_parser import config as _sph_config
+    from server.sp_modules.sph_parser import routes as _sph_routes
+    _SPH_ROUTER_AVAILABLE = True
+except Exception as _sph_import_err:
+    import logging as _sph_log
+    _sph_log.getLogger(__name__).warning("[sph] import failed: %s", _sph_import_err)
+    _SPH_ROUTER_AVAILABLE = False
 
 # ── 速率限制器（每 IP 每分钟 N 次请求；本机回环默认豁免）──
 from server.middleware.rate_limit import (
@@ -6042,6 +6053,47 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         # Bilibili CDN segment URL 立即过期，从 OtherData["referer"] 直接提取 BVID，
         # 构造视频页面 URL 供 yt-dlp 使用（yt-dlp 可自动重试并获取最新 CDN URL）
         download_url = video_url
+
+        # SPH 链接 → 先解析 → 拿到 originVideoUrl → 走 yt-dlp
+        if video_url.startswith("https://weixin.qq.com/sph/"):
+            try:
+                from server.sp_modules.sph_parser import core as _sph_core
+                from server.sp_modules.sph_parser import config as _sph_cfg
+                from server.sp_modules.sph_parser import db as _sph_db
+                import uuid as _uuid
+
+                profile = _sph_core.fetch_video_profile(video_url, _sph_cfg.get_cookie())
+                if asyncio.iscoroutine(profile):
+                    profile = asyncio.run(profile)
+                origin_url = profile.get("data", {}).get("feedInfo", {}).get("originVideoUrl", "")
+                if not origin_url:
+                    raise RuntimeError("no originVideoUrl in SPH parse result")
+                download_url = origin_url
+
+                # 落 history
+                feed_info = profile.get("data", {}).get("feedInfo", {})
+                author_info = profile.get("data", {}).get("authorInfo", {})
+                try:
+                    _sph_db.insert_history({
+                        "id": str(_uuid.uuid4()),
+                        "sph_url": video_url,
+                        "video_title": feed_info.get("description", ""),
+                        "author_nickname": author_info.get("nickname", ""),
+                        "cover_url": feed_info.get("coverUrl", ""),
+                        "video_url": origin_url,
+                        "description": feed_info.get("description", ""),
+                        "downloaded": False,
+                        "downloaded_path": None,
+                        "parse_status": "success",
+                        "parse_error": None,
+                    })
+                except Exception as _db_e:
+                    _log.warning("[sph] history insert failed: %s", _db_e)
+            except Exception as e:
+                _log.error("[sph] parse failed, falling back to raw url: %s", e)
+                # 回退：原 video_url 直接给 yt-dlp（大概率失败但不抛错）
+                download_url = video_url
+
         _referer = body.get("OtherData", {}).get("referer", "")
         if "bilivideo.com" in video_url or ".bili" in video_url.lower():
             if _referer:
