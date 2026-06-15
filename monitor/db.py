@@ -129,6 +129,12 @@ def init_db() -> None:
     # 同步初始化 quota 表
     import monitor.quota as _quota
     _quota._ensure_schema()
+    # 微信视频号 SPH 解析历史表（与现有 monitor.db 同库）
+    try:
+        from server.sp_modules.sph_parser import db as _sph_db
+        _sph_db.init_schema()
+    except Exception as _e:
+        _log.warning("[sph_db.init_schema] %s", _e)
 
 
 def _prepare_legacy_schema_for_bootstrap(conn) -> None:
