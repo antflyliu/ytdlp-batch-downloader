@@ -13,3 +13,6 @@ PySocks==1.7.1
 cryptography==45.0.4
 defusedxml==0.7.1
 huggingface_hub[hf_xet]
+
+# 微信视频号 SPH cookie 自动刷新（仅子进程使用，不打包进主 exe）
+playwright>=1.40
