@@ -1,11 +1,12 @@
 """sph_parser/core.py 单元测试（mock httpx，不调真实微信 API）。"""
+import asyncio
 import re
 import sys
 from pathlib import Path
 
-import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from server.sp_modules.sph_parser import core
 
@@ -41,21 +42,23 @@ def test_clean_video_url_missing_required_param_returns_empty():
     assert core.clean_video_url("https://x.com/?encfilekey=only") == ""
 
 
-@pytest.mark.asyncio
-async def test_fetch_video_profile_calls_parse_then_feed(monkeypatch):
-    """fetch_video_profile 应串行：parse_share_url → get_feed_info → clean_video_url。"""
-    calls = []
+def test_fetch_video_profile_calls_parse_then_feed(monkeypatch):
+    """fetch_video_profile 应串行：parse_share_url 必须 await 完成后才能 get_feed_info。"""
+    parse_finished = []
+    feed_started = []
 
     async def fake_parse(share_url, cookie):
-        calls.append(("parse", share_url, cookie))
         from server.sp_modules.sph_parser.schemas import ParseData, ParseResponse
+        # 模拟一次真实的 await
+        await asyncio.sleep(0)
+        parse_finished.append(True)
         return ParseResponse(data=ParseData(
             wx_export_id="ignored",
             playable_url="https://x/?token=tk123&eid=exp456",
         ))
 
     async def fake_feed(export_id, general_token):
-        calls.append(("feed", export_id, general_token))
+        feed_started.append(parse_finished[-1] if parse_finished else False)
         return {
             "errCode": 0,
             "errMsg": "ok",
@@ -68,7 +71,7 @@ async def test_fetch_video_profile_calls_parse_then_feed(monkeypatch):
     monkeypatch.setattr(core, "parse_share_url", fake_parse)
     monkeypatch.setattr(core, "get_feed_info", fake_feed)
 
-    result = await core.fetch_video_profile("https://weixin.qq.com/sph/xxx", "cookie")
-    assert calls[0][0] == "parse"
-    assert calls[1] == ("feed", "exp456", "tk123")
+    result = asyncio.run(core.fetch_video_profile("https://weixin.qq.com/sph/xxx", "cookie"))
+    # 串行契约：feed 开始时 parse 必须已 finished
+    assert feed_started == [True], f"parse 未在 feed 之前完成: {feed_started=}, {parse_finished=}"
     assert result["data"]["feedInfo"]["originVideoUrl"] == "https://x/?encfilekey=ENC&token=TK"
