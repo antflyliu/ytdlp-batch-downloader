@@ -90,6 +90,12 @@ const routes = [
     component: () => import('@/views/WechatCollect.vue'),
   },
   {
+    path: '/channels',
+    name: 'channels',
+    meta: { keepAlive: false },
+    component: () => import('@/views/Channels/index.vue'),
+  },
+  {
     path: '/wechat-native-collect',
     name: 'wechatNativeCollect',
     meta: { keepAlive: false },
