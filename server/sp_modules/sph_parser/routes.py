@@ -208,7 +208,8 @@ async def api_cookie_refresh():
     })
     # 修复: 后台 watcher 轮询子进程退出，自动 transition 状态
     asyncio.create_task(_watch_refresh_subprocess(proc))
-    return ok({"state": "running", "pid": proc.pid, "started_at": _sph_refresh_state["started_at"]})
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"ok": True, "data": {"state": "running", "pid": proc.pid, "started_at": _sph_refresh_state["started_at"]}}, status_code=202)
 
 
 async def _watch_refresh_subprocess(proc: subprocess.Popen) -> None:
