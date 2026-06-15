@@ -153,7 +153,26 @@ export async function saveConfig() {
       if (e) return e.value;
       return S.llm_provider || 'qwen';
     })(),
-    llm_api_key: el('cfgLlmApiKey') ? v('cfgLlmApiKey') : (S.llm_api_key ?? ''),
+    llm_api_key: (() => {
+      // 服务端对已设置的 llm_api_key 返回 "***"。如果用户改了 provider 或 base_url，
+      // 直接把 "***" 提交回去会被「变更后必须重新输入」校验拒绝（HTTP 400）。
+      // 改为：检测到 endpoint 变化时清空 api key 字段，强制用户输入新值。
+      const e = el('cfgLlmApiKey');
+      if (!e) return S.llm_api_key ?? '';
+      const raw = e.value;
+      if (raw === '***') {
+        const newProvider = el('cfgLlmProvider')?.value;
+        const newBaseUrl = el('cfgLlmBaseUrl')?.value.trim();
+        const oldProvider = S.llm_provider;
+        const oldBaseUrl = (S.llm_base_url || '').trim();
+        if (newProvider !== oldProvider || newBaseUrl !== oldBaseUrl) {
+          toast(I18n.t('apiKeysUi.llmEndpointChanged') || 'LLM 提供商或 API 地址已变更，请重新输入 API Key', 'warn');
+          e.value = '';
+          return '';
+        }
+      }
+      return raw.trim();
+    })(),
     llm_model: el('cfgLlmModel') ? v('cfgLlmModel') : (S.llm_model ?? ''),
     llm_base_url: el('cfgLlmBaseUrl') ? v('cfgLlmBaseUrl') : (S.llm_base_url ?? ''),
     llm_min_score: (() => {
