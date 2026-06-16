@@ -1627,6 +1627,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._api_channels_batch_parse(body)
         elif path == "/api/channels/download":
             self._api_channels_download(body)
+        elif path == "/api/channels/mark_downloaded":
+            self._api_channels_mark_downloaded(body)
         else:
             self._send_json({"error": "未知 API"}, 404)
 
@@ -6233,12 +6235,14 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
         feed_info = profile.get("data", {}).get("feedInfo", {})
         author_info = profile.get("data", {}).get("authorInfo", {})
-        # 落 history
+        # 落 history（2026-06-16 扩展:记录 history_id 用于响应,供前端 mark_downloaded 关联）
+        history_id = ""
         try:
             from server.sp_modules.sph_parser import db as _sph_db
             import uuid as _uuid
+            history_id = str(_uuid.uuid4())
             _sph_db.insert_history({
-                "id": str(_uuid.uuid4()),
+                "id": history_id,
                 "sph_url": url,
                 "video_title": feed_info.get("description", ""),
                 "author_nickname": author_info.get("nickname", ""),
@@ -6254,7 +6258,7 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             })
         except Exception as _db_e:
             _log.warning("[sph/parse_sph] history insert failed: %s", _db_e)
-        self._send_json({"ok": True, "data": {"authorInfo": author_info, "feedInfo": feed_info}})
+        self._send_json({"ok": True, "data": {"authorInfo": author_info, "feedInfo": feed_info, "history_id": history_id}})
 
     def _api_channels_batch_parse(self, body: dict):
         """POST /api/channels/batch_parse — 批量解析（≤50 条）。"""
@@ -6578,6 +6582,35 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 "output_path": "",
             }
         }, 202)
+
+    def _api_channels_mark_downloaded(self, body: dict):
+        """POST /api/channels/mark_downloaded — 标记一条 history 为已下载。
+
+        2026-06-16 新增:前端浏览器侧下载完成后调用,以便历史页能展示下载状态。
+        失败不抛 5xx(主流程已下载成功,标记失败不应让前端报错)。
+        id 不存在时静默成功(幂等,前端无法保证 id 100% 有效)。
+        与 server/sp_modules/sph_parser/routes.py 的 api_mark_downloaded 行为一致。
+        """
+        history_id = body.get("history_id")
+        path = body.get("path", "")
+        if not history_id:
+            self._send_json({"error": "history_id required"}, 400)
+            return
+        try:
+            from server.sp_modules.sph_parser import db as _sph_db
+            import sqlite3
+            conn = sqlite3.connect(_sph_db._get_db_path())
+            conn.execute(
+                "UPDATE sph_parse_history SET downloaded=1, downloaded_path=?, downloaded_at=? WHERE id=?",
+                (path, _sph_db._now_iso(), history_id),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            _log.warning("[sph/mark_downloaded] update failed: %s", e)
+            self._send_json({"error": f"db update failed: {e}"}, 500)
+            return
+        self._send_json({"ok": True, "data": {"updated": True}})
 
     def _api_res_events_stream(self):
         """GET /api/res-events — SSE 流式推送资源事件。"""

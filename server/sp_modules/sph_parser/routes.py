@@ -94,18 +94,21 @@ async def api_parse_sph(url: str = Query("")):
             return err(502, f"feed info fetch failed: {msg}", code="FEED_FAILED")
         return err(502, f"parse failed: {msg}")
 
-    # 落 history
+    # 落 history（2026-06-16 扩展:记录 history_id 用于响应,供前端 mark_downloaded 关联）
     feed_info = feed_resp.get("data", {}).get("feedInfo", {})
     logger.info("[api_parse_sph] feed_info: %s", feed_info)
     author_info = feed_resp.get("data", {}).get("authorInfo", {})
     logger.info("[api_parse_sph] author_info: %s", author_info)
+    history_id = str(uuid.uuid4())
     history_item = {
-        "id": str(uuid.uuid4()),
+        "id": history_id,
         "sph_url": url,
         "video_title": feed_info.get("description", ""),
         "author_nickname": author_info.get("nickname", ""),
         "cover_url": feed_info.get("coverUrl", ""),
         "video_url": feed_info.get("originVideoUrl", ""),
+        "h264_video_url": (feed_info.get("h264VideoInfo") or {}).get("videoUrl", ""),
+        "h265_video_url": (feed_info.get("h265VideoInfo") or {}).get("videoUrl", ""),
         "description": feed_info.get("description", ""),
         "downloaded": False,
         "downloaded_path": None,
@@ -117,7 +120,7 @@ async def api_parse_sph(url: str = Query("")):
     except Exception as e:
         logger.warning("[parse_sph] history insert failed: %s", e)
 
-    return ok({"authorInfo": author_info, "feedInfo": feed_info})
+    return ok({"authorInfo": author_info, "feedInfo": feed_info, "history_id": history_id})
 
 
 # ── #2 POST /batch_parse ─────────────────────────────
@@ -363,3 +366,29 @@ async def api_download(body: dict):
         "video_url": video_url,
         "output_path": "",  # 由 server/__main__.py 集成后填充
     })
+
+
+# ── #10 POST /mark_downloaded ────────────────────────
+# 2026-06-16 新增:前端浏览器侧下载完成后调用,标记 history 为已下载。
+# 失败不抛 5xx(主流程已下载成功,标记失败不应让前端报错)。
+# id 不存在时静默成功(幂等,前端无法保证 id 100% 有效)。
+@router.post("/mark_downloaded")
+async def api_mark_downloaded(body: dict):
+    history_id = body.get("history_id")
+    path = body.get("path", "")
+    if not history_id:
+        return err(400, "history_id required")
+    try:
+        import sqlite3
+        from server.sp_modules.sph_parser import db as _sph_db
+        conn = sqlite3.connect(_sph_db._get_db_path())
+        conn.execute(
+            "UPDATE sph_parse_history SET downloaded=1, downloaded_path=?, downloaded_at=? WHERE id=?",
+            (path, _sph_db._now_iso(), history_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning("[mark_downloaded] update failed: %s", e)
+        return err(500, f"db update failed: {e}")
+    return ok({"updated": True})

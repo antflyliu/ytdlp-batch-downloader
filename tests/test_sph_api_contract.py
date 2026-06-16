@@ -87,6 +87,9 @@ def test_parse_sph_success_mocked(monkeypatch, client):
     body = r.json()
     assert body["ok"] is True
     assert body["data"]["authorInfo"]["nickname"] == "作者A"
+    # 2026-06-16 契约:响应必须含 history_id 供前端 mark_downloaded 关联
+    assert "history_id" in body["data"]
+    assert isinstance(body["data"]["history_id"], str) and len(body["data"]["history_id"]) > 0
 
 
 # ── #3 cookie POST ─────────────────────────────────────
@@ -328,3 +331,65 @@ def test_batch_parse_mixed_inserts_all(client, monkeypatch):
     statuses = [it["parse_status"] for it in items]
     assert statuses.count("success") == 2
     assert statuses.count("failed") == 2
+
+
+# ── #10 mark_downloaded ─────────────────────────────
+def test_mark_downloaded_success(client):
+    """mark_downloaded 成功更新 history:downloaded=1 + path + downloaded_at。"""
+    from server.sp_modules.sph_parser import db as sph_db
+    sph_db.insert_history({
+        "id": "h-1",
+        "sph_url": "https://weixin.qq.com/sph/u1",
+        "video_url": "https://x",
+        "parse_status": "success",
+    })
+
+    r = client.post("/api/channels/mark_downloaded",
+                    json={"history_id": "h-1", "path": "D:/v/abc.mp4"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["data"]["updated"] is True
+
+    item = sph_db.get_history("h-1")
+    assert item["downloaded"] == 1
+    assert item["downloaded_path"] == "D:/v/abc.mp4"
+    assert item["downloaded_at"] is not None
+
+
+def test_mark_downloaded_idempotent_on_nonexistent_id(client):
+    """mark_downloaded 对不存在的 id 静默成功(幂等)。
+
+    理由:前端无法保证 id 100% 有效(history 已被清理、并发删除等),
+    返回 ok 让前端不报红,主下载流程不受影响。
+    """
+    r = client.post("/api/channels/mark_downloaded",
+                    json={"history_id": "nonexistent", "path": ""})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["data"]["updated"] is True
+
+
+def test_mark_downloaded_missing_id_400(client):
+    """缺少 history_id 返回 400。"""
+    r = client.post("/api/channels/mark_downloaded", json={"path": ""})
+    assert r.status_code == 400
+    assert "history_id" in r.json()["error"].lower()
+
+
+def test_mark_downloaded_empty_path_ok(client):
+    """path 字段可为空字符串(浏览器下载路径未确定时)。"""
+    from server.sp_modules.sph_parser import db as sph_db
+    sph_db.insert_history({
+        "id": "h-2",
+        "sph_url": "https://weixin.qq.com/sph/u2",
+        "video_url": "https://x",
+        "parse_status": "success",
+    })
+
+    r = client.post("/api/channels/mark_downloaded", json={"history_id": "h-2"})
+    assert r.status_code == 200
+    item = sph_db.get_history("h-2")
+    assert item["downloaded"] == 1
+    assert item["downloaded_path"] == ""
