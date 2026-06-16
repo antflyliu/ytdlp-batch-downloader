@@ -2235,6 +2235,7 @@
     "play": "Play",
     "queueUrlsHint": "One SPH link per line, up to 50",
     "queueDownloadRaw": "Download raw video (no watermark / no transcode)",
+    "queueConcurrency": "Concurrent downloads",
     "queueStart": "Start batch download",
     "queueClear": "Clear",
     "queueParsing": "Parsing ({elapsed}s)",

@@ -2235,6 +2235,7 @@
     "play": "播放",
     "queueUrlsHint": "每行一个 SPH 链接，最多 50 条",
     "queueDownloadRaw": "下载原始视频（无水印/无转码）",
+    "queueConcurrency": "并发下载数",
     "queueStart": "开始批量下载",
     "queueClear": "清空",
     "queueParsing": "解析中 ({elapsed}s)",

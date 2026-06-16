@@ -24,6 +24,20 @@
             {{ t('channels.queueDownloadRaw') }}
           </NCheckbox>
         </div>
+        <div class="sph-form-row" style="margin-top: 12px;">
+          <!-- 2026-06-16:并发下载控制。
+               浏览器→WeChat CDN 多连接可大幅加速(从串行 ~N 倍降为 ~N/3 倍),
+               但并发过高会触发浏览器内存压力和潜在的 CDN 限流,默认 3 与解析阶段对齐 -->
+          <span class="sph-label">{{ t('channels.queueConcurrency') }}</span>
+          <NSlider
+            v-model:value="concurrency"
+            :min="1"
+            :max="10"
+            :step="1"
+            :marks="{ 1: '1', 3: '3', 5: '5', 10: '10' }"
+            style="width: 240px; flex: 0 0 240px;"
+          />
+        </div>
         <div style="display: flex; gap: 8px; margin-top: 12px;">
           <NButton type="primary" :loading="processing" @click="onStart">
             {{ t('channels.queueStart') }}
@@ -80,7 +94,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { NButton, NCheckbox, NIcon, NInput, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NIcon, NInput, NSlider, useMessage } from 'naive-ui'
 import { CloudUpload, List } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useSphQueueStore } from '@/stores/sphQueue'
@@ -103,6 +117,9 @@ const urlText = ref('')
 // 选 true → 下载 originVideoUrl(原始无水印/无转码版本)
 // 选 false → 下载 h264VideoInfo/h265VideoInfo/videoUrl(默认清晰度,WeChat API 自定)
 const downloadRaw = ref(false)
+// 2026-06-16 新增:并发下载数。1=串行(最保守),3=默认(对齐解析阶段),5/10=激进。
+// 高并发触发风险:浏览器内存压力、WeChat CDN 限流、Chrome "允许下载多个文件" 弹窗。
+const concurrency = ref(3)
 const processing = ref(false)
 
 async function onStart() {
@@ -119,7 +136,7 @@ async function onStart() {
     urlText.value = ''
     processing.value = true
     try {
-        await store.processBatch(downloadRaw.value)
+        await store.processBatch(downloadRaw.value, concurrency.value)
     } finally {
         processing.value = false
     }

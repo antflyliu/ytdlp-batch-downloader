@@ -69,6 +69,24 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
     }
 
     /**
+     * 简单 async pool:N 个 worker 并发消费共享队列,直到耗尽。
+     * 用于把串行下载改成并发下载(用户可配 1-10,默认 3)。
+     * 不引入 p-limit/lodash 等依赖,代码 ~10 行。
+     * fn 自带 try/catch(由调用方负责错误标记),worker 不抛。
+     */
+    async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+        const queue = [...items]
+        const worker = async () => {
+            while (queue.length > 0) {
+                const item = queue.shift() as T
+                await fn(item)
+            }
+        }
+        const workerCount = Math.max(1, Math.min(limit, items.length))
+        await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    }
+
+    /**
      * 浏览器侧直接拉取 finder.video.qq.com 的 blob 并触发下载。
      * 与 SingleParse.vue 的 onDownload 同构。
      * raw=true 走 originVideoUrl(原始无水印/无转码版本),
@@ -140,7 +158,7 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
         }
     }
 
-    async function processBatch(raw = false) {
+    async function processBatch(raw = false, concurrency = 3) {
         const parsingItems = items.value.filter((i) => i.status === 'parsing')
         if (parsingItems.length === 0) return
 
@@ -177,8 +195,14 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
             return
         }
 
-        for (const item of items.value.filter((i) => i.status === 'ready')) {
+        // 2026-06-16 优化:从串行 for...of 改为并发池,UI 上 N 个 item 状态同时变 'downloading'。
+        // downloadDirectly 内部已 mark item.status='downloading',并发安全:每个 item 状态独立。
+        // 失败由 downloadDirectly 内部 catch 后写到 item.error,不再向外抛。
+        const readyItems = items.value.filter((i) => i.status === 'ready')
+        for (const item of readyItems) {
             item.status = 'downloading'
+        }
+        await runWithConcurrency(readyItems, concurrency, async (item) => {
             try {
                 await downloadDirectly(item, raw)
                 item.status = 'done'
@@ -186,7 +210,7 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
                 item.status = 'failed'
                 item.error = e?.message || 'download failed'
             }
-        }
+        })
     }
 
     function clear() {
