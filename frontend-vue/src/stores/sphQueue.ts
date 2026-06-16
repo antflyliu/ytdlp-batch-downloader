@@ -139,7 +139,10 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
         const urls = parsingItems.map((i) => i.url)
         try {
             const r = await batchParse(urls, 3)
-            const results = (r as any).data?.results ?? (r as any).results ?? []
+            // 响应形状：{ ok, data: { results, summary } }
+            // axios 后 r.data === 响应体，所以 results 在 r.data.data.results
+            // （与 SingleParse.vue 的 raw?.data ?? raw 解包方式一致）
+            const results = (r as any).data?.data?.results ?? (r as any).data?.results ?? []
             for (const res of results) {
                 const item = items.value.find((i) => i.url === res.url)
                 if (!item) continue

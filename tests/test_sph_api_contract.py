@@ -176,3 +176,57 @@ def test_batch_parse_validates_url_list(client):
     # 超过 50 条
     r = client.post("/api/channels/batch_parse", json={"urls": [f"https://weixin.qq.com/sph/u{i}" for i in range(51)]})
     assert r.status_code == 400
+
+
+def test_batch_parse_response_shape_contract(client, monkeypatch):
+    """回归测试：POST /batch_parse 响应必须是 {ok, data: {results, summary}}。
+
+    背景：前端 sphQueue.ts processBatch() 早期错误地把 results 放在 r.data.results，
+    实际路径是 r.data.data.results（与 SingleParse.vue 的解包方式一致）。
+    锁定响应形状，防止后端未来拆掉 data.data 包装导致前端再次取空数组、批量下载卡死。
+    """
+    # FastAPI 路由调的是 core.fetch_video_profile（async），不是 _sync 版
+    async def fake_fetch(share_url, cookie):
+        # 模拟真实 fetch_video_profile 的返回：WeChat API 原始响应，含 data.{feedInfo, authorInfo}
+        return {
+            "errCode": 0,
+            "data": {
+                "authorInfo": {"nickname": "作者A"},
+                "feedInfo": {
+                    "videoUrl": "https://x?v=1&token=t",
+                    "originVideoUrl": "https://x?token=t",
+                    "description": "测试视频",
+                },
+            },
+        }
+    monkeypatch.setattr(
+        "server.sp_modules.sph_parser.core.fetch_video_profile", fake_fetch
+    )
+
+    urls = [
+        "https://weixin.qq.com/sph/u1",
+        "https://weixin.qq.com/sph/u2",
+    ]
+    r = client.post("/api/channels/batch_parse", json={"urls": urls})
+    assert r.status_code == 200
+    body = r.json()
+    # 顶层契约
+    assert body["ok"] is True
+    # data 包装层契约（前端 axios 后 r.data === body，所以前端取 r.data.data.results）
+    assert "data" in body, "顶层 data 字段必须存在"
+    assert "results" in body["data"], "data.results 必须存在"
+    assert "summary" in body["data"], "data.summary 必须存在"
+    # results 数组契约
+    assert isinstance(body["data"]["results"], list)
+    assert len(body["data"]["results"]) == 2
+    for item in body["data"]["results"]:
+        assert set(item.keys()) >= {"url", "ok"}
+        if item["ok"]:
+            # 成功项的 data 字段是 fetch_video_profile 的原始返回（含 data.feedInfo）
+            assert "data" in item
+            assert "feedInfo" in item["data"]["data"]
+    # summary 字段
+    summary = body["data"]["summary"]
+    assert summary["total"] == 2
+    assert summary["success"] == 2
+    assert summary["failed"] == 0
