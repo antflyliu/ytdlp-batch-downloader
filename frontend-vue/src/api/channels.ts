@@ -30,6 +30,8 @@ export interface SphHistoryItem {
     sph_url: string
     video_title: string
     author_nickname: string
+    /** 2026-06-16 新增:作者头像 URL(来自 WeChat authorInfo.headImgUrl),供 ParseHistory 列表展示 */
+    author_avatar_url?: string
     cover_url: string
     video_url: string
     h264_video_url?: string

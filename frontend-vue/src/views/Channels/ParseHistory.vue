@@ -21,16 +21,60 @@
       <div
         v-for="item in items"
         :key="item.id"
-        class="sph-history-card sph-history-card--no-cover"
+        class="sph-history-card"
       >
-        <div class="sph-history-card__body">
-          <div class="sph-history-card__title">{{ item.video_title || '(无标题)' }}</div>
-          <div class="sph-history-card__meta">
-            <span>{{ item.author_nickname || '匿名' }}</span>
-            <span>·</span>
-            <span>{{ formatTime(item.parsed_at) }}</span>
+        <!-- 2026-06-16:渲染 cover_url(对齐 SingleParse 布局)。
+             仍用 loading="lazy" 减少离屏 item 的无效 GET,
+             权衡用户对"列表要看到视频/封面"的诉求与 cover 可能算作 download counter 的旧顾虑。
+             渲染失败或无 cover_url 时显示 ▶ 渐变占位卡(兜底 #1)。 -->
+        <div class="sph-history-card__cover">
+          <img
+            v-if="item.cover_url && !coverError[item.id]"
+            :src="item.cover_url"
+            :alt="item.video_title || 'cover'"
+            class="sph-history-card__cover-img"
+            loading="lazy"
+            @error="onCoverError(item.id)"
+          />
+          <div v-else class="sph-history-card__cover-fallback" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="32" height="32" class="sph-history-card__play-icon">
+              <path d="M8 5v14l11-7z" fill="currentColor" />
+            </svg>
           </div>
-          <div>
+        </div>
+
+        <div class="sph-history-card__meta">
+          <!-- 2026-06-16:作者头像 + 名字,镜像 SingleParse 的 sph-author 布局。
+               头像失败或无 URL 时显示彩色首字母圆(兜底 #2),颜色由 nickname 哈希固定。 -->
+          <div class="sph-author">
+            <div class="sph-author__avatar-wrapper">
+              <img
+                v-if="item.author_avatar_url && !avatarError[item.id]"
+                :src="item.author_avatar_url"
+                :alt="item.author_nickname || 'avatar'"
+                class="sph-author__avatar"
+                @error="onAvatarError(item.id)"
+              />
+              <div
+                v-else
+                class="sph-author__avatar-fallback"
+                :style="{ background: avatarBg(item.author_nickname) }"
+                :aria-label="item.author_nickname || t('channels.singleAuthorAnon')"
+              >
+                {{ avatarInitial(item.author_nickname) }}
+              </div>
+            </div>
+            <span class="sph-author__name">{{ item.author_nickname || t('channels.singleAuthorAnon') }}</span>
+          </div>
+
+          <div class="sph-history-card__title">{{ item.video_title || '(无标题)' }}</div>
+
+          <div v-if="item.description" class="sph-history-card__desc">
+            {{ item.description }}
+          </div>
+
+          <div class="sph-history-card__meta-row">
+            <span class="sph-history-card__time">{{ formatTime(item.parsed_at) }}</span>
             <span v-if="item.downloaded" class="status-badge status-badge--ok">
               {{ t('channels.downloaded') }}
             </span>
@@ -113,6 +157,31 @@ const keyword = ref('')
 const downloading = reactive<Record<string, '' | 'h264' | 'h265' | 'raw'>>({})
 const reparsing = reactive<Record<string, boolean>>({})
 const reparsedAt = reactive<Record<string, string | null>>({})
+// 2026-06-16 新增:cover/avatar 加载失败标记。failed → 显示兜底 UI。
+const coverError = reactive<Record<string, boolean>>({})
+const avatarError = reactive<Record<string, boolean>>({})
+
+function onCoverError(id: string) { coverError[id] = true }
+function onAvatarError(id: string) { avatarError[id] = true }
+
+/**
+ * 把 nickname 哈希成稳定 hue,确保同一作者始终显示同一颜色。
+ * hsl(55% 饱和 + 50% 亮度) 保证与白色首字母文字对比度。
+ */
+function avatarBg(name?: string): string {
+    if (!name) return 'hsl(200, 55%, 50%)'
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+        hash = (hash * 31 + name.charCodeAt(i)) | 0
+    }
+    const hue = Math.abs(hash) % 360
+    return `hsl(${hue}, 55%, 50%)`
+}
+
+function avatarInitial(name?: string): string {
+    if (!name || !name.trim()) return '?'
+    return name.trim().charAt(0).toUpperCase()
+}
 
 let searchTimer: number | null = null
 
@@ -227,12 +296,18 @@ async function onReparse(item: SphHistoryItem) {
                 h264_video_url: (fi.h264VideoInfo || {}).videoUrl || old.h264_video_url || '',
                 h265_video_url: (fi.h265VideoInfo || {}).videoUrl || old.h265_video_url || '',
                 cover_url: fi.coverUrl || old.cover_url,
+                // 2026-06-16 新增:重新解析后刷新 author_avatar_url,失败时保留旧值
+                author_avatar_url: ai.headImgUrl || old.author_avatar_url || '',
                 video_title: fi.description || old.video_title,
                 description: fi.description || old.description,
                 author_nickname: ai.nickname || old.author_nickname,
                 parsed_at: nowIso,
             }
         }
+        // 2026-06-16 新增:重新解析成功后重置 cover/avatar 错误标记,
+        // 新 URL 加载成功后会触发新一轮 onload/onerror。
+        delete coverError[item.id]
+        delete avatarError[item.id]
         reparsedAt[item.id] = nowIso
         message.success(t('channels.historyReparseOk'))
     } catch (e: any) {
@@ -272,31 +347,161 @@ onMounted(loadPage)
 <style scoped>
 .sph-history-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  gap: 14px;
+  align-items: stretch;
+  border-left: 3px solid var(--accent);
 }
 
-/* 修复：列表中不渲染 cover_url（cover_url 来自 finder.video.qq.com 的 stodownload，
-   任何 GET 都会被算作"调用下载接口"）。仅在用户主动点下载时再请求视频 URL。*/
-.sph-history-card--no-cover {
-  border-left: 3px solid var(--accent);
+/* 2026-06-16 新增:cover/avatar 横向布局(对齐 SingleParse) */
+.sph-history-card__cover {
+  flex: 0 0 auto;
+  width: 180px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sph-history-card__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 兜底 #1:cover 加载失败/无 URL → 深色渐变 + 居中 ▶ 三角形 */
+.sph-history-card__cover-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2c3e50 0%, #1a252f 100%);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sph-history-card__play-icon {
+  display: block;
+}
+
+.sph-history-card__meta {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sph-history-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sph-history-card__desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sph-history-card__meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sph-history-card__time {
+  color: var(--text-dim);
 }
 
 .sph-history-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .sph-history-card__row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 11px;
 }
 
 .sph-history-card__hint {
   color: var(--text-dim);
+}
+
+/* 2026-06-16 新增:作者行(镜像 SingleParse 的 sph-author 样式) */
+.sph-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.sph-author__avatar-wrapper {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  position: relative;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface2);
+}
+
+.sph-author__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 兜底 #2:avatar 加载失败/无 URL → 彩色圆 + nickname 首字母 */
+.sph-author__avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.sph-author__name {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 2026-06-16 新增:小屏(≤640px)cover 占满一行,meta 在下,镜像 SingleParse */
+@media (max-width: 640px) {
+  .sph-history-card {
+    flex-direction: column;
+  }
+  .sph-history-card__cover {
+    width: 100%;
+  }
 }
 </style>
