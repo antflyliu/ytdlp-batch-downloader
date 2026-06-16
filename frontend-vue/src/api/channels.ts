@@ -32,8 +32,14 @@ export interface SphHistoryItem {
     author_nickname: string
     cover_url: string
     video_url: string
+    h264_video_url?: string
+    h265_video_url?: string
+    description?: string
     downloaded: number
     downloaded_path: string | null
+    downloaded_at: string | null
+    parse_status?: string
+    parse_error?: string | null
     parsed_at: string
 }
 
