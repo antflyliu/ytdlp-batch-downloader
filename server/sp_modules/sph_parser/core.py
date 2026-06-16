@@ -83,6 +83,7 @@ async def parse_share_url(share_url: str, cookie: str) -> ParseResponse:
     """调 yuanbao API 解析 SPH 分享链接，对应 Go parseShareUrl()。
 
     返回含 wx_export_id + playable_url 等字段的 ParseResponse。
+    异步版（保留以兼容 routes.py）；同步调用请用 parse_share_url_sync。
     """
     logger.info("[parseShareUrl] start, url: %s", share_url)
 
@@ -101,10 +102,34 @@ async def parse_share_url(share_url: str, cookie: str) -> ParseResponse:
     return result
 
 
+def parse_share_url_sync(share_url: str, cookie: str) -> ParseResponse:
+    """同步版 parse_share_url（推荐在 SimpleHTTPRequestHandler 同步线程中使用）。
+
+    底层用 httpx.Client + anyio.from_thread.run，**不**创建独立 event loop，
+    彻底消除 Windows asyncio overlapped pending operation 警告。
+    """
+    logger.info("[parseShareUrl-sync] start, url: %s", share_url)
+
+    payload = {"type": "video_channel_url", "url": share_url, "scene": 1}
+    headers = {**PARSE_HEADERS, "cookie": cookie}
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(PARSE_URL, json=payload, headers=headers)
+
+    if resp.status_code < 200 or resp.status_code >= 300:
+        logger.error("[parseShareUrl-sync] http %d", resp.status_code)
+        raise RuntimeError(f"parseShareUrl: http {resp.status_code}")
+
+    result = ParseResponse(**resp.json())
+    logger.info("[parseShareUrl-sync] ok, exportId: %s", result.data.wx_export_id)
+    return result
+
+
 async def get_feed_info(export_id: str, general_token: str) -> dict:
     """调微信视频号 API 获取视频详情，对应 Go getFeedInfo()。
 
     返回微信 API 原始结构 dict，camelCase。
+    异步版（保留以兼容 routes.py）；同步调用请用 get_feed_info_sync。
     """
     logger.info("[getFeedInfo] start, exportId: %s", export_id)
 
@@ -136,6 +161,41 @@ async def get_feed_info(export_id: str, general_token: str) -> dict:
     return result
 
 
+def get_feed_info_sync(export_id: str, general_token: str) -> dict:
+    """同步版 get_feed_info（推荐在 SimpleHTTPRequestHandler 同步线程中使用）。
+
+    同 parse_share_url_sync：消除 Windows asyncio cleanup 警告。
+    """
+    logger.info("[getFeedInfo-sync] start, exportId: %s", export_id)
+
+    rid = generate_rid()
+    payload = {"baseReq": {"generalToken": general_token}, "exportId": export_id}
+
+    api_url = (
+        f"{FEED_INFO_URL}"
+        f"?_rid={rid}"
+        "&_pageUrl=https%3A%2F%2Fchannels.weixin.qq.com%2Ffinder-preview%2Fpages%2Ffeed"
+    )
+    referer = (
+        "https://channels.weixin.qq.com/finder-preview/pages/feed"
+        f"?entry_card_type=48&comment_scene=39&appid=0"
+        f"&token={quote(general_token)}"
+        f"&entry_scene=0&eid={quote(export_id)}"
+    )
+    headers = {**FEED_INFO_HEADERS, "Referer": referer}
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(api_url, json=payload, headers=headers)
+
+    if resp.status_code < 200 or resp.status_code >= 300:
+        logger.error("[getFeedInfo-sync] http %d", resp.status_code)
+        raise RuntimeError(f"getFeedInfo: http {resp.status_code}")
+
+    result = resp.json()
+    logger.info("[getFeedInfo-sync] ok, errCode: %d", result.get("errCode", -1))
+    return result
+
+
 def clean_video_url(video_url: str | None) -> str:
     """清洗视频 URL：仅保留 encfilekey + token 参数。"""
     if not video_url:
@@ -158,6 +218,7 @@ async def fetch_video_profile(share_url: str, cookie: str) -> dict:
 
     返回微信 API 原始结构 dict，camelCase。
     副作用：在 data.feedInfo 中插入 originVideoUrl（清洗后的视频 URL）。
+    异步版（保留以兼容 routes.py）；同步调用请用 fetch_video_profile_sync。
     """
     logger.info("[fetch] start, shareUrl: %s", share_url)
 
@@ -183,6 +244,46 @@ async def fetch_video_profile(share_url: str, cookie: str) -> dict:
 
     # Step 3: get_feed_info — 严格在 parse 之后
     feed_result = await get_feed_info(export_id, general_token)
+
+    # Step 4: 清洗 videoUrl，注入 originVideoUrl
+    feed_info = feed_result.get("data", {}).get("feedInfo", {})
+    video_url = feed_info.get("videoUrl", "")
+    if video_url:
+        feed_result["data"]["feedInfo"]["originVideoUrl"] = clean_video_url(video_url)
+
+    return feed_result
+
+
+def fetch_video_profile_sync(share_url: str, cookie: str) -> dict:
+    """同步版 fetch_video_profile（推荐在 SimpleHTTPRequestHandler 同步线程中使用）。
+
+    严格串行：parse_share_url_sync → 提取 token/eid → get_feed_info_sync → clean。
+    底层用 httpx.Client，**不**创建 event loop，消除 Windows asyncio cleanup 警告。
+    """
+    logger.info("[fetch-sync] start, shareUrl: %s", share_url)
+
+    # Step 1: parse_share_url_sync
+    parse_result = parse_share_url_sync(share_url, cookie)
+    if not parse_result.data.wx_export_id:
+        raise RuntimeError("parseShareUrl: missing wx_export_id")
+
+    # Step 2: 从 playable_url 提取 token + eid
+    general_token = ""
+    export_id = ""
+    playable_url = parse_result.data.playable_url
+    if playable_url:
+        playable_parsed = urlparse(playable_url)
+        p = parse_qs(playable_parsed.query)
+        general_token = p.get("token", [""])[0]
+        export_id = p.get("eid", [""])[0]
+
+    if not general_token:
+        logger.warning("[fetch-sync] generalToken is empty in playable_url")
+    if not export_id:
+        logger.warning("[fetch-sync] exportId (eid) is empty in playable_url")
+
+    # Step 3: get_feed_info_sync
+    feed_result = get_feed_info_sync(export_id, general_token)
 
     # Step 4: 清洗 videoUrl，注入 originVideoUrl
     feed_info = feed_result.get("data", {}).get("feedInfo", {})

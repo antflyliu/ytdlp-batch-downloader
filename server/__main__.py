@@ -6083,25 +6083,13 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 from server.sp_modules.sph_parser import core as _sph_core
                 from server.sp_modules.sph_parser import config as _sph_cfg
                 from server.sp_modules.sph_parser import db as _sph_db
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+                import httpx
                 import uuid as _uuid
 
-                def _do_sph_parse():
-                    # 独立 event loop（SimpleHTTPRequestHandler 线程不能 asyncio.run 在已有 loop）
-                    import asyncio
-                    return asyncio.run(
-                        asyncio.wait_for(
-                            _sph_core.fetch_video_profile(video_url, _sph_cfg.get_cookie()),
-                            timeout=30,
-                        )
-                    )
-
-                with ThreadPoolExecutor(max_workers=1) as _sph_executor:
-                    _sph_future = _sph_executor.submit(_do_sph_parse)
-                    try:
-                        profile = _sph_future.result(timeout=35)  # 略大于 asyncio 的 30s
-                    except _FutTimeout:
-                        raise RuntimeError("SPH parse timeout (>35s)")
+                # 同步 httpx.Client 调用同步版 core
+                # 修复：移除 ThreadPoolExecutor + asyncio.run 包装
+                # 避免 Windows asyncio overlapped pending operation 警告
+                profile = _sph_core.fetch_video_profile_sync(video_url, _sph_cfg.get_cookie())
 
                 origin_url = profile.get("data", {}).get("feedInfo", {}).get("originVideoUrl", "")
                 if not origin_url:
@@ -6208,45 +6196,40 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(e)}, 502)
 
     def _api_channels_parse_sph(self, full_path: str):
-        """GET /api/channels/parse_sph?url=... — 同步跑 FastAPI async 路由。
+        """GET /api/channels/parse_sph?url=... — 同步解析 SPH 链接。
 
         full_path 必须包含 ?query（不能传 _path_only 后的纯路径，
         否则 url 参数丢失）。
+
+        修复实战测试发现的 Windows asyncio cleanup 警告：改用同步 httpx.Client
+        （底层 anyio.from_thread.run），避免在 SimpleHTTPRequestHandler 线程中
+        反复创建/销毁 event loop 引发的 overlapped pending operation 告警。
         """
         from urllib.parse import parse_qs, urlparse
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        import httpx
+        from server.sp_modules.sph_parser import config as _sph_cfg
+
         url = parse_qs(urlparse(full_path).query).get("url", [""])[0]
         if not url:
             self._send_json({"error": "url parameter is required"}, 400)
             return
-        from server.sp_modules.sph_parser import core as _sph_core
-        from server.sp_modules.sph_parser import config as _sph_cfg
 
-        def _runner():
-            import asyncio
-            return asyncio.run(
-                asyncio.wait_for(
-                    _sph_core.fetch_video_profile(url, _sph_cfg.get_cookie()),
-                    timeout=30,
-                )
-            )
-
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_runner)
-            try:
-                profile = fut.result(timeout=35)
-            except _FutTimeout:
-                self._send_json({"error": "timeout", "code": "TIMEOUT"}, 504)
-                return
-            except Exception as e:
-                msg = str(e)
-                if "parseShareUrl" in msg:
-                    self._send_json({"error": f"yuanbao parse failed: {msg}", "code": "PARSE_FAILED"}, 502)
-                elif "getFeedInfo" in msg:
-                    self._send_json({"error": f"feed info fetch failed: {msg}", "code": "FEED_FAILED"}, 502)
-                else:
-                    self._send_json({"error": f"parse failed: {msg}"}, 502)
-                return
+        # 同步 httpx.Client 调用同步版 core（无 event loop 介入）
+        try:
+            from server.sp_modules.sph_parser.core import fetch_video_profile_sync
+            profile = fetch_video_profile_sync(url, _sph_cfg.get_cookie())
+        except httpx.TimeoutException:
+            self._send_json({"error": "timeout", "code": "TIMEOUT"}, 504)
+            return
+        except Exception as e:
+            msg = str(e)
+            if "parseShareUrl" in msg:
+                self._send_json({"error": f"yuanbao parse failed: {msg}", "code": "PARSE_FAILED"}, 502)
+            elif "getFeedInfo" in msg:
+                self._send_json({"error": f"feed info fetch failed: {msg}", "code": "FEED_FAILED"}, 502)
+            else:
+                self._send_json({"error": f"parse failed: {msg}"}, 502)
+            return
 
         feed_info = profile.get("data", {}).get("feedInfo", {})
         author_info = profile.get("data", {}).get("authorInfo", {})
@@ -6284,15 +6267,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         from concurrent.futures import ThreadPoolExecutor
         from server.sp_modules.sph_parser import core as _sph_core
 
+        # 修复：改用同步版 core + 真正并发（每个 worker 调 httpx.Client）
+        # 避免每条 URL 都 asyncio.run 引发的 cleanup 警告
         def _one(u: str) -> dict:
-            import asyncio
             try:
-                r = asyncio.run(
-                    asyncio.wait_for(
-                        _sph_core.fetch_video_profile(u, _sph_cfg.get_cookie()),
-                        timeout=30,
-                    )
-                )
+                r = _sph_core.fetch_video_profile_sync(u, _sph_cfg.get_cookie())
                 return {"url": u, "ok": True, "data": r}
             except Exception as e:
                 return {"url": u, "ok": False, "error": str(e)}
@@ -6451,7 +6430,6 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
     def _api_channels_download(self, body: dict):
         """POST /api/channels/download — 触发下载（仅返回 task_id + video_url）。"""
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
         from server.sp_modules.sph_parser import core as _sph_core
         from server.sp_modules.sph_parser import config as _sph_cfg
         from server.sp_modules.sph_parser import db as _sph_db
@@ -6469,24 +6447,12 @@ class MonitorHandler(SimpleHTTPRequestHandler):
             video_url = item["video_url"]
             used_sph_url = item["sph_url"]
         else:
-            def _runner():
-                import asyncio
-                return asyncio.run(
-                    asyncio.wait_for(
-                        _sph_core.fetch_video_profile(sph_url, _sph_cfg.get_cookie()),
-                        timeout=30,
-                    )
-                )
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(_runner)
-                try:
-                    profile = fut.result(timeout=35)
-                except _FutTimeout:
-                    self._send_json({"error": "parse timeout"}, 504)
-                    return
-                except Exception as e:
-                    self._send_json({"error": f"parse failed: {e}"}, 502)
-                    return
+            # 修复：直接调同步版 core，移除 ThreadPoolExecutor + asyncio.run
+            try:
+                profile = _sph_core.fetch_video_profile_sync(sph_url, _sph_cfg.get_cookie())
+            except Exception as e:
+                self._send_json({"error": f"parse failed: {e}"}, 502)
+                return
             video_url = profile.get("data", {}).get("feedInfo", {}).get("originVideoUrl", "")
             if not video_url:
                 self._send_json({"error": "no originVideoUrl in parse result"}, 502)
