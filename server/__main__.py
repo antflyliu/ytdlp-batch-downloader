@@ -6271,12 +6271,56 @@ class MonitorHandler(SimpleHTTPRequestHandler):
 
         # 修复：改用同步版 core + 真正并发（每个 worker 调 httpx.Client）
         # 避免每条 URL 都 asyncio.run 引发的 cleanup 警告
+        #
+        # 扩展（2026-06-16）:每条 URL（成功 / 失败）都落 sph_parse_history。
+        # 成功 → parse_status='success',失败 → parse_status='failed' + parse_error。
+        # 每条结果都带 history_id,供前端 /api/channels/mark_downloaded 关联使用。
+        # DB 错误只 log warning,不阻塞 API 响应(避免 DB 短暂不可用导致整个批量失败)。
         def _one(u: str) -> dict:
+            history_id = ""
             try:
                 r = _sph_core.fetch_video_profile_sync(u, _sph_cfg.get_cookie())
-                return {"url": u, "ok": True, "data": r}
             except Exception as e:
-                return {"url": u, "ok": False, "error": str(e)}
+                # 失败也落 history (parse_status='failed')
+                try:
+                    from server.sp_modules.sph_parser import db as _sph_db
+                    import uuid as _uuid
+                    history_id = str(_uuid.uuid4())
+                    _sph_db.insert_history({
+                        "id": history_id,
+                        "sph_url": u,
+                        "video_url": "",  # 失败时无 URL(SQLite NOT NULL 不拒绝空串)
+                        "parse_status": "failed",
+                        "parse_error": str(e)[:500],
+                    })
+                except Exception as _db_e:
+                    _log.warning("[sph/batch_parse] failed-history insert failed for %s: %s", u, _db_e)
+                return {"url": u, "ok": False, "error": str(e), "history_id": history_id}
+            # 成功路径:落 history (与 _api_channels_parse_sph 行为一致)
+            try:
+                fi = r.get("data", {}).get("feedInfo", {})
+                ai = r.get("data", {}).get("authorInfo", {})
+                from server.sp_modules.sph_parser import db as _sph_db
+                import uuid as _uuid
+                history_id = str(_uuid.uuid4())
+                _sph_db.insert_history({
+                    "id": history_id,
+                    "sph_url": u,
+                    "video_title": fi.get("description", ""),
+                    "author_nickname": ai.get("nickname", ""),
+                    "cover_url": fi.get("coverUrl", ""),
+                    "video_url": fi.get("originVideoUrl", ""),
+                    "h264_video_url": (fi.get("h264VideoInfo") or {}).get("videoUrl", ""),
+                    "h265_video_url": (fi.get("h265VideoInfo") or {}).get("videoUrl", ""),
+                    "description": fi.get("description", ""),
+                    "downloaded": False,
+                    "downloaded_path": None,
+                    "parse_status": "success",
+                    "parse_error": None,
+                })
+            except Exception as _db_e:
+                _log.warning("[sph/batch_parse] history insert failed for %s: %s", u, _db_e)
+            return {"url": u, "ok": True, "data": r, "history_id": history_id}
 
         with ThreadPoolExecutor(max_workers=min(3, len(urls))) as ex:
             results = list(ex.map(_one, urls))

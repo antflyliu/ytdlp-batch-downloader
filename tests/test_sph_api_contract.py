@@ -230,3 +230,101 @@ def test_batch_parse_response_shape_contract(client, monkeypatch):
     assert summary["total"] == 2
     assert summary["success"] == 2
     assert summary["failed"] == 0
+
+
+def test_batch_parse_inserts_history_on_success(client, monkeypatch):
+    """批量解析成功时,每条都落 history(parse_status='success')。
+    回归测试:防止未来重构时丢失 history 写入(commit 39aa636 fix 后的增强)。
+    """
+    async def fake_fetch(share_url, cookie):
+        return {
+            "errCode": 0,
+            "data": {
+                "authorInfo": {"nickname": "作者A"},
+                "feedInfo": {"videoUrl": "https://x?v=1", "originVideoUrl": "https://x", "description": "T"},
+            },
+        }
+    monkeypatch.setattr("server.sp_modules.sph_parser.core.fetch_video_profile", fake_fetch)
+
+    from server.sp_modules.sph_parser import db as sph_db
+    assert sph_db.count_history() == 0
+
+    r = client.post("/api/channels/batch_parse", json={
+        "urls": ["https://weixin.qq.com/sph/u1", "https://weixin.qq.com/sph/u2"]
+    })
+    assert r.status_code == 200
+    assert sph_db.count_history() == 2
+
+    items = sph_db.list_history(limit=10, offset=0)
+    urls = {it["sph_url"] for it in items}
+    assert urls == {"https://weixin.qq.com/sph/u1", "https://weixin.qq.com/sph/u2"}
+    for it in items:
+        assert it["parse_status"] == "success"
+        assert it["parse_error"] is None
+    # 响应里也有 history_id(供前端 mark_downloaded 关联)
+    for r_item in r.json()["data"]["results"]:
+        assert isinstance(r_item["history_id"], str) and len(r_item["history_id"]) > 0
+
+
+def test_batch_parse_inserts_failed_history(client, monkeypatch):
+    """批量解析失败时,每条都落 history(parse_status='failed')。
+    用户决策:失败也记录,保留审计/重试能力。
+    """
+    async def fake_fetch(share_url, cookie):
+        raise RuntimeError("upstream 503")
+    monkeypatch.setattr("server.sp_modules.sph_parser.core.fetch_video_profile", fake_fetch)
+
+    from server.sp_modules.sph_parser import db as sph_db
+    r = client.post("/api/channels/batch_parse", json={
+        "urls": ["https://weixin.qq.com/sph/u1", "https://weixin.qq.com/sph/u2"]
+    })
+    assert r.status_code == 200
+    assert r.json()["data"]["summary"]["failed"] == 2
+    assert sph_db.count_history() == 2
+
+    items = sph_db.list_history(limit=10, offset=0)
+    for it in items:
+        assert it["parse_status"] == "failed"
+        assert "upstream 503" in (it["parse_error"] or "")
+        assert it["video_url"] == ""
+    # 响应里也带 history_id(前端可后续重新解析)
+    for r_item in r.json()["data"]["results"]:
+        assert r_item["ok"] is False
+        assert isinstance(r_item["history_id"], str) and len(r_item["history_id"]) > 0
+
+
+def test_batch_parse_mixed_inserts_all(client, monkeypatch):
+    """混合:成功/失败都落 history,parse_status 区分。
+    验证总条数 = url 数,success/failed 与 summary 一致。
+    """
+    call_count = {"n": 0}
+    async def fake_fetch(share_url, cookie):
+        call_count["n"] += 1
+        if call_count["n"] % 2 == 0:
+            raise RuntimeError("flaky")
+        return {
+            "errCode": 0,
+            "data": {
+                "authorInfo": {"nickname": "A"},
+                "feedInfo": {"videoUrl": "https://x", "originVideoUrl": "https://x", "description": "T"},
+            },
+        }
+    monkeypatch.setattr("server.sp_modules.sph_parser.core.fetch_video_profile", fake_fetch)
+
+    from server.sp_modules.sph_parser import db as sph_db
+    r = client.post("/api/channels/batch_parse", json={
+        "urls": [
+            "https://weixin.qq.com/sph/u1",
+            "https://weixin.qq.com/sph/u2",
+            "https://weixin.qq.com/sph/u3",
+            "https://weixin.qq.com/sph/u4",
+        ]
+    })
+    assert r.json()["data"]["summary"]["success"] == 2
+    assert r.json()["data"]["summary"]["failed"] == 2
+    assert sph_db.count_history() == 4
+
+    items = sph_db.list_history(limit=10, offset=0)
+    statuses = [it["parse_status"] for it in items]
+    assert statuses.count("success") == 2
+    assert statuses.count("failed") == 2

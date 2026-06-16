@@ -132,13 +132,50 @@ async def api_batch_parse(body: dict):
     max_concurrent = min(int(body.get("max_concurrent", 3)), 10)
     sem = asyncio.Semaphore(max_concurrent)
 
+    # 2026-06-16:每条 URL（成功 / 失败）都落 sph_parse_history
+    # 与 server/__main__.py 的 _api_channels_batch_parse._one() 行为一致
+    # 注:这是 routes.py 的镜像实现(测试用),生产路径在 main.py 的 SimpleHTTPRequestHandler
     async def one(u: str) -> dict:
-        async with sem:
+        history_id = ""
+        try:
+            r = await asyncio.wait_for(core.fetch_video_profile(u, sph_config.get_cookie()), timeout=30)
+        except Exception as e:
+            # 失败也落 history (parse_status='failed')
             try:
-                r = await asyncio.wait_for(core.fetch_video_profile(u, sph_config.get_cookie()), timeout=30)
-                return {"url": u, "ok": True, "data": r}
-            except Exception as e:
-                return {"url": u, "ok": False, "error": str(e)}
+                history_id = str(uuid.uuid4())
+                sph_db.insert_history({
+                    "id": history_id,
+                    "sph_url": u,
+                    "video_url": "",  # 失败时无 URL
+                    "parse_status": "failed",
+                    "parse_error": str(e)[:500],
+                })
+            except Exception as _db_e:
+                logger.warning("[sph/batch_parse] failed-history insert failed for %s: %s", u, _db_e)
+            return {"url": u, "ok": False, "error": str(e), "history_id": history_id}
+        # 成功路径:落 history
+        try:
+            fi = r.get("data", {}).get("feedInfo", {})
+            ai = r.get("data", {}).get("authorInfo", {})
+            history_id = str(uuid.uuid4())
+            sph_db.insert_history({
+                "id": history_id,
+                "sph_url": u,
+                "video_title": fi.get("description", ""),
+                "author_nickname": ai.get("nickname", ""),
+                "cover_url": fi.get("coverUrl", ""),
+                "video_url": fi.get("originVideoUrl", ""),
+                "h264_video_url": (fi.get("h264VideoInfo") or {}).get("videoUrl", ""),
+                "h265_video_url": (fi.get("h265VideoInfo") or {}).get("videoUrl", ""),
+                "description": fi.get("description", ""),
+                "downloaded": False,
+                "downloaded_path": None,
+                "parse_status": "success",
+                "parse_error": None,
+            })
+        except Exception as _db_e:
+            logger.warning("[sph/batch_parse] history insert failed for %s: %s", u, _db_e)
+        return {"url": u, "ok": True, "data": r, "history_id": history_id}
 
     results = await asyncio.gather(*(one(u) for u in urls))
     summary = {"total": len(results), "success": sum(1 for r in results if r["ok"]), "failed": sum(1 for r in results if not r["ok"])}
