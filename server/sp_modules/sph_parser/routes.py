@@ -82,6 +82,7 @@ async def api_parse_sph(url: str = Query("")):
 
     try:
         feed_resp = await asyncio.wait_for(core.fetch_video_profile(url, cookie), timeout=30)
+        logger.info("[api_parse_sph] feed_resp: %s", feed_resp)
     except asyncio.TimeoutError:
         return err(504, "timeout", code="TIMEOUT")
     except Exception as e:
@@ -95,7 +96,9 @@ async def api_parse_sph(url: str = Query("")):
 
     # 落 history
     feed_info = feed_resp.get("data", {}).get("feedInfo", {})
+    logger.info("[api_parse_sph] feed_info: %s", feed_info)
     author_info = feed_resp.get("data", {}).get("authorInfo", {})
+    logger.info("[api_parse_sph] author_info: %s", author_info)
     history_item = {
         "id": str(uuid.uuid4()),
         "sph_url": url,

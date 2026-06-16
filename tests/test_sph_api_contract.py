@@ -36,9 +36,7 @@ def reset_refresh_state():
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     db_file = tmp_path / "monitor.db"
-    monkeypatch.setattr(
-        "server.sp_modules.sph_parser.db._DB_PATH", str(db_file)
-    )
+    monkeypatch.setattr("monitor.db.get_db_path", lambda: str(db_file))
     monkeypatch.setattr(
         "server.sp_modules.sph_parser.config.SPH_COOKIE", "hy_source=web; hy_user=alice; hy_token=tk"
     )

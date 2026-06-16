@@ -6244,6 +6244,8 @@ class MonitorHandler(SimpleHTTPRequestHandler):
                 "author_nickname": author_info.get("nickname", ""),
                 "cover_url": feed_info.get("coverUrl", ""),
                 "video_url": feed_info.get("originVideoUrl", ""),
+                "h264_video_url": (feed_info.get("h264VideoInfo") or {}).get("videoUrl", ""),
+                "h265_video_url": (feed_info.get("h265VideoInfo") or {}).get("videoUrl", ""),
                 "description": feed_info.get("description", ""),
                 "downloaded": False,
                 "downloaded_path": None,
@@ -6414,7 +6416,11 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         self._send_json({"ok": True, "data": {"cancelled": True, "pid": pid}})
 
     def _api_channels_history(self):
-        """GET /api/channels/history?limit=20&offset=0&keyword=... — 解析历史。"""
+        """GET /api/channels/history?limit=20&offset=0&keyword=... — 解析历史。
+
+        修复：do_GET 路由分发时 path 不带 query，参数里 "?id=xxx&reparse=1" 拿不到。
+        这里必须用 self.path 拿原始 full_path（带 ?query），不能 _path_only。
+        """
         from urllib.parse import parse_qs, urlparse
         from server.sp_modules.sph_parser import db as _sph_db
         params = parse_qs(urlparse(self.path).query)
@@ -6424,6 +6430,50 @@ class MonitorHandler(SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             limit, offset = 20, 0
         keyword = params.get("keyword", [None])[0] or None
+        # 重新解析模式：?id=xxx&reparse=1
+        rep_id = params.get("id", [None])[0] or None
+        rep_flag = params.get("reparse", [None])[0] in ("1", "true", "True")
+        if rep_id and rep_flag:
+            item = _sph_db.get_history(rep_id)
+            if not item:
+                self._send_json({"error": f"history_id not found: {rep_id}"}, 404)
+                return
+            sph_url = item.get("sph_url", "")
+            if not sph_url:
+                self._send_json({"error": "history item has no sph_url"}, 400)
+                return
+            from server.sp_modules.sph_parser.config import get_cookie as _get_cookie
+            from server.sp_modules.sph_parser.core import fetch_video_profile_sync
+            import httpx
+            try:
+                profile = fetch_video_profile_sync(sph_url, _get_cookie())
+            except httpx.TimeoutException:
+                self._send_json({"error": "timeout", "code": "TIMEOUT"}, 504)
+                return
+            except Exception as e:
+                self._send_json({"error": f"reparse failed: {e}"}, 502)
+                return
+            fi = profile.get("data", {}).get("feedInfo", {})
+            ai = profile.get("data", {}).get("authorInfo", {})
+            now_iso = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+            updated = _sph_db.update_history(rep_id, {
+                "video_title": fi.get("description", ""),
+                "author_nickname": ai.get("nickname", ""),
+                "cover_url": fi.get("coverUrl", ""),
+                "video_url": fi.get("originVideoUrl", ""),
+                "h264_video_url": (fi.get("h264VideoInfo") or {}).get("videoUrl", ""),
+                "h265_video_url": (fi.get("h265VideoInfo") or {}).get("videoUrl", ""),
+                "description": fi.get("description", ""),
+                "parse_status": "success",
+                "parse_error": None,
+                "parsed_at": now_iso,
+            })
+            if updated == 0:
+                self._send_json({"error": f"history_id not found: {rep_id}"}, 404)
+                return
+            refreshed = _sph_db.get_history(rep_id) or {}
+            self._send_json({"ok": True, "data": refreshed})
+            return
         items = _sph_db.list_history(limit=limit, offset=offset, keyword=keyword)
         total = _sph_db.count_history(keyword=keyword)
         self._send_json({"ok": True, "data": {"items": items, "total": total, "limit": limit, "offset": offset}})

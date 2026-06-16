@@ -16,7 +16,8 @@ from server.sp_modules.sph_parser import db as sph_db
 def tmp_db(monkeypatch, tmp_path):
     """重定向 monitor.db 到 tmp_path，避免污染真实数据。"""
     db_file = tmp_path / "monitor.db"
-    monkeypatch.setattr(sph_db, "_DB_PATH", str(db_file))
+    # 改：sph_db 改走 monitor.get_db_path()；测试里 monkeypatch 那一层
+    monkeypatch.setattr("monitor.db.get_db_path", lambda: str(db_file))
     sph_db.init_schema()
     yield db_file
 
