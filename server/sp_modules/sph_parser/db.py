@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sph_parse_history (
     sph_url           TEXT NOT NULL,
     video_title       TEXT,
     author_nickname   TEXT,
+    author_avatar_url TEXT,
     cover_url         TEXT,
     video_url         TEXT NOT NULL,
     h264_video_url    TEXT,
@@ -60,6 +61,9 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE sph_parse_history ADD COLUMN h264_video_url TEXT")
         if "h265_video_url" not in cols:
             conn.execute("ALTER TABLE sph_parse_history ADD COLUMN h265_video_url TEXT")
+        if "author_avatar_url" not in cols:
+            # 2026-06-16:解析历史列表需要展示作者头像(对齐 SingleParse 布局)
+            conn.execute("ALTER TABLE sph_parse_history ADD COLUMN author_avatar_url TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -76,16 +80,17 @@ def insert_history(item: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO sph_parse_history (
-                id, sph_url, video_title, author_nickname, cover_url,
+                id, sph_url, video_title, author_nickname, author_avatar_url, cover_url,
                 video_url, h264_video_url, h265_video_url, description,
                 downloaded, downloaded_path, parse_status, parse_error, parsed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item["id"],
                 item["sph_url"],
                 item.get("video_title", ""),
                 item.get("author_nickname", ""),
+                item.get("author_avatar_url", ""),
                 item.get("cover_url", ""),
                 item["video_url"],
                 item.get("h264_video_url") or "",
@@ -110,7 +115,7 @@ def update_history(history_id: str, fields: dict[str, Any]) -> int:
     返回受影响行数（0 = id 不存在）。
     """
     allowed = {
-        "video_title", "author_nickname", "cover_url", "video_url",
+        "video_title", "author_nickname", "author_avatar_url", "cover_url", "video_url",
         "h264_video_url", "h265_video_url", "description",
         "parse_status", "parse_error", "parsed_at",
     }

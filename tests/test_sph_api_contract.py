@@ -75,8 +75,8 @@ def test_parse_sph_success_mocked(monkeypatch, client):
         return {
             "errCode": 0,
             "data": {
-                "authorInfo": {"nickname": "作者A"},
-                "feedInfo": {"videoUrl": "https://x?v=1&token=t", "originVideoUrl": "https://x?token=t"},
+                "authorInfo": {"nickname": "作者A", "headImgUrl": "https://avatar.example/u1.jpg"},
+                "feedInfo": {"videoUrl": "https://x?v=1&token=t", "originVideoUrl": "https://x?token=t", "coverUrl": "https://cover.example/v1.jpg"},
             },
         }
     monkeypatch.setattr(
@@ -90,6 +90,12 @@ def test_parse_sph_success_mocked(monkeypatch, client):
     # 2026-06-16 契约:响应必须含 history_id 供前端 mark_downloaded 关联
     assert "history_id" in body["data"]
     assert isinstance(body["data"]["history_id"], str) and len(body["data"]["history_id"]) > 0
+    # 2026-06-16 契约:解析后落 history 时必须把 author headImgUrl 存到 author_avatar_url
+    from server.sp_modules.sph_parser import db as sph_db
+    saved = sph_db.get_history(body["data"]["history_id"])
+    assert saved is not None
+    assert saved["author_avatar_url"] == "https://avatar.example/u1.jpg"
+    assert saved["cover_url"] == "https://cover.example/v1.jpg"
 
 
 # ── #3 cookie POST ─────────────────────────────────────
@@ -194,10 +200,11 @@ def test_batch_parse_response_shape_contract(client, monkeypatch):
         return {
             "errCode": 0,
             "data": {
-                "authorInfo": {"nickname": "作者A"},
+                "authorInfo": {"nickname": "作者A", "headImgUrl": "https://avatar.example/u1.jpg"},
                 "feedInfo": {
                     "videoUrl": "https://x?v=1&token=t",
                     "originVideoUrl": "https://x?token=t",
+                    "coverUrl": "https://cover.example/v1.jpg",
                     "description": "测试视频",
                 },
             },
@@ -243,8 +250,8 @@ def test_batch_parse_inserts_history_on_success(client, monkeypatch):
         return {
             "errCode": 0,
             "data": {
-                "authorInfo": {"nickname": "作者A"},
-                "feedInfo": {"videoUrl": "https://x?v=1", "originVideoUrl": "https://x", "description": "T"},
+                "authorInfo": {"nickname": "作者A", "headImgUrl": "https://avatar.example/u1.jpg"},
+                "feedInfo": {"videoUrl": "https://x?v=1", "originVideoUrl": "https://x", "coverUrl": "https://cover.example/v1.jpg", "description": "T"},
             },
         }
     monkeypatch.setattr("server.sp_modules.sph_parser.core.fetch_video_profile", fake_fetch)
@@ -264,6 +271,9 @@ def test_batch_parse_inserts_history_on_success(client, monkeypatch):
     for it in items:
         assert it["parse_status"] == "success"
         assert it["parse_error"] is None
+        # 2026-06-16 契约:批量成功时,author_avatar_url 与 cover_url 必须落到 history
+        assert it["author_avatar_url"] == "https://avatar.example/u1.jpg"
+        assert it["cover_url"] == "https://cover.example/v1.jpg"
     # 响应里也有 history_id(供前端 mark_downloaded 关联)
     for r_item in r.json()["data"]["results"]:
         assert isinstance(r_item["history_id"], str) and len(r_item["history_id"]) > 0
