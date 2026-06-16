@@ -2228,6 +2228,7 @@
     "historyNoUrl": "No video URL, please re-parse first",
     "historyNoSphUrl": "Record missing SPH link",
     "historyParseFailed": "Parse failed",
+    "historyPlayerTitle": "Video preview",
     "downloaded": "Downloaded",
     "download": "Download",
     "downloadFailed": "Download failed",

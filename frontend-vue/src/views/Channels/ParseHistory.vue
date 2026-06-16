@@ -26,8 +26,15 @@
         <!-- 2026-06-16:渲染 cover_url(对齐 SingleParse 布局)。
              仍用 loading="lazy" 减少离屏 item 的无效 GET,
              权衡用户对"列表要看到视频/封面"的诉求与 cover 可能算作 download counter 的旧顾虑。
-             渲染失败或无 cover_url 时显示 ▶ 渐变占位卡(兜底 #1)。 -->
-        <div class="sph-history-card__cover">
+             渲染失败或无 cover_url 时显示 ▶ 渐变占位卡(兜底 #1)。
+             2026-06-16 增量:cover 区域升级为可点击 — 点击后弹出视频播放器 modal(参考 SingleParse)。
+             仅在存在可播放 video URL 时显示 ▶ overlay 圆 + 整区域加 cursor:pointer。
+             兜底 #1 内部仍保留 ▶ SVG,二者视觉等价(overlay 圆 > 内嵌 SVG 视觉权重)。 -->
+        <div
+          class="sph-history-card__cover"
+          :class="{ 'sph-history-card__cover--clickable': canPlay(item) }"
+          @click="onCoverClick(item)"
+        >
           <img
             v-if="item.cover_url && !coverError[item.id]"
             :src="item.cover_url"
@@ -38,6 +45,18 @@
           />
           <div v-else class="sph-history-card__cover-fallback" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="32" height="32" class="sph-history-card__play-icon">
+              <path d="M8 5v14l11-7z" fill="currentColor" />
+            </svg>
+          </div>
+          <!-- 2026-06-16 增量:播放 overlay(深色半透圆 + 白色 ▶)。
+               仅在 cover 图片存在 + 有可播放 video URL 时叠加(避免与兜底 #1 重复)。
+               hover 时放大 1.08 + 提亮,提示可点击。 -->
+          <div
+            v-if="item.cover_url && !coverError[item.id] && canPlay(item)"
+            class="sph-history-card__play-overlay"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 24 24" width="36" height="36">
               <path d="M8 5v14l11-7z" fill="currentColor" />
             </svg>
           </div>
@@ -136,12 +155,62 @@
         @update:page="loadPage"
       />
     </div>
+
+    <!-- 2026-06-16 增量:视频播放器 modal。
+         点击 cover 后弹出,镜像 SingleParse 的视频卡片布局:
+         - <video controls> + cover 作 poster + preload="metadata"(只取元数据,不全量下载)
+         - 下方作者行(头像 + 昵称)与 SingleParse 的 sph-author 复用样式
+         - 描述/标题(有则显示)
+         v-if 控制视频 DOM 销毁,关闭时自动停止播放(无残留 audio)。
+         关闭交互:NModal 内置 X 按钮 / 点遮罩 / ESC 三种都支持。 -->
+    <NModal
+      v-model:show="modalShow"
+      preset="card"
+      style="max-width: 800px"
+      :title="playingItem?.video_title || t('channels.historyPlayerTitle')"
+      :bordered="false"
+      size="huge"
+    >
+      <div v-if="playingItem" class="sph-player">
+        <video
+          :src="bestVideoUrl(playingItem)"
+          :poster="playingItem.cover_url || undefined"
+          controls
+          preload="metadata"
+          playsinline
+          class="sph-player__video"
+        ></video>
+        <div class="sph-author">
+          <div class="sph-author__avatar-wrapper">
+            <img
+              v-if="playingItem.author_avatar_url && !avatarError[playingItem.id]"
+              :src="playingItem.author_avatar_url"
+              :alt="playingItem.author_nickname || 'avatar'"
+              class="sph-author__avatar"
+              @error="onAvatarError(playingItem.id)"
+            />
+            <div
+              v-else
+              class="sph-author__avatar-fallback"
+              :style="{ background: avatarBg(playingItem.author_nickname) }"
+              :aria-label="playingItem.author_nickname || t('channels.singleAuthorAnon')"
+            >
+              {{ avatarInitial(playingItem.author_nickname) }}
+            </div>
+          </div>
+          <span class="sph-author__name">{{ playingItem.author_nickname || t('channels.singleAuthorAnon') }}</span>
+        </div>
+        <div v-if="playingItem.description" class="sph-player__desc">
+          {{ playingItem.description }}
+        </div>
+      </div>
+    </NModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { NButton, NIcon, NInput, NPagination, useMessage } from 'naive-ui'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { NButton, NIcon, NInput, NModal, NPagination, useMessage } from 'naive-ui'
 import { FilmOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { listSphHistory, parseSph, markSphDownloaded, type SphHistoryItem } from '@/api/channels'
@@ -199,6 +268,39 @@ function pickVideoUrl(item: SphHistoryItem, kind: 'h264' | 'h265' | 'raw'): stri
 
 function canDownload(item: SphHistoryItem): boolean {
     return Boolean(pickVideoUrl(item, 'h264') || pickVideoUrl(item, 'h265') || pickVideoUrl(item, 'raw'))
+}
+
+// 2026-06-16 增量:视频播放器状态(单 modal 共享,所有 item 复用)。
+// playingItem 非空 → modal 显示;为 null → modal 关闭。
+// 用 v-if 控制视频 DOM,关闭时元素被销毁,自动停止播放,无残留 audio。
+const playingItem = ref<SphHistoryItem | null>(null)
+
+/** 与 NModal 的 v-model:show 桥接:getter 派生自 playingItem,setter 收到 false 时清空。 */
+const modalShow = computed({
+    get: () => playingItem.value !== null,
+    set: (v: boolean) => { if (!v) closePlayer() }
+})
+
+/** 选最佳 video URL:h264(优先) > h265 > 原画(与 SingleParse 的 bestVideoUrl 对齐)。 */
+function bestVideoUrl(item: SphHistoryItem): string {
+    return item.h264_video_url || item.h265_video_url || item.video_url || ''
+}
+
+/** 是否可播放(任一画质有 URL 即可)。 */
+function canPlay(item: SphHistoryItem): boolean {
+    return Boolean(bestVideoUrl(item))
+}
+
+function openPlayer(item: SphHistoryItem) {
+    playingItem.value = item
+}
+
+function closePlayer() {
+    playingItem.value = null
+}
+
+function onCoverClick(item: SphHistoryItem) {
+    if (canPlay(item)) openPlayer(item)
 }
 
 function sanitizeFilename(desc?: string, parsedAt?: string): string {
@@ -368,6 +470,8 @@ onMounted(loadPage)
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 2026-06-16 增量:为内部播放 overlay 提供定位锚点(absolute 子元素参照此处)。 */
+  position: relative;
 }
 
 .sph-history-card__cover-img {
@@ -390,6 +494,37 @@ onMounted(loadPage)
 
 .sph-history-card__play-icon {
   display: block;
+}
+
+/* 2026-06-16 增量:cover 可点击样式(仅在 canPlay 时启用 cursor:pointer)。 */
+.sph-history-card__cover--clickable {
+  cursor: pointer;
+}
+
+/* 2026-06-16 增量:播放 overlay(深色半透圆 + 白色 ▶)。
+   绝对定位覆盖在 cover 中央,hover 时放大并提亮。
+   pointer-events:none 让 click 事件穿透到父级 cover 容器。 */
+.sph-history-card__play-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s ease, background 0.15s ease;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.sph-history-card__cover--clickable:hover .sph-history-card__play-overlay {
+  transform: translate(-50%, -50%) scale(1.08);
+  background: rgba(0, 0, 0, 0.7);
 }
 
 .sph-history-card__meta {
@@ -497,6 +632,30 @@ onMounted(loadPage)
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 2026-06-16 增量:视频播放器 modal 内部布局。
+   镜像 SingleParse 的 .sph-video-card 视觉:视频在上,作者 + 描述在下。 */
+.sph-player {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sph-player__video {
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: 6px;
+  display: block;
+}
+
+.sph-player__desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* 2026-06-16 新增:小屏(≤640px)cover 占满一行,meta 在下,镜像 SingleParse */
