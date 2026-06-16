@@ -71,12 +71,13 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
     /**
      * 浏览器侧直接拉取 finder.video.qq.com 的 blob 并触发下载。
      * 与 SingleParse.vue 的 onDownload 同构。
-     * 在 raw 模式下走 originVideoUrl，其它模式回退 h264 > h265 > videoUrl。
+     * raw=true 走 originVideoUrl(原始无水印/无转码版本),
+     * raw=false 回退 h264 > h265 > videoUrl(默认清晰度,由 WeChat API 自定)。
      */
-    async function downloadDirectly(item: QueueItem, quality: string): Promise<void> {
+    async function downloadDirectly(item: QueueItem, raw: boolean): Promise<void> {
         const fi: any = item.feedInfo
         if (!fi) throw new Error('no feedInfo')
-        const videoUrl = quality === 'raw'
+        const videoUrl = raw
             ? (fi.originVideoUrl || '')
             : (fi.h264VideoInfo?.videoUrl || fi.h265VideoInfo?.videoUrl || fi.videoUrl || '')
         if (!videoUrl) throw new Error('no video url')
@@ -139,7 +140,7 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
         }
     }
 
-    async function processBatch(quality = 'best', subLangs = 'zh-Hans,en') {
+    async function processBatch(raw = false) {
         const parsingItems = items.value.filter((i) => i.status === 'parsing')
         if (parsingItems.length === 0) return
 
@@ -179,7 +180,7 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
         for (const item of items.value.filter((i) => i.status === 'ready')) {
             item.status = 'downloading'
             try {
-                await downloadDirectly(item, quality)
+                await downloadDirectly(item, raw)
                 item.status = 'done'
             } catch (e: any) {
                 item.status = 'failed'

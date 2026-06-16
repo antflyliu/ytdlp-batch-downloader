@@ -18,16 +18,11 @@
           :placeholder="t('channels.singleUrlHint')"
         />
         <div class="sph-form-row" style="margin-top: 12px;">
-          <span class="sph-label">{{ t('channels.queueQuality') }}</span>
-          <NSelect
-            v-model:value="quality"
-            :options="qualityOptions"
-            style="width: 160px"
-          />
-        </div>
-        <div class="sph-form-row">
-          <span class="sph-label">{{ t('channels.queueSubLangs') }}</span>
-          <NInput v-model:value="subLangs" style="width: 200px" placeholder="zh-Hans,en" />
+          <!-- 2026-06-16 简化:仅保留 raw 选项(对应 originVideoUrl,无水印/无转码)。
+               best/1080p/720p/480p 在浏览器侧直传模式下完全等价(详见 sphQueue.ts 注释) -->
+          <NCheckbox v-model:checked="downloadRaw">
+            {{ t('channels.queueDownloadRaw') }}
+          </NCheckbox>
         </div>
         <div style="display: flex; gap: 8px; margin-top: 12px;">
           <NButton type="primary" :loading="processing" @click="onStart">
@@ -85,7 +80,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { NButton, NIcon, NInput, NSelect, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NIcon, NInput, useMessage } from 'naive-ui'
 import { CloudUpload, List } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useSphQueueStore } from '@/stores/sphQueue'
@@ -104,17 +99,11 @@ onBeforeUnmount(() => {
 })
 
 const urlText = ref('')
-const quality = ref('best')
-const subLangs = ref('zh-Hans,en')
+// 2026-06-16 简化:仅保留 raw 单一选项。
+// 选 true → 下载 originVideoUrl(原始无水印/无转码版本)
+// 选 false → 下载 h264VideoInfo/h265VideoInfo/videoUrl(默认清晰度,WeChat API 自定)
+const downloadRaw = ref(false)
 const processing = ref(false)
-
-const qualityOptions = [
-    { label: 'best', value: 'best' },
-    { label: '1080p', value: '1080p' },
-    { label: '720p', value: '720p' },
-    { label: '480p', value: '480p' },
-    { label: () => t('channels.queueQualityRaw'), value: 'raw' },
-]
 
 async function onStart() {
     const urls = urlText.value.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -130,7 +119,7 @@ async function onStart() {
     urlText.value = ''
     processing.value = true
     try {
-        await store.processBatch(quality.value, subLangs.value)
+        await store.processBatch(downloadRaw.value)
     } finally {
         processing.value = false
     }
