@@ -53,16 +53,28 @@
         <div class="sph-queue-list">
           <div v-for="item in store.items" :key="item.id" class="sph-queue-item">
             <span class="sph-queue-item__status">
-              <span v-if="item.status === 'parsing'" class="status-badge status-badge--warn">解析中</span>
-              <span v-else-if="item.status === 'ready'" class="status-badge status-badge--accent">已就绪</span>
-              <span v-else-if="item.status === 'downloading'" class="status-badge status-badge--accent">下载中</span>
-              <span v-else-if="item.status === 'done'" class="status-badge status-badge--ok">完成</span>
-              <span v-else class="status-badge status-badge--err">失败</span>
+              <span v-if="item.status === 'parsing'" class="status-badge status-badge--warn">
+                {{ t('channels.queueParsing', { elapsed: item.parsingElapsed ?? 0 }) }}
+              </span>
+              <span v-else-if="item.status === 'ready'" class="status-badge status-badge--accent">
+                {{ t('channels.queueReady') }}
+              </span>
+              <span v-else-if="item.status === 'downloading'" class="status-badge status-badge--accent">
+                {{ t('channels.queueDownloading', { pct: item.progress ?? 0 }) }}
+              </span>
+              <span v-else-if="item.status === 'done'" class="status-badge status-badge--ok">
+                {{ t('channels.queueDone', { size: item.size || '' }) }}
+              </span>
+              <span v-else class="status-badge status-badge--err">
+                {{ t('channels.queueFailed', { error: item.error || '' }) }}
+              </span>
             </span>
-            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              {{ item.url }}
+            <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              {{ item.description || item.url }}
             </span>
-            <span v-if="item.error" style="color: var(--error); font-size: 11px;">{{ item.error }}</span>
+            <span v-if="item.error && item.status === 'downloading'" class="sph-queue-item__hint">
+              {{ item.error }}
+            </span>
             <NButton size="small" quaternary @click="store.remove(item.id)">×</NButton>
           </div>
         </div>
@@ -72,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { NButton, NIcon, NInput, NSelect, useMessage } from 'naive-ui'
 import { CloudUpload, List } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
@@ -81,6 +93,15 @@ import { useSphQueueStore } from '@/stores/sphQueue'
 const { t } = useI18n()
 const message = useMessage()
 const store = useSphQueueStore()
+
+let stopTicker: (() => void) | null = null
+onMounted(() => {
+    stopTicker = store.startParsingTicker()
+})
+onBeforeUnmount(() => {
+    stopTicker?.()
+    stopTicker = null
+})
 
 const urlText = ref('')
 const quality = ref('best')
@@ -92,6 +113,7 @@ const qualityOptions = [
     { label: '1080p', value: '1080p' },
     { label: '720p', value: '720p' },
     { label: '480p', value: '480p' },
+    { label: () => t('channels.queueQualityRaw'), value: 'raw' },
 ]
 
 async function onStart() {
