@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { batchParse } from '@/api/channels'
+import { batchParse, markSphDownloaded } from '@/api/channels'
 
 export interface QueueItem {
     id: number
@@ -108,6 +108,13 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
         const blob = new Blob(chunks, { type: 'video/mp4' })
         item.size = formatBytes(received)
         await saveBlob(blob, item, fi)
+        // 2026-06-16:下载成功后异步标记 history(失败不抛错,只 console.warn)
+        if (item.historyId) {
+            const filename = sanitizeFilename(item.description, fi.createtime) || 'video.mp4'
+            markSphDownloaded(item.historyId, filename).catch((e) => {
+                console.warn('[sph] mark_downloaded failed:', e)
+            })
+        }
     }
 
     function formatBytes(n: number): string {
@@ -157,6 +164,9 @@ export const useSphQueueStore = defineStore('sphQueue', () => {
                     item.status = 'failed'
                     item.error = res.error
                 }
+                // 2026-06-16:每个 results[i] 都带 history_id(成功/失败都有),
+                // 失败时为空串。下载成功后用此 id 调 markSphDownloaded。
+                item.historyId = (res as any).history_id || item.historyId || ''
             }
         } catch (e: any) {
             for (const item of parsingItems) {

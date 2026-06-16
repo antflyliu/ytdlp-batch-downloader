@@ -128,3 +128,15 @@ export function downloadFromSph(opts: {
         data: opts,
     })
 }
+
+/**
+ * 2026-06-16 新增:浏览器侧下载完成后调用,标记 history 为已下载。
+ * 失败由调用方 .catch 吞掉(主下载流程已成功,标记失败不应影响用户)。
+ */
+export function markSphDownloaded(history_id: string, path: string = '') {
+    return request<{ ok: boolean; data: { updated: boolean } }>({
+        url: '/api/channels/mark_downloaded',
+        method: 'post',
+        data: { history_id, path },
+    })
+}

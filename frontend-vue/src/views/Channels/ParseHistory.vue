@@ -100,7 +100,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { NButton, NIcon, NInput, NPagination, useMessage } from 'naive-ui'
 import { FilmOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { listSphHistory, parseSph, type SphHistoryItem } from '@/api/channels'
+import { listSphHistory, parseSph, markSphDownloaded, type SphHistoryItem } from '@/api/channels'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -153,6 +153,7 @@ async function downloadDirectly(item: SphHistoryItem, kind: 'h264' | 'h265' | 'r
     const prev = downloading[item.id] || ''
     downloading[item.id] = kind
     let blobUrl: string | null = null
+    let success = false
     try {
         const resp = await fetch(url)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
@@ -165,12 +166,21 @@ async function downloadDirectly(item: SphHistoryItem, kind: 'h264' | 'h265' | 'r
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
+        success = true
     } catch (e: any) {
         // 链接可能过期：提示用户重新解析
         message.error(t('channels.singleDownloadFailed', { msg: e?.message || String(e) }))
     } finally {
         if (blobUrl) URL.revokeObjectURL(blobUrl)
         downloading[item.id] = prev
+        // 2026-06-16 新增:下载成功后异步标记 history(失败不抛错,只 console.warn)。
+        // item.id 本身就是 history_id,直接从 history 列表下载不用再查找。
+        if (success && item.id) {
+            const filename = sanitizeFilename(item.video_title, item.parsed_at)
+            markSphDownloaded(item.id, filename).catch((e) => {
+                console.warn('[sph] mark_downloaded failed:', e)
+            })
+        }
     }
 }
 

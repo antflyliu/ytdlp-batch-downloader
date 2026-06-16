@@ -145,7 +145,7 @@ import { computed, ref } from 'vue'
 import { NButton, NIcon, NInput, useMessage } from 'naive-ui'
 import { Search } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { parseSph } from '@/api/channels'
+import { parseSph, markSphDownloaded } from '@/api/channels'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -160,6 +160,8 @@ const parsing = ref(false)
 const rawRaw = ref<any>(null)
 const errorMsg = ref('')
 const downloading = ref<'' | 'h264' | 'h265' | 'raw'>('')
+// 2026-06-16 新增:解析成功后保存 history_id,下载完成时回传后端标记为已下载。
+const historyId = ref<string>('')
 
 const feedInfo = computed<any>(() => rawRaw.value?.feedInfo || null)
 const authorInfo = computed<any>(() => rawRaw.value?.authorInfo || null)
@@ -195,11 +197,15 @@ async function onParse() {
   parsing.value = true
   errorMsg.value = ''
   rawRaw.value = null
+  historyId.value = ''
   try {
     const r = await parseSph(url.value.trim())
     // 后端返回的是 WeChat API 原始 camelCase 字段
     const raw = (r as any).data ?? (r as any)
     rawRaw.value = raw?.data ?? raw
+    // 2026-06-16 新增:捕获 history_id,供 onDownload 完成后调 markSphDownloaded。
+    // 后端 parse_sph 现在返回 { authorInfo, feedInfo, history_id },axios 透传。
+    historyId.value = (raw?.history_id as string) || ''
   } catch (e: any) {
     const status = e?.response?.status
     const code = e?.response?.data?.code
@@ -237,6 +243,7 @@ async function onDownload(kind: 'h264' | 'h265' | 'raw') {
   downloading.value = kind
   message.info(t('channels.singleDownloading'))
   let blobUrl: string | null = null
+  let success = false
   try {
     const resp = await fetch(videoUrl)
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
@@ -249,11 +256,19 @@ async function onDownload(kind: 'h264' | 'h265' | 'raw') {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+    success = true
   } catch (e: any) {
     message.error(t('channels.singleDownloadFailed', { msg: e?.message || String(e) }))
   } finally {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     downloading.value = prev
+    // 2026-06-16 新增:下载成功后异步通知后端标记 history(失败只 console.warn)。
+    if (success && historyId.value) {
+      const filename = sanitizeFilename(fi.description, fi.createtime) || 'video.mp4'
+      markSphDownloaded(historyId.value, filename).catch((e) => {
+        console.warn('[sph] mark_downloaded failed:', e)
+      })
+    }
   }
 }
 
