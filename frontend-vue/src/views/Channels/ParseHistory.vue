@@ -349,7 +349,11 @@ onMounted(loadPage)
   display: flex;
   flex-direction: row;
   gap: 14px;
-  align-items: stretch;
+  /* 2026-06-16 fix: align-items center 替代 stretch。
+     cover 有 aspect-ratio: 16/9 无法被拉伸,stretch 时会停留在顶部留白约 100px。
+     改为 center 后,cover 在 meta 比它高时垂直居中,meta 仍占满 (flex: 1 1 0) 不受影响。
+     详见 specs/bugfixes/sph-history-cover-centering/report.md */
+  align-items: center;
   border-left: 3px solid var(--accent);
 }
 
